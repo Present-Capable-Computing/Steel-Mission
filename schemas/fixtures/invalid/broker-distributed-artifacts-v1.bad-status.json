@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900001",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-lease-broker distributed artifacts",
+  "mock": true,
+  "provenance": {"source": "mock-adapter", "host": "test"},
+  "status": "READYISH",
+  "workflowId": "DEV-900001-workflow",
+  "workflowRunId": "wr-aaaaaaaaaaaaaaaaaaaaaaaa",
+  "contractHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admission": {},
+  "workflowPath": "/tmp/workflow.json",
+  "evidenceManifest": {},
+  "redactionReport": {},
+  "handoffPackage": {},
+  "handoffPath": "/tmp/handoff-package.json",
+  "handoffSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

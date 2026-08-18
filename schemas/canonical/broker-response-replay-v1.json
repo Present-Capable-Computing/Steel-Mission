@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-response-replay-v1.json",
+  "title": "Broker idempotent replay response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "brokerVersion",
+    "status",
+    "contractHash",
+    "task"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker"},
+    "brokerVersion": {"type": "string", "minLength": 1},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"const": "IDEMPOTENT_REPLAY"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "task": {"type": "object"},
+    "replayReport": {"type": "object"},
+    "acceptanceManifest": {"type": "object"}
+  }
+}

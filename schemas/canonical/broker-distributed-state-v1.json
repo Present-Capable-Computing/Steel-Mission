@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-distributed-state-v1.json",
+  "title": "Broker distributed state v1",
+  "description": "Durable control-plain state for distributed workflow node execution, artifact transfer, and resume.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "updatedAt",
+    "workflowId",
+    "contractHash",
+    "storeRoot",
+    "placements",
+    "artifactTransferManifest",
+    "nodes",
+    "nodeDispatches",
+    "artifactStore",
+    "importedArtifacts"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "updatedAt": {"type": "string", "minLength": 1},
+    "workflowId": {"type": "string", "minLength": 1},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "storeRoot": {"type": "string", "minLength": 1},
+    "artifactStoreAdapter": {"type": "object"},
+    "placements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "capability", "workerId", "eligibleWorkers"],
+        "properties": {
+          "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "capability": {"type": "string", "minLength": 1},
+          "workerId": {"type": "string", "minLength": 1},
+          "selectionReason": {"type": "string", "minLength": 1},
+          "eligibleWorkers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["workerId", "score"],
+              "properties": {
+                "workerId": {"type": "string", "minLength": 1},
+                "score": {"type": "integer", "minimum": 0, "maximum": 100}
+              }
+            }
+          },
+          "contractCheck": {"type": "object"}
+        }
+      }
+    },
+    "artifactTransferManifest": {"type": "object"},
+    "nodes": {"type": "object"},
+    "handoffSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "pendingRecoveryIdempotencyKey": {"type": "string", "minLength": 1},
+    "workflowDag": {"type": "object"},
+    "replayReport": {"type": "object"},
+    "acceptanceManifest": {"type": "object"},
+    "compactionSummary": {"type": "object"},
+    "toolContracts": {"type": "object"},
+    "contractChecks": {"type": "array", "items": {"type": "object"}},
+    "narrativeEvents": {"type": "array", "items": {"type": "object"}},
+    "contextCheckpoints": {"type": "array", "items": {"type": "object"}},
+    "cancelledNodes": {"type": "array", "items": {"type": "string"}},
+    "nodeDispatches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["nodeId", "workerId", "status"],
+        "properties": {
+          "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "workerId": {"type": "string", "minLength": 1},
+          "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"},
+          "status": {"type": "string", "minLength": 1},
+          "attempts": {"type": "integer", "minimum": 0},
+          "leaseRenewals": {"type": "array", "items": {"type": "object"}},
+          "lock": {"type": "object"},
+          "lockRelease": {"type": "object"},
+          "artifactImports": {"type": "array", "items": {"type": "object"}},
+          "releasedLease": {"type": "object"},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "artifactStore": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "workerId", "kind", "sha256", "contentAddressedPath", "status"],
+        "properties": {
+          "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "workerId": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "sourcePath": {"type": "string"},
+          "contentAddressedPath": {"type": "string", "minLength": 1},
+          "status": {"enum": ["MATERIALIZED", "UNAVAILABLE"]},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "importedArtifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeId", "sourceNodeId", "workerId", "kind", "sha256", "status"],
+        "properties": {
+          "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "sourceNodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "workerId": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "status": {"enum": ["IMPORTED", "MISSING", "FAILED"]},
+          "path": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "attemptLedger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attemptId", "trigger", "status", "startedAt", "reusedNodes", "freshNodes", "invalidatedNodes"],
+        "properties": {
+          "attemptId": {"type": "string", "minLength": 1},
+          "trigger": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "minLength": 1},
+          "startedAt": {"type": "string", "minLength": 1},
+          "finishedAt": {"type": "string", "minLength": 1},
+          "recoveryIdempotencyKey": {"type": "string", "minLength": 1},
+          "reusedNodes": {"type": "array", "items": {"type": "string"}},
+          "freshNodes": {"type": "array", "items": {"type": "string"}},
+          "invalidatedNodes": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

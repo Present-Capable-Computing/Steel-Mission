@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/schema-validation-error-v1.json",
+  "title": "Schema validation error v1",
+  "description": "Structured blocking diagnostic emitted when a schema boundary rejects a payload.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "producedAt",
+    "producer",
+    "status",
+    "schemaName",
+    "schemaId",
+    "schemaRegistryHash",
+    "validationPoint",
+    "artifactKind",
+    "label",
+    "blocking",
+    "errors",
+    "failingJsonPaths",
+    "reason"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-schema-validator"},
+    "status": {"const": "SCHEMA_VALIDATION_FAILED"},
+    "schemaName": {"type": "string", "minLength": 1},
+    "schemaId": {"type": "string", "minLength": 1},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "validationPoint": {"type": "string", "minLength": 1},
+    "artifactKind": {"type": "string", "minLength": 1},
+    "artifactStage": {"type": "string", "minLength": 1},
+    "label": {"type": "string", "minLength": 1},
+    "blocking": {"const": true},
+    "errors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "message"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "failingJsonPaths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "reason": {"type": "string", "minLength": 1}
+  }
+}

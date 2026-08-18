@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/workflow-cancel-v1.json",
+  "title": "Workflow cancel v1",
+  "description": "Control-plain cancellation record for worker-side active work.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "mock", "provenance", "status", "cancelledJobs", "reason"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "status": {"enum": ["CANCELLED", "NO_ACTIVE_WORK"]},
+    "cancelledJobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["jobId", "pid", "signalled", "reason"],
+        "properties": {
+          "jobId": {"type": "string", "minLength": 1},
+          "pid": {"type": "integer", "minimum": 1},
+          "signalled": {"type": "boolean"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "reason": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-response-v1.json",
+  "title": "Broker response v1",
+  "description": "Generic control-plain lease broker CLI response envelope.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["status"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "brokerVersion": {"type": "string", "minLength": 1},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"type": "string", "minLength": 1},
+    "reason": {"type": "string"},
+    "retryable": {"type": "boolean"}
+  }
+}

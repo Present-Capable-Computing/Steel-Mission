@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-response-recover-run-v1.json",
+  "title": "Broker recovery run response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "brokerVersion",
+    "schemaRegistryHash",
+    "status",
+    "recovery",
+    "run"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker"},
+    "brokerVersion": {"type": "string", "minLength": 1},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"enum": ["RECOVERY_RUN_COMPLETE", "RECOVERY_RUN_FAILED", "RECOVERY_RUN_BLOCKED"]},
+    "recovery": {"type": "object"},
+    "run": {"type": "object"},
+    "reason": {"type": "string"}
+  }
+}

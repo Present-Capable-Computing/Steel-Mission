@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/worker-lease-v1.json",
+  "title": "Worker lease v1",
+  "description": "Lease record binding a task contract to one logical worker execution surface.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "status",
+    "leaseId",
+    "contractHash",
+    "worker",
+    "acquiredAt",
+    "expiresAt",
+    "ttlSeconds",
+    "reason",
+    "renewalCount"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "status": {"enum": ["ACTIVE", "RELEASED"]},
+    "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "executionSurface",
+        "host",
+        "trustLevel",
+        "protocolVersion",
+        "workerVersion",
+        "resourceLimits",
+        "labels"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "executionSurface": {"type": "string", "minLength": 1},
+        "host": {"type": "string"},
+        "trustLevel": {"type": "string", "minLength": 1},
+        "protocolVersion": {"type": "string", "minLength": 1},
+        "workerVersion": {"type": "string", "minLength": 1},
+        "resourceLimits": {"type": "object"},
+        "labels": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "acquiredAt": {"type": "string", "minLength": 1},
+    "expiresAt": {"type": "string", "minLength": 1},
+    "ttlSeconds": {"type": "integer", "minimum": 30, "maximum": 86400},
+    "reason": {"type": "string", "minLength": 1},
+    "renewalCount": {"type": "integer", "minimum": 0},
+    "releasedAt": {"type": "string", "minLength": 1},
+    "releaseReason": {"type": "string", "minLength": 1}
+  }
+}

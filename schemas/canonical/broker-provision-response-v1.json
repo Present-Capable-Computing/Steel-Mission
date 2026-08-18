@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-provision-response-v1.json",
+  "title": "Broker provision response v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["status"],
+  "properties": {
+    "status": {"enum": ["PROVISIONED", "NO_CAPACITY", "FAILED"]},
+    "workers": {"type": "array", "items": {"type": "object"}},
+    "reason": {"type": "string"},
+    "retryable": {"type": "boolean"}
+  }
+}

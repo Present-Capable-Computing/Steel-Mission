@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/task-contract-v3.json",
+  "title": "Task contract v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "provenance", "verification", "workflow", "policyPack"],
+  "properties": {
+    "schemaVersion": {"const": 3},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string"},
+    "producer": {"type": "string", "minLength": 1},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"const": "control-plain"},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "build": {"type": "object"},
+    "policyPack": {"type": "object"},
+    "verification": {"type": "object"},
+    "workflow": {"type": "object"}
+  }
+}

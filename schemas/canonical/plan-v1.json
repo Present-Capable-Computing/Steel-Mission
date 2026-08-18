@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/plan-v1.json",
+  "title": "Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","taskId","producedAt","producer","mock","provenance","steps"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "summary": {"type":"string"},
+    "steps": {"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["id","description"],"properties":{"id":{"type":"string"},"description":{"type":"string","minLength":1},"dependsOn":{"type":"array","items":{"type":"string"}}}}},
+    "openQuestions": {"type":"array","items":{"type":"string"}}
+  }
+}

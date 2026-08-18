@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/verification-v1.json",
+  "title": "Verification v1",
+  "description": "Deterministic verification. THE CENTRAL INVARIANT: a mock run may never record PASS. This mirrors the SQL constraint control.verifications.mock_cannot_pass; both must hold.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","taskId","producedAt","producer","mock","provenance","result","checks"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "result": {"enum":["PASS","FAIL","INCONCLUSIVE"]},
+    "deterministic": {"type":"boolean"},
+    "checks": {"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["name","passed"],"properties":{"name":{"type":"string"},"passed":{"type":"boolean"},"detail":{"type":"string"}}}},
+    "acceptedEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "nodeId", "path", "sha256"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^ev-[a-f0-9]{24}$"},
+          "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "path": {"type": "string", "minLength": 1},
+          "localPath": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "schema": {"type": "string", "minLength": 1},
+          "evidenceRole": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if":   {"properties":{"mock":{"const":true}},"required":["mock"]},
+      "then": {"properties":{"result":{"not":{"const":"PASS"}}},
+               "$comment":"A mock result never satisfies a production gate."}
+    }
+  ]
+}

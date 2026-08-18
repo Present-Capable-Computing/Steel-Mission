@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/worker-pool-trust-policy-v1.json",
+  "title": "Worker pool trust policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producedAt", "producer", "riskTrust"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-worker-pool-trust-policy"},
+    "riskTrust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "normal", "high", "critical"],
+      "properties": {
+        "low": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "normal": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "high": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "critical": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

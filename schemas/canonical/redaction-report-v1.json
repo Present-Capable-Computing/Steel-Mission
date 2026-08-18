@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/redaction-report-v1.json",
+  "title": "Redaction report v1",
+  "description": "Artifact secret-scan result emitted before handoff export.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "status",
+    "workflowRunId",
+    "contractHash",
+    "exportable",
+    "scannedArtifacts",
+    "findings"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "status": {"enum": ["CLEAN", "REVIEW_REQUIRED", "REDACTION_REQUIRED"]},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "exportable": {"type": "boolean"},
+    "scannedArtifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "sizeBytes"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+          "sizeBytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "pattern", "severity", "excerpt"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "pattern": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["REVIEW", "BLOCK"]},
+          "excerpt": {"type": "string"}
+        }
+      }
+    }
+  }
+}

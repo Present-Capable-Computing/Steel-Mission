@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-response-run-distributed-v1.json",
+  "title": "Broker distributed run response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "brokerVersion",
+    "status",
+    "contractHash",
+    "candidates",
+    "placementPlan",
+    "artifactTransferManifest",
+    "provisioning",
+    "nodeDispatches",
+    "artifactStore",
+    "importedArtifacts",
+    "contextCheckpoints",
+    "workflow",
+    "distributedArtifacts",
+    "integrityLedger",
+    "deprovisioning"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker"},
+    "brokerVersion": {"type": "string", "minLength": 1},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"enum": ["DISTRIBUTED_WORKFLOW_DISPATCHED", "DISTRIBUTED_WORKFLOW_FAILED"]},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "selectedWorker": {},
+    "candidates": {"type": "array", "items": {"type": "object"}},
+    "admissionReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "taskId",
+        "producedAt",
+        "producer",
+        "status",
+        "candidateCount",
+        "admittedCount",
+        "rejectedCount",
+        "candidates"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+        "producedAt": {"type": "string", "minLength": 1},
+        "producer": {"const": "present-lease-broker"},
+        "status": {"enum": ["ADMITTED", "REJECTED"]},
+        "candidateCount": {"type": "integer", "minimum": 0},
+        "admittedCount": {"type": "integer", "minimum": 0},
+        "rejectedCount": {"type": "integer", "minimum": 0},
+        "candidates": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "placementPlan": {"type": "array", "items": {"type": "object"}},
+    "contractChecks": {"type": "array", "items": {"type": "object"}},
+    "artifactTransferManifest": {"type": "object"},
+    "provisioning": {"type": "array", "items": {"type": "object"}},
+    "nodeDispatches": {"type": "array", "items": {"type": "object"}},
+    "artifactStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "artifacts"],
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "descriptor": {"type": "object"},
+        "artifacts": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "importedArtifacts": {"type": "array", "items": {"type": "object"}},
+    "contextCheckpoints": {"type": "array", "items": {"type": "object"}},
+    "workflow": {"type": "object"},
+    "distributedArtifacts": {"type": "object"},
+    "integrityLedger": {"type": "object"},
+    "deprovisioning": {"type": "array", "items": {"type": "object"}}
+  }
+}

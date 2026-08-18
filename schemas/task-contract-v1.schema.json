@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/task-contract-v1.json",
+  "title": "Task contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "provenance", "verification"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"const": "control-plain"},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "commands"],
+      "properties": {
+        "target": {"enum": ["worker", "present-repository"]},
+        "advisory": {
+          "type": "boolean",
+          "description": "DRAFT, pending Mini ratification. True declares that the contract makes no verifiable claim: it carries no commands, and present-worker verify returns INCONCLUSIVE rather than a false PASS or a false FAIL. Absent or false means an ordinary verifiable contract."
+        },
+        "commands": {
+          "type": "array",
+          "description": "At least one command is required unless verification.advisory is true. That conditional is enforced by the worker bundle gate; this validator's schema subset cannot express it.",
+          "minItems": 0,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "argv", "expectedExitCode", "timeoutSeconds"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "argv": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+              },
+              "expectedExitCode": {"type": "integer", "minimum": 0, "maximum": 255},
+              "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 900}
+            }
+          }
+        }
+      }
+    }
+  }
+}

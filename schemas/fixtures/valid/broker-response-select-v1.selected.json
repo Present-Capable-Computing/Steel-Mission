@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900001",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-lease-broker",
+  "brokerVersion": "1.0.0",
+  "status": "SELECTED",
+  "contractHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "selectedWorker": "macbook-local:test",
+  "candidates": [],
+  "placementPlan": [],
+  "artifactTransferManifest": {}
+}

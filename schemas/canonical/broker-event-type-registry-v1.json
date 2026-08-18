@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-event-type-registry-v1.json",
+  "title": "Broker event type registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producedAt", "producer", "eventTypes"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker event registry"},
+    "eventTypes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "requiredFields"],
+        "properties": {
+          "type": {"type": "string", "minLength": 1},
+          "requiredFields": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "description": {"type": "string"}
+        }
+      }
+    }
+  }
+}

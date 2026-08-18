@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-000092",
+  "producedAt": "2026-08-17T19:30:00Z",
+  "producer": "present-worker coordination-report",
+  "mock": false,
+  "provenance": {
+    "source": "worker"
+  },
+  "packIdentity": {
+    "probe": "failed",
+    "reason": "pack manifest could not be read",
+    "packageId": "guessed-pack-identity"
+  },
+  "summary": "The pack probe failed but a package identity was still claimed.",
+  "items": [],
+  "notChecked": [
+    {
+      "subject": "all pack-scoped state sources",
+      "reason": "pack identity probe failed"
+    }
+  ],
+  "contradictions": [],
+  "advisoryNote": "Advisory coordination analysis by the DC13 Delivery Coordinator capability. Visibility confers no authority: this report approves, adopts, certifies, and gates nothing, and it is never verification evidence. Only present-worker verify produces PASS."
+}

@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""File-backed external lock adapter for local/dev broker runs."""
+from __future__ import annotations
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+WORKER_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(WORKER_DIR))
+from adapters import common  # noqa: E402
+
+EXIT_OK = 0
+EXIT_PROTOCOL_ERROR = 30
+
+
+def _utc_now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _utc_parse(value: str) -> datetime.datetime | None:
+    try:
+        return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _validate(payload: dict[str, Any], schema_name: str, label: str) -> None:
+    common.validate_with_schema(
+        payload,
+        schema_name,
+        label,
+        validation_point="file-lock-adapter",
+        artifact_kind=label,
+        task_id=payload.get("taskId") if isinstance(payload.get("taskId"), str) else None,
+    )
+
+
+def _emit(payload: dict[str, Any], *, exit_code: int = EXIT_OK) -> int:
+    _validate(payload, "canonical/broker-lock-response-v1.json", "broker-lock-response")
+    print(json.dumps(payload, indent=2, sort_keys=True), file=sys.stdout if exit_code == EXIT_OK else sys.stderr)
+    return exit_code
+
+
+def _read_request() -> dict[str, Any]:
+    try:
+        value = json.loads(sys.stdin.read())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"lock request must be JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("lock request must be a JSON object")
+    _validate(value, "canonical/broker-lock-request-v1.json", "broker-lock-request")
+    return value
+
+
+def _lock_path(root: Path, request: dict[str, Any]) -> Path:
+    identity = "|".join([
+        str(request.get("taskId") or ""),
+        str(request.get("contractHash") or ""),
+        str(request.get("nodeId") or ""),
+    ])
+    return root / f"{hashlib.sha256(identity.encode()).hexdigest()}.lock.json"
+
+
+def _expires_at(ttl_seconds: int) -> str:
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return (now + datetime.timedelta(seconds=ttl_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _held(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    expires_at = _utc_parse(str(payload.get("expiresAt") or ""))
+    if expires_at and expires_at > datetime.datetime.now(datetime.timezone.utc):
+        return payload if isinstance(payload, dict) else None
+    path.unlink(missing_ok=True)
+    return None
+
+
+def _acquire(root: Path, request: dict[str, Any]) -> int:
+    ttl_seconds = int(request.get("ttlSeconds") or 3600)
+    path = _lock_path(root, request)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_id = "fl-" + hashlib.sha256(
+        json.dumps({**request, "producedAt": _utc_now()}, sort_keys=True).encode()
+    ).hexdigest()[:24]
+    payload = {
+        "schemaVersion": 1,
+        "status": "ACQUIRED",
+        "lockId": lock_id,
+        "taskId": request.get("taskId"),
+        "contractHash": request.get("contractHash"),
+        "nodeId": request.get("nodeId"),
+        "workerId": request.get("workerId"),
+        "acquiredAt": _utc_now(),
+        "expiresAt": _expires_at(ttl_seconds),
+        "ttlSeconds": ttl_seconds,
+        "path": str(path),
+    }
+    while True:
+        held = _held(path)
+        if held is not None:
+            return _emit({
+                "schemaVersion": 1,
+                "status": "DENIED",
+                "reason": "lock is held",
+                "retryable": True,
+                "lockId": held.get("lockId"),
+                "expiresAt": held.get("expiresAt"),
+            }, exit_code=EXIT_PROTOCOL_ERROR)
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        return _emit(payload)
+
+
+def _release(root: Path, request: dict[str, Any]) -> int:
+    path = _lock_path(root, request)
+    held = _held(path)
+    lock_id = request.get("lockId") or request.get("leaseId") or (held or {}).get("lockId")
+    path.unlink(missing_ok=True)
+    return _emit({
+        "schemaVersion": 1,
+        "status": "RELEASED",
+        "lockId": lock_id,
+        "taskId": request.get("taskId"),
+        "nodeId": request.get("nodeId"),
+        "releasedAt": _utc_now(),
+        "path": str(path),
+    })
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="present-file-lock")
+    parser.add_argument("--dir", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        request = _read_request()
+        action = request.get("action")
+        if action == "acquire":
+            return _acquire(args.dir, request)
+        if action == "release":
+            return _release(args.dir, request)
+        return _emit({"status": "FAILED", "reason": "action must be acquire or release"}, exit_code=EXIT_PROTOCOL_ERROR)
+    except (OSError, ValueError) as exc:
+        return _emit({"status": "FAILED", "reason": str(exc), "retryable": True}, exit_code=EXIT_PROTOCOL_ERROR)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

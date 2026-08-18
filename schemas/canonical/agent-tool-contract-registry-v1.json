@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/agent-tool-contract-registry-v1.json",
+  "title": "Agent tool contract registry v1",
+  "description": "Worker-advertised map from logical capabilities to concrete agents/tools, permissions, authority, and evidence outputs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producedAt", "producer", "workerId", "contracts"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-worker tool contracts"},
+    "workerId": {"type": "string", "minLength": 1},
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capabilityId",
+          "agentId",
+          "toolId",
+          "provider",
+          "authority",
+          "available",
+          "permissions",
+          "inputKinds",
+          "outputSchemas",
+          "evidenceRoles",
+          "deterministicAcceptanceAuthority"
+        ],
+        "properties": {
+          "capabilityId": {"type": "string", "minLength": 1},
+          "agentId": {"type": "string", "minLength": 1},
+          "toolId": {"type": "string", "minLength": 1},
+          "provider": {"type": "string", "minLength": 1},
+          "authority": {"type": "string", "minLength": 1},
+          "available": {"type": "boolean"},
+          "missing": {"type": "array", "items": {"type": "string"}},
+          "permissions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["filesystem", "network", "worktreeMutation", "canGateAcceptance"],
+            "properties": {
+              "filesystem": {"enum": ["none", "read", "write"]},
+              "network": {"enum": ["none", "provider", "external"]},
+              "worktreeMutation": {"type": "boolean"},
+              "canGateAcceptance": {"type": "boolean"}
+            }
+          },
+          "inputKinds": {"type": "array", "items": {"type": "string"}},
+          "outputSchemas": {"type": "array", "items": {"type": "string"}},
+          "evidenceRoles": {"type": "array", "items": {"type": "string"}},
+          "constraints": {"type": "object"},
+          "deterministicAcceptanceAuthority": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

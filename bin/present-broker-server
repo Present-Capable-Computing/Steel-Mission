@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""Local Control Plain broker API and window server."""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+WORKER_DIR = Path(__file__).resolve().parent.parent
+BROKER_BIN = WORKER_DIR / "bin" / "present-lease-broker"
+MAX_REQUEST_BYTES = 128 * 1024
+
+
+def _parse_json(text: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
+    data = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def html_response(handler: BaseHTTPRequestHandler, status: int, html: str) -> None:
+    data = html.encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "text/html; charset=utf-8")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+class BrokerApp:
+    def __init__(self, *, state: Path | None, pool: Path | None, artifact_store: Path | None,
+                 provisioner_registry: Path | None) -> None:
+        self.state = state
+        self.pool = pool
+        self.artifact_store = artifact_store
+        self.provisioner_registry = provisioner_registry
+
+    def broker(self, *args: str, input_text: str | None = None, timeout: int = 120) -> tuple[int, dict[str, Any]]:
+        result = subprocess.run(
+            [sys.executable, str(BROKER_BIN), *args],
+            input=input_text,
+            capture_output=True,
+            text=True,
+            cwd=str(WORKER_DIR),
+            timeout=timeout,
+        )
+        return result.returncode, _parse_json(result.stdout) or _parse_json(result.stderr)
+
+    def state_args(self) -> list[str]:
+        return [] if self.state is None else ["--state", str(self.state)]
+
+    def pool_args(self) -> list[str]:
+        return [] if self.pool is None else ["--pool", str(self.pool)]
+
+    def artifact_args(self) -> list[str]:
+        return [] if self.artifact_store is None else ["--artifact-store", str(self.artifact_store)]
+
+    def registry_args(self) -> list[str]:
+        return [] if self.provisioner_registry is None else ["--provisioner-registry", str(self.provisioner_registry)]
+
+    def overview(self) -> dict[str, Any]:
+        _code, workflows = self.broker("workflow-status", *self.state_args())
+        workers: dict[str, Any] = {"workers": []}
+        if self.pool:
+            _worker_code, workers = self.broker("worker-status", *self.pool_args(), *self.state_args())
+        _prov_code, provisioners = self.broker("provisioner-status", *self.pool_args(), *self.registry_args())
+        return {
+            "ok": True,
+            "workflows": workflows.get("workflows", []),
+            "workers": workers.get("workers", []),
+            "provisioners": provisioners.get("provisioners", []),
+            "statePath": workflows.get("statePath"),
+        }
+
+    def window_create(self, payload: dict[str, Any], port: int) -> tuple[int, dict[str, Any]]:
+        name = str(payload.get("name") or "broker")
+        requested_port = int(payload.get("port") or port)
+        args = ["create-broker-window", "--name", name, "--port", str(requested_port), *self.state_args()]
+        if self.pool:
+            args.extend(["--pool", str(self.pool)])
+        if self.artifact_store:
+            args.extend(["--artifact-store", str(self.artifact_store)])
+        return self.broker(*args)
+
+
+def render_index() -> str:
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Present Broker</title>
+  <style>
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f4ee; color: #20242a; }
+    main { max-width: 1180px; margin: 0 auto; padding: 22px; }
+    header { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; border-bottom: 1px solid #d9d4c9; padding-bottom: 14px; }
+    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    h2 { margin: 18px 0 8px; font-size: 15px; color: #8a5137; letter-spacing: 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .item { background: white; border: 1px solid #d9d4c9; border-radius: 8px; padding: 12px; }
+    .meta { color: #69717d; font-size: 13px; }
+    .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: #e7eef0; color: #245f73; font-size: 12px; font-weight: 700; }
+    button { border: 1px solid #d9d4c9; border-radius: 7px; padding: 8px 11px; background: white; color: #20242a; cursor: pointer; }
+    input { border: 1px solid #d9d4c9; border-radius: 7px; padding: 8px 10px; font: inherit; }
+    svg { width: 100%; min-height: 180px; border: 1px solid #d9d4c9; border-radius: 8px; background: white; }
+  </style>
+</head>
+<body><main>
+  <header><h1>Present Broker</h1><div class="meta" id="statePath">loading</div></header>
+  <section><h2>Workflows</h2><div id="workflows" class="grid"></div></section>
+  <section><h2>Workers</h2><div id="workers" class="grid"></div></section>
+  <section><h2>Provisioners</h2><div id="provisioners" class="grid"></div></section>
+  <section><h2>New Broker Window</h2><input id="windowName" placeholder="window name"><button id="createWindow">Create</button><p class="meta" id="windowResult"></p></section>
+</main>
+<script>
+const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[ch]));
+function card(title, badge, meta) {
+  return `<div class="item"><strong>${escapeHtml(title)}</strong> ${badge ? `<span class="badge">${escapeHtml(badge)}</span>` : ""}<p class="meta">${escapeHtml(meta || "")}</p></div>`;
+}
+async function load() {
+  const response = await fetch("/api/broker/overview", {cache: "no-store"});
+  const data = await response.json();
+  document.querySelector("#statePath").textContent = data.statePath || "state unknown";
+  document.querySelector("#workflows").innerHTML = (data.workflows || []).map(item => {
+    const counts = item.counts || {};
+    return card(item.taskId || "workflow", item.status || "UNKNOWN", `${counts.nodes || 0} nodes · ${counts.materializedArtifacts || 0} artifacts · acceptance ${item.acceptanceDecision || "unknown"}`);
+  }).join("") || `<p class="meta">No workflows found.</p>`;
+  document.querySelector("#workers").innerHTML = (data.workers || []).map(item =>
+    card(item.workerId || "worker", item.quarantine && item.quarantine.active ? "QUARANTINED" : "READY", `${item.transport || ""} · ${item.trustLevel || ""} · ${item.activeLeases || 0} active leases`)
+  ).join("") || `<p class="meta">No worker pool configured.</p>`;
+  document.querySelector("#provisioners").innerHTML = (data.provisioners || []).map(item =>
+    card(item.id || "provisioner", item.kind || "", item.source || "")
+  ).join("") || `<p class="meta">No provisioners registered.</p>`;
+}
+document.querySelector("#createWindow").addEventListener("click", async () => {
+  const name = document.querySelector("#windowName").value.trim();
+  if (!name) return;
+  const response = await fetch("/api/windows", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name})});
+  const data = await response.json();
+  document.querySelector("#windowResult").textContent = data.window ? `Created ${data.window.url}` : JSON.stringify(data);
+});
+load();
+setInterval(load, 3000);
+</script></body></html>"""
+
+
+def read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    length = int(handler.headers.get("Content-Length", "0") or "0")
+    if length <= 0 or length > MAX_REQUEST_BYTES:
+        raise ValueError("request body must be 1..128 KiB")
+    payload = json.loads(handler.rfile.read(length).decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("request body must be a JSON object")
+    return payload
+
+
+def make_handler(app: BrokerApp, port: int):
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "PresentBroker/1.0"
+
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            query = parse_qs(parsed.query)
+            if path in {"/", "/index.html"}:
+                html_response(self, 200, render_index())
+                return
+            if path == "/api/health":
+                json_response(self, 200, {"ok": True, "service": "present-broker-server"})
+                return
+            if path == "/api/broker/overview":
+                json_response(self, 200, app.overview())
+                return
+            if path == "/api/broker/workflows":
+                code, payload = app.broker("workflow-status", *app.state_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path.startswith("/api/broker/workflows/"):
+                task_id = path.rstrip("/").rsplit("/", 1)[-1]
+                code, payload = app.broker("workflow-history", task_id, *app.state_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path.startswith("/api/broker/dag/"):
+                task_id = path.rstrip("/").rsplit("/", 1)[-1]
+                code, payload = app.broker("workflow-dag", task_id, *app.state_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path.startswith("/api/broker/narrative/"):
+                task_id = path.rstrip("/").rsplit("/", 1)[-1]
+                code, payload = app.broker("job-narrative", task_id, *app.state_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path.startswith("/api/broker/evidence/"):
+                task_id = path.rstrip("/").rsplit("/", 1)[-1]
+                code, payload = app.broker("evidence-query", task_id, *app.state_args(), *app.artifact_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path.startswith("/api/broker/leases/"):
+                task_id = path.rstrip("/").rsplit("/", 1)[-1]
+                code, payload = app.broker("lease-timeline", task_id, *app.state_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path.startswith("/api/broker/acceptance/"):
+                task_id = path.rstrip("/").rsplit("/", 1)[-1]
+                code, payload = app.broker("acceptance-status", task_id, *app.state_args(), *app.artifact_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path == "/api/broker/provisioners":
+                code, payload = app.broker("provisioner-status", *app.pool_args(), *app.registry_args())
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path == "/api/broker/runbook":
+                code, payload = app.broker("runbook-generate")
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path == "/api/broker/export":
+                args = ["state-export", *app.state_args(), *app.pool_args(), *app.registry_args()]
+                code, payload = app.broker(*args)
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path == "/api/broker/chaos":
+                code, payload = app.broker("chaos-matrix")
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path == "/api/windows":
+                json_response(self, 200, {"ok": True, "port": port, "state": str(app.state or "")})
+                return
+            self.send_error(404)
+
+        def do_POST(self) -> None:
+            try:
+                body = read_json(self)
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+                return
+            path = urlparse(self.path).path
+            if path == "/api/windows":
+                code, payload = app.window_create(body, port + 1)
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            if path == "/api/broker/cancel":
+                task_id = str(body.get("taskId") or "")
+                node_id = str(body.get("nodeId") or "")
+                args = [
+                    "recover", task_id, *app.pool_args(), *app.state_args(),
+                    "--apply", "--action", "cancel-subgraph",
+                    "--reason", str(body.get("reason") or "operator cancellation from broker server"),
+                ]
+                if node_id:
+                    args.extend(["--node-id", node_id])
+                code, payload = app.broker(*args)
+                json_response(self, 200 if code == 0 else 500, payload)
+                return
+            self.send_error(404)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            print(f"{self.address_string()} - {format % args}")
+
+    return Handler
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run the local Present broker API/window.")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8766)
+    parser.add_argument("--state", type=Path, default=None)
+    parser.add_argument("--pool", type=Path, default=None)
+    parser.add_argument("--artifact-store", type=Path, default=None)
+    parser.add_argument("--provisioner-registry", type=Path, default=WORKER_DIR / "schemas" / "provisioners.json")
+    args = parser.parse_args()
+    app = BrokerApp(
+        state=args.state,
+        pool=args.pool,
+        artifact_store=args.artifact_store,
+        provisioner_registry=args.provisioner_registry,
+    )
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(app, args.port))
+    print(f"Present broker window is available at http://{args.host}:{args.port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

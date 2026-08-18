@@ -1,0 +1,35 @@
+{
+  "acceptedAudiences": [
+    "present-control-plane"
+  ],
+  "acceptedIssuers": [
+    "present-local-alpha"
+  ],
+  "enforcementMode": "signed-session-required-for-control-plane",
+  "kms": {
+    "enabled": true,
+    "keyId": "present-external-signer",
+    "provider": "external-signer",
+    "requireExternalSigning": true,
+    "signCommand": "bin/present-evidence-signer --key-file ~/.present/control-plane/evidence-signing-key --signer-id present-external-signer sign"
+  },
+  "oidc": {
+    "audience": "present-control-plane",
+    "enabled": false,
+    "issuer": "",
+    "jwksUrl": ""
+  },
+  "policyId": "present.enterprise-auth.ga-boundary",
+  "producer": "closed-claw-chat auth-control",
+  "roleClaims": [
+    "present_role",
+    "role"
+  ],
+  "schemaVersion": 1,
+  "sessionTtlSeconds": 3600,
+  "subjectClaims": [
+    "sub",
+    "email",
+    "preferred_username"
+  ]
+}

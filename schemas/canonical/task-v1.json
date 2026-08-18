@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/task-v1.json",
+  "title": "Task v1",
+  "description": "A unit of development work tracked by the control plain. Infrastructure record only; carries no Present product requirement.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","taskId","title","state","createdAt"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "title": {"type":"string","minLength":1},
+    "createdAt": {"type":"string","format":"date-time"},
+    "state": {"enum":["NEW","PLANNING","PLAN_READY","BUILD_WAITING","BUILDING","REVIEWING","FIXING","ADVERSARIAL","VERIFYING","EVIDENCE_REVIEW","READY_FOR_HUMAN","WORKER_OFFLINE","CREDENTIAL_MISSING","BUILD_FAILED","REVIEW_REJECTED","TEST_FAILED","INFRASTRUCTURE_FAILURE","ESCALATION_REQUIRED"]},
+    "requirementFile": {"type":"string"},
+    "waitingSince": {"type":["string","null"],"format":"date-time"},
+    "metadata": {"type":"object"}
+  }
+}

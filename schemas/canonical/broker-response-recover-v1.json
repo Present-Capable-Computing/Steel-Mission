@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-response-recover-v1.json",
+  "title": "Broker recovery response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "brokerVersion", "schemaRegistryHash", "status", "actions"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker"},
+    "brokerVersion": {"type": "string", "minLength": 1},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"enum": ["RECOVERY_PLAN", "RECOVERY_APPLIED", "RECOVERY_BLOCKED"]},
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["action", "status", "reason"],
+        "properties": {
+          "action": {
+            "enum": [
+              "retry-node",
+              "reimport-artifact",
+              "rematerialize-artifact",
+              "recover-node-lease",
+              "cancel-subgraph",
+              "failover-lease",
+              "cancel-workflow",
+              "retire-worker",
+              "mark-inconsistent"
+            ]
+          },
+          "status": {"type": "string", "minLength": 1},
+          "reason": {"type": "string"},
+          "nodeId": {"type": "string"},
+          "workerId": {"type": "string"},
+          "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "appliedActions": {"type": "array", "items": {"type": "object"}},
+    "idempotencyKey": {"type": "string"},
+    "idempotentReplay": {"type": "boolean"},
+    "task": {"type": "object"},
+    "reason": {"type": "string"}
+  }
+}

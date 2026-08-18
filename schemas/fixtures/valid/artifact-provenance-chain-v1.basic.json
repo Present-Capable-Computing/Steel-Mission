@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900071",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-lease-broker artifact provenance",
+  "workflowId": "DEV-900071-workflow",
+  "workflowRunId": "wr-111111111111111111111111",
+  "contractHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "artifacts": [
+    {
+      "nodeId": "plan",
+      "workerId": "macbook-local:plan",
+      "kind": "output",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "path": "/tmp/present/artifacts/plan.json",
+      "status": "MATERIALIZED",
+      "schema": "plan-v1",
+      "attemptStatus": "SUCCEEDED",
+      "inputArtifacts": []
+    }
+  ]
+}

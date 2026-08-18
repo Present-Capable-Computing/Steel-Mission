@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900001",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-schema-validator",
+  "status": "SCHEMA_VALIDATION_FAILED",
+  "schemaName": "canonical/plan-v1.json",
+  "schemaId": "plan-v1",
+  "schemaRegistryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validationPoint": "worker-write",
+  "artifactKind": "plan",
+  "artifactStage": "plan",
+  "label": "task artifact plan",
+  "blocking": true,
+  "errors": [{"path": "$.status", "message": "missing required key"}],
+  "failingJsonPaths": ["$.status"],
+  "reason": "task artifact plan failed schema validation: $.status: missing required key"
+}

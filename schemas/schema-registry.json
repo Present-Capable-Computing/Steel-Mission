@@ -1,0 +1,1296 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-schema-registry",
+  "schemas": [
+    {
+      "id": "acceptance-manifest-v1",
+      "version": 1,
+      "schemaFile": "acceptance-manifest-v1.json",
+      "owner": "broker",
+      "artifactKind": "acceptance-manifest",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-artifact-write",
+        "broker-artifact-audit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "admission-report-v1",
+      "version": 1,
+      "schemaFile": "admission-report-v1.json",
+      "owner": "broker",
+      "artifactKind": "admission-report",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-schema-boundary",
+        "broker-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "adversarial-result-v1",
+      "version": 1,
+      "schemaFile": "adversarial-result-v1.json",
+      "owner": "worker",
+      "artifactKind": "adversarial",
+      "artifactStages": [
+        "adversarial"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "agent-tool-contract-registry-v1",
+      "version": 1,
+      "schemaFile": "agent-tool-contract-registry-v1.json",
+      "owner": "worker",
+      "artifactKind": "agent-tool-contract-registry",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "artifact-integrity-ledger-v1",
+      "version": 1,
+      "schemaFile": "artifact-integrity-ledger-v1.json",
+      "owner": "broker",
+      "artifactKind": "artifact-integrity-ledger",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-artifact-write",
+        "broker-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "artifact-provenance-chain-v1",
+      "version": 1,
+      "schemaFile": "artifact-provenance-chain-v1.json",
+      "owner": "broker",
+      "artifactKind": "artifact-provenance",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-artifact-write",
+        "broker-artifact-audit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "artifact-transfer-manifest-v1",
+      "version": 1,
+      "schemaFile": "artifact-transfer-manifest-v1.json",
+      "owner": "broker",
+      "artifactKind": "artifact-transfer-manifest",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-distributed-artifacts-v1",
+      "version": 1,
+      "schemaFile": "broker-distributed-artifacts-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-distributed-artifacts",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-distributed-state-v1",
+      "version": 1,
+      "schemaFile": "broker-distributed-state-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-distributed-state",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-state-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-event-v1",
+      "version": 1,
+      "schemaFile": "broker-event-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-event",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-state-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-event-type-registry-v1",
+      "version": 1,
+      "schemaFile": "broker-event-type-registry-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-event-type-registry",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-state-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-provision-discovery-request-v1",
+      "version": 1,
+      "schemaFile": "broker-provision-discovery-request-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-provision-discovery-request",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-provision-discovery-request"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-provision-discovery-response-v1",
+      "version": 1,
+      "schemaFile": "broker-provision-discovery-response-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-provision-discovery-response",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-provision-discovery-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-provision-request-v1",
+      "version": 1,
+      "schemaFile": "broker-provision-request-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-provision-request",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-provision-request"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-provision-reservation-request-v1",
+      "version": 1,
+      "schemaFile": "broker-provision-reservation-request-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-provision-reservation-request",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-provision-reservation-request"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-provision-reservation-response-v1",
+      "version": 1,
+      "schemaFile": "broker-provision-reservation-response-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-provision-reservation-response",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-provision-reservation-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-provision-response-v1",
+      "version": 1,
+      "schemaFile": "broker-provision-response-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-provision-response",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-provision-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-error-v1",
+      "version": 1,
+      "schemaFile": "broker-response-error-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-error",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-lock-request-v1",
+      "version": 1,
+      "schemaFile": "broker-lock-request-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-lock-request",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-lock-request"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-lock-response-v1",
+      "version": 1,
+      "schemaFile": "broker-lock-response-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-lock-response",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-lock-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-gc-v1",
+      "version": 1,
+      "schemaFile": "broker-response-gc-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-gc",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-compact-v1",
+      "version": 1,
+      "schemaFile": "broker-response-compact-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-compact",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-lease-v1",
+      "version": 1,
+      "schemaFile": "broker-response-lease-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-lease",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-reconcile-v1",
+      "version": 1,
+      "schemaFile": "broker-response-reconcile-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-reconcile",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-recover-v1",
+      "version": 1,
+      "schemaFile": "broker-response-recover-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-recover",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-recovery-action-v1",
+      "version": 1,
+      "schemaFile": "broker-recovery-action-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-recovery-action",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-recovery-plan"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-artifact-audit-v1",
+      "version": 1,
+      "schemaFile": "broker-response-artifact-audit-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-artifact-audit",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-recover-run-v1",
+      "version": 1,
+      "schemaFile": "broker-response-recover-run-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-recover-run",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-refresh-v1",
+      "version": 1,
+      "schemaFile": "broker-response-refresh-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-refresh",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-normalize-state-v1",
+      "version": 1,
+      "schemaFile": "broker-response-normalize-state-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-normalize-state",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-replay-v1",
+      "version": 1,
+      "schemaFile": "broker-response-replay-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-replay",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-run-distributed-v1",
+      "version": 1,
+      "schemaFile": "broker-response-run-distributed-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-run-distributed",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-select-v1",
+      "version": 1,
+      "schemaFile": "broker-response-select-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response-select",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-response-v1",
+      "version": 1,
+      "schemaFile": "broker-response-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-response",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-state-v1",
+      "version": 1,
+      "schemaFile": "broker-state-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-state",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-state-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-workflow-attempt-v1",
+      "version": 1,
+      "schemaFile": "broker-workflow-attempt-v1.json",
+      "owner": "broker",
+      "artifactKind": "broker-workflow-attempt",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-state-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "broker-workflow-admission-compact-v1",
+      "version": 1,
+      "schemaFile": "broker-workflow-admission-compact-v1.json",
+      "owner": "broker",
+      "artifactKind": "workflow-admission",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-artifact-write",
+        "broker-response"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "distributed-replay-report-v1",
+      "version": 1,
+      "schemaFile": "distributed-replay-report-v1.json",
+      "owner": "broker",
+      "artifactKind": "attempt-replay",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-artifact-write",
+        "broker-artifact-audit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "evidence-graph-v1",
+      "version": 1,
+      "schemaFile": "evidence-graph-v1.json",
+      "owner": "broker",
+      "artifactKind": "evidence-graph",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-artifact-write",
+        "broker-artifact-audit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "build-job-v1",
+      "version": 1,
+      "schemaFile": "build-job-v1.json",
+      "owner": "worker",
+      "artifactKind": "build-job",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "build-result-v1",
+      "version": 1,
+      "schemaFile": "build-result-v1.json",
+      "owner": "worker",
+      "artifactKind": "build",
+      "artifactStages": [
+        "build"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "context-checkpoint-v1",
+      "version": 1,
+      "schemaFile": "context-checkpoint-v1.json",
+      "owner": "worker",
+      "artifactKind": "context-checkpoint",
+      "artifactStages": [
+        "context-checkpoint"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "coordination-report-request-v1",
+      "version": 1,
+      "schemaFile": "coordination-report-request-v1.json",
+      "owner": "worker",
+      "artifactKind": "coordination-report-request",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "coordination-snapshot-policy-v1",
+      "version": 1,
+      "schemaFile": "coordination-snapshot-policy-v1.json",
+      "owner": "worker",
+      "artifactKind": "coordination-snapshot-policy",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "model-role-registry-v1",
+      "version": 1,
+      "schemaFile": "model-role-registry-v1.json",
+      "owner": "worker",
+      "artifactKind": "model-role-registry",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-config-read",
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "mission-audit-event-v1",
+      "version": 1,
+      "schemaFile": "mission-audit-event-v1.json",
+      "owner": "worker",
+      "artifactKind": "mission-audit-event",
+      "producer": "closed-claw-chat",
+      "validationPoints": [
+        "mission-audit-write",
+        "worker-snapshot-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "mission-control-v1",
+      "version": 1,
+      "schemaFile": "mission-control-v1.json",
+      "owner": "worker",
+      "artifactKind": "mission-control",
+      "producer": "closed-claw-chat",
+      "validationPoints": [
+        "mission-record-write",
+        "worker-snapshot-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "mission-evidence-record-v1",
+      "version": 1,
+      "schemaFile": "mission-evidence-record-v1.json",
+      "owner": "worker",
+      "artifactKind": "mission-evidence-record",
+      "producer": "closed-claw-chat",
+      "validationPoints": [
+        "mission-evidence-write",
+        "worker-snapshot-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "mutation-ledger-event-v1",
+      "version": 1,
+      "schemaFile": "mutation-ledger-event-v1.json",
+      "owner": "worker",
+      "artifactKind": "mutation-ledger-event",
+      "producer": "closed-claw-chat",
+      "validationPoints": [
+        "config-mutation-write",
+        "settings-audit-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "runtime-profile-registry-v1",
+      "version": 1,
+      "schemaFile": "runtime-profile-registry-v1.json",
+      "owner": "worker",
+      "artifactKind": "runtime-profile-registry",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-config-read",
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "runtime-profile-resolution-v1",
+      "version": 1,
+      "schemaFile": "runtime-profile-resolution-v1.json",
+      "owner": "worker",
+      "artifactKind": "runtime-profile-resolution",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-config-read",
+        "worker-contract-read",
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "coordination-report-v1",
+      "version": 1,
+      "schemaFile": "coordination-report-v1.json",
+      "owner": "worker",
+      "artifactKind": "coordination-report",
+      "artifactStages": [
+        "coordination-report"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "evidence-manifest-v1",
+      "version": 1,
+      "schemaFile": "evidence-manifest-v1.json",
+      "owner": "worker",
+      "artifactKind": "evidence-manifest",
+      "artifactStages": [
+        "evidence-manifest"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write",
+        "broker-artifact-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "fix-result-v1",
+      "version": 1,
+      "schemaFile": "fix-result-v1.json",
+      "owner": "worker",
+      "artifactKind": "fix",
+      "artifactStages": [
+        "fix"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "handoff-package-v1",
+      "version": 1,
+      "schemaFile": "handoff-package-v1.json",
+      "owner": "worker",
+      "artifactKind": "handoff-package",
+      "artifactStages": [
+        "handoff-package"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write",
+        "broker-artifact-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "imported-artifact-index-v1",
+      "version": 1,
+      "schemaFile": "imported-artifact-index-v1.json",
+      "owner": "worker",
+      "artifactKind": "imported-artifact-index",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "plan-v1",
+      "version": 1,
+      "schemaFile": "plan-v1.json",
+      "owner": "worker",
+      "artifactKind": "plan",
+      "artifactStages": [
+        "plan"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "job-narrative-v1",
+      "version": 1,
+      "schemaFile": "job-narrative-v1.json",
+      "owner": "broker",
+      "artifactKind": "job-narrative",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-query"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "policy-pack-registry-v1",
+      "version": 1,
+      "schemaFile": "policy-pack-registry-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "policy-pack-registry",
+      "producer": "present-schema-authority",
+      "validationPoints": [
+        "contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "provisioner-registry-v1",
+      "version": 1,
+      "schemaFile": "provisioner-registry-v1.json",
+      "owner": "broker",
+      "artifactKind": "provisioner-registry",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-provisioner-registry-admission"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "redaction-report-v1",
+      "version": 1,
+      "schemaFile": "redaction-report-v1.json",
+      "owner": "worker",
+      "artifactKind": "redaction-report",
+      "artifactStages": [
+        "redaction-report"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write",
+        "broker-artifact-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "review-v1",
+      "version": 1,
+      "schemaFile": "review-v1.json",
+      "owner": "worker",
+      "artifactKind": "review",
+      "artifactStages": [
+        "review"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "recovery-authorization-policy-v1",
+      "version": 1,
+      "schemaFile": "recovery-authorization-policy-v1.json",
+      "owner": "broker",
+      "artifactKind": "recovery-authorization-policy",
+      "producer": "present-recovery-authorization-policy",
+      "validationPoints": [
+        "broker-schema-boundary"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "schema-registry-v1",
+      "version": 1,
+      "schemaFile": "schema-registry-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "schema-registry",
+      "producer": "present-schema-authority",
+      "validationPoints": [
+        "registry-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "schema-validation-error-v1",
+      "version": 1,
+      "schemaFile": "schema-validation-error-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "schema-validation-error",
+      "producer": "present-schema-validator",
+      "validationPoints": [
+        "schema-boundary-error"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "task-cleanup-result-v1",
+      "version": 1,
+      "schemaFile": "task-cleanup-result-v1.json",
+      "owner": "worker",
+      "artifactKind": "task-cleanup",
+      "artifactStages": [
+        "task-cleanup"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "task-contract-v1",
+      "version": 1,
+      "schemaFile": "task-contract-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "task-contract",
+      "producer": "present-control",
+      "validationPoints": [
+        "contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "task-contract-v2",
+      "version": 2,
+      "schemaFile": "task-contract-v2.json",
+      "owner": "schema-authority",
+      "artifactKind": "task-contract",
+      "producer": "present-control",
+      "validationPoints": [
+        "contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "breaking",
+      "introducedAt": "2026-08-18",
+      "replacementFor": "task-contract-v1",
+      "changeSummary": "Adds structured detached build commands and validation semantics beyond task-contract-v1."
+    },
+    {
+      "id": "task-contract-v3",
+      "version": 3,
+      "schemaFile": "task-contract-v3.json",
+      "owner": "schema-authority",
+      "artifactKind": "task-contract",
+      "producer": "present-control",
+      "validationPoints": [
+        "contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "breaking",
+      "introducedAt": "2026-08-18",
+      "replacementFor": "task-contract-v2",
+      "changeSummary": "Adds control-plain workflow DAG contracts, policy packs, and capability-bound nodes."
+    },
+    {
+      "id": "task-state-v1",
+      "version": 1,
+      "schemaFile": "task-state-v1.json",
+      "owner": "worker",
+      "artifactKind": "task-state",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "task-v1",
+      "version": 1,
+      "schemaFile": "task-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "task",
+      "producer": "present-control",
+      "validationPoints": [
+        "contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "verification-v1",
+      "version": 1,
+      "schemaFile": "verification-v1.json",
+      "owner": "worker",
+      "artifactKind": "verification",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit",
+        "worker-test-result-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-artifact-export-v1",
+      "version": 1,
+      "schemaFile": "worker-artifact-export-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-artifact-export",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-artifact-import-v1",
+      "version": 1,
+      "schemaFile": "worker-artifact-import-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-artifact-import",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-cleanup-v1",
+      "version": 1,
+      "schemaFile": "worker-cleanup-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-cleanup",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-doctor-v1",
+      "version": 1,
+      "schemaFile": "worker-doctor-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-doctor",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-glimmer-response-v1",
+      "version": 1,
+      "schemaFile": "worker-glimmer-response-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-glimmer-response",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-lease-v1",
+      "version": 1,
+      "schemaFile": "worker-lease-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-lease",
+      "artifactStages": [
+        "worker-lease"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-pool-registry-v1",
+      "version": 1,
+      "schemaFile": "worker-pool-registry-v1.json",
+      "owner": "broker",
+      "artifactKind": "worker-pool-registry",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-pool-trust-policy-v1",
+      "version": 1,
+      "schemaFile": "worker-pool-trust-policy-v1.json",
+      "owner": "broker",
+      "artifactKind": "worker-pool-trust-policy",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-policy-admission"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-status-v1",
+      "version": 1,
+      "schemaFile": "worker-status-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-status",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit",
+        "broker-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "worker-version-v1",
+      "version": 1,
+      "schemaFile": "worker-version-v1.json",
+      "owner": "worker",
+      "artifactKind": "worker-version",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-emit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "workflow-admission-v1",
+      "version": 1,
+      "schemaFile": "workflow-admission-v1.json",
+      "owner": "worker",
+      "artifactKind": "workflow-admission",
+      "artifactStages": [
+        "workflow-admission"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "workflow-dag-v1",
+      "version": 1,
+      "schemaFile": "workflow-dag-v1.json",
+      "owner": "broker",
+      "artifactKind": "workflow-dag",
+      "producer": "present-lease-broker",
+      "validationPoints": [
+        "broker-artifact-write",
+        "broker-artifact-audit"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "workflow-cancel-v1",
+      "version": 1,
+      "schemaFile": "workflow-cancel-v1.json",
+      "owner": "worker",
+      "artifactKind": "workflow-cancel",
+      "artifactStages": [
+        "workflow-cancel"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "workflow-input-context-v1",
+      "version": 1,
+      "schemaFile": "workflow-input-context-v1.json",
+      "owner": "worker",
+      "artifactKind": "workflow-input-context",
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "workflow-result-v1",
+      "version": 1,
+      "schemaFile": "workflow-result-v1.json",
+      "owner": "worker",
+      "artifactKind": "workflow",
+      "artifactStages": [
+        "workflow"
+      ],
+      "producer": "present-worker",
+      "validationPoints": [
+        "worker-write",
+        "broker-artifact-write"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-18"
+    }
+  ]
+}

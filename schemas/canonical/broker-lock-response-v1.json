@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-lock-response-v1.json",
+  "title": "Broker lock response v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["status"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "status": {"enum": ["ACQUIRED", "HELD", "DENIED", "RELEASED", "FAILED", "NOT_CONFIGURED"]},
+    "lockId": {"type": "string"},
+    "taskId": {"type": "string"},
+    "nodeId": {"type": "string"},
+    "workerId": {"type": "string"},
+    "reason": {"type": "string"},
+    "retryable": {"type": "boolean"},
+    "expiresAt": {"type": "string"},
+    "releasedAt": {"type": "string"}
+  }
+}

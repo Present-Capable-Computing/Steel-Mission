@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/artifact-transfer-manifest-v1.json",
+  "title": "Artifact transfer manifest v1",
+  "description": "Broker-authored plan for moving hash-addressed workflow artifacts between workers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "contractHash", "transfers"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "transfers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fromNodeId", "toNodeId", "fromWorkerId", "toWorkerId", "required"],
+        "properties": {
+          "fromNodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "toNodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "fromWorkerId": {"type": "string", "minLength": 1},
+          "toWorkerId": {"type": "string", "minLength": 1},
+          "artifactRole": {"type": "string"},
+          "required": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/review-v1.json",
+  "title": "Review v1",
+  "description": "A review is an opinion. It never constitutes verification and never determines PASS.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","taskId","producedAt","producer","mock","provenance","verdict"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "verdict": {"enum":["ACCEPTED","REVIEW_REJECTED","CHANGES_REQUESTED"]},
+    "findings": {"type":"array","items":{"type":"object","required":["severity","summary"],"properties":{"severity":{"enum":["blocking","major","minor","note"]},"summary":{"type":"string"},"file":{"type":"string"},"line":{"type":"integer"}}}}
+  }
+}

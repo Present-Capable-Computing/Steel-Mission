@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-lock-request-v1.json",
+  "title": "Broker lock request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "action", "taskId", "contractHash", "nodeId", "workerId", "ttlSeconds", "producedAt"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "action": {"enum": ["acquire", "release"]},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "workerId": {"type": "string", "minLength": 1},
+    "lockId": {"type": "string"},
+    "leaseId": {"type": "string"},
+    "ttlSeconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+    "producedAt": {"type": "string", "minLength": 1}
+  }
+}

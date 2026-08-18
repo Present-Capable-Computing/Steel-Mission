@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/mission-audit-event-v1.json",
+  "title": "Mission audit event v1",
+  "description": "Append-only audit event for a DC13 mission, recording operator, system, worker, model, and artifact transitions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "auditId",
+    "missionId",
+    "producedAt",
+    "actor",
+    "operatorRole",
+    "action",
+    "summary",
+    "details",
+    "artifactRefs"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "auditId": {"type": "string", "pattern": "^ma-[a-f0-9]{24}$"},
+    "missionId": {"type": "string", "pattern": "^ms-[a-f0-9]{24}$"},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "jobId": {"type": "string", "minLength": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "actor": {"type": "string", "minLength": 1, "maxLength": 256},
+    "operatorRole": {"enum": ["owner", "admin", "publisher", "user"]},
+    "action": {"type": "string", "minLength": 1, "maxLength": 128},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "details": {"type": "object"},
+    "integrity": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["signatureScheme", "previousHash", "payloadHash", "recordHash", "signature"],
+      "properties": {
+        "signatureScheme": {"type": "string", "minLength": 1},
+        "previousHash": {"type": "string"},
+        "payloadHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "recordHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+      }
+    },
+    "artifactRefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1, "maxLength": 128},
+          "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    }
+  }
+}

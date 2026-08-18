@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/evidence-manifest-v1.json",
+  "title": "Evidence manifest v1",
+  "description": "Normalized workflow evidence graph. Any mock input poisons top-level gate eligibility.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "workflowId",
+    "workflowRunId",
+    "contractHash",
+    "gateEligible",
+    "containsMock",
+    "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "control-plain", "mock-adapter", "human"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "gateEligible": {"type": "boolean"},
+    "containsMock": {"type": "boolean"},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "nodeId",
+          "capability",
+          "artifactKind",
+          "kind",
+          "path",
+          "sha256",
+          "mock",
+          "gateEligible",
+          "producedAt",
+          "upstreamNodeIds"
+        ],
+        "properties": {
+          "id": {"type": "string", "pattern": "^ev-[a-f0-9]{24}$"},
+          "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "capability": {"type": "string", "minLength": 1},
+          "artifactKind": {"enum": ["plan", "build", "build-job", "review", "fix", "adversarial", "verification", "coordination-report", "other"]},
+          "kind": {"enum": ["plan", "build", "build-job", "review", "fix", "adversarial", "verification", "coordination-report", "other"]},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "mock": {"type": "boolean"},
+          "gateEligible": {"type": "boolean"},
+          "schema": {"type": "string", "minLength": 1},
+          "evidenceRole": {"type": "string", "minLength": 1},
+          "producedAt": {"type": "string", "minLength": 1},
+          "upstreamNodeIds": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+          },
+          "acceptedBy": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"containsMock": {"const": true}}, "required": ["containsMock"]},
+      "then": {
+        "properties": {"gateEligible": {"const": false}},
+        "$comment": "Mock inputs can never be gate eligible."
+      }
+    }
+  ]
+}

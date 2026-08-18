@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/worker-artifact-import-v1.json",
+  "title": "Worker artifact import response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "mock", "provenance", "status", "kind", "sha256", "path"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-worker artifact import"},
+    "mock": {"type": "boolean"},
+    "provenance": {"type": "object"},
+    "status": {"const": "IMPORTED"},
+    "kind": {"type": "string", "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "path": {"type": "string", "minLength": 1},
+    "sourceNodeId": {"type": "string", "minLength": 1},
+    "sourcePath": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-workflow-attempt-v1.json",
+  "title": "Broker workflow attempt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attemptId", "trigger", "status", "startedAt", "reusedNodes", "freshNodes", "invalidatedNodes"],
+  "properties": {
+    "attemptId": {"type": "string", "minLength": 1},
+    "trigger": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1},
+    "startedAt": {"type": "string", "minLength": 1},
+    "finishedAt": {"type": "string", "minLength": 1},
+    "recoveryIdempotencyKey": {"type": "string", "minLength": 1},
+    "reusedNodes": {"type": "array", "items": {"type": "string"}},
+    "freshNodes": {"type": "array", "items": {"type": "string"}},
+    "invalidatedNodes": {"type": "array", "items": {"type": "string"}}
+  }
+}

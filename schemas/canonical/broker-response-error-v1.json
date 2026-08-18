@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-response-error-v1.json",
+  "title": "Broker error response v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["status", "reason", "retryable"],
+  "properties": {
+    "status": {"const": "BROKER_BLOCKED"},
+    "reason": {"type": "string", "minLength": 1},
+    "retryable": {"type": "boolean"},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "worker": {"type": "string", "minLength": 1}
+  }
+}

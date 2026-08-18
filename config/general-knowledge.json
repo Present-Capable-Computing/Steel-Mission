@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "closed-claw",
+  "repositories": [
+    {
+      "name": "closed-claw-product",
+      "path": "${WORKER_DIR}"
+    }
+  ],
+  "documents": [
+    {
+      "title": "Northstar Forge Operating Context",
+      "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"
+    },
+    {
+      "title": "Northstar Forge Team Doctrine",
+      "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"
+    },
+    {
+      "title": "Northstar Forge Team Roster and Workflow",
+      "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"
+    },
+    {
+      "title": "Northstar Forge Capability Map",
+      "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"
+    }
+  ]
+}

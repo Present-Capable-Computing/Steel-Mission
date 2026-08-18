@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/mission-evidence-record-v1.json",
+  "title": "Mission evidence record v1",
+  "description": "Machine-checkable evidence artifact emitted by a DC13 mission node.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "evidenceId",
+    "missionId",
+    "nodeId",
+    "kind",
+    "producedAt",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "evidenceId": {"type": "string", "pattern": "^me-[a-f0-9]{24}$"},
+    "missionId": {"type": "string", "pattern": "^ms-[a-f0-9]{24}$"},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "jobId": {"type": "string", "minLength": 1},
+    "nodeId": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "minLength": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "closed-claw-chat mission-orchestrator"},
+    "payload": {"type": "object"}
+  }
+}

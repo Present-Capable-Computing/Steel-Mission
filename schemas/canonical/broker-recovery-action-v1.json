@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-recovery-action-v1.json",
+  "title": "Broker recovery action v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["action", "status", "reason"],
+  "properties": {
+    "action": {
+      "enum": [
+        "retry-node",
+        "reimport-artifact",
+        "rematerialize-artifact",
+        "recover-node-lease",
+        "cancel-subgraph",
+        "failover-lease",
+        "cancel-workflow",
+        "retire-worker",
+        "mark-inconsistent"
+      ]
+    },
+    "status": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1},
+    "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "workerId": {"type": "string", "minLength": 1},
+    "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "applyStatus": {"enum": ["APPLIED", "BLOCKED"]},
+    "resumeRequired": {"type": "boolean"},
+    "invalidatedNodes": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+    },
+    "artifactsMaterialized": {"type": "integer", "minimum": 0}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"action": {"enum": ["retry-node", "reimport-artifact", "rematerialize-artifact", "recover-node-lease", "cancel-subgraph"]}}, "required": ["action"]},
+      "then": {"required": ["nodeId"]}
+    },
+    {
+      "if": {"properties": {"action": {"const": "retire-worker"}}, "required": ["action"]},
+      "then": {"required": ["workerId"]}
+    }
+  ]
+}

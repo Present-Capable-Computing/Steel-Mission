@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/admission-report-v1.json",
+  "title": "Admission report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "status",
+    "candidateCount",
+    "admittedCount",
+    "rejectedCount",
+    "candidates"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker"},
+    "status": {"enum": ["ADMITTED", "REJECTED"]},
+    "candidateCount": {"type": "integer", "minimum": 0},
+    "admittedCount": {"type": "integer", "minimum": 0},
+    "rejectedCount": {"type": "integer", "minimum": 0},
+    "candidates": {"type": "array", "items": {"type": "object"}}
+  }
+}

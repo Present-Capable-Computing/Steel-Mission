@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-worker-pool-trust-policy",
+  "riskTrust": {
+    "low": ["local-user-trusted", "sandboxed", "secure-enterprise"],
+    "normal": ["local-user-trusted", "sandboxed", "secure-enterprise"],
+    "high": ["local-user-trusted", "secure-enterprise"],
+    "critical": ["secure-enterprise"]
+  }
+}

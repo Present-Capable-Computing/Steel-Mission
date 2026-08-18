@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/coordination-report-v1.json",
+  "title": "Coordination report v1",
+  "description": "Advisory DC13 Delivery Coordinator current-state reconciliation report. This document is never verification evidence and has no gate authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "packIdentity",
+    "summary",
+    "items",
+    "notChecked",
+    "contradictions",
+    "advisoryNote"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "control-plain", "mock-adapter", "human"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "packIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "probe": {"enum": ["ok", "failed"]},
+        "packageId": {"type": "string", "minLength": 1},
+        "corpusGeneration": {"type": "integer", "minimum": 0},
+        "currentThrough": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "oneOf": [
+        {
+          "required": ["probe", "packageId", "corpusGeneration", "currentThrough"],
+          "properties": {"probe": {"const": "ok"}},
+          "not": {"required": ["reason"]}
+        },
+        {
+          "required": ["probe", "reason"],
+          "properties": {"probe": {"const": "failed"}},
+          "not": {
+            "anyOf": [
+              {"required": ["packageId"]},
+              {"required": ["corpusGeneration"]},
+              {"required": ["currentThrough"]}
+            ]
+          }
+        }
+      ]
+    },
+    "summary": {"type": "string", "minLength": 1, "maxLength": 8192},
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject", "status", "stateClass", "source", "freshness"],
+        "properties": {
+          "subject": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "WAITING ON TEAM",
+              "WAITING ON FOUNDER",
+              "AWAITING PROPAGATION",
+              "IMPLEMENTING / VERIFYING",
+              "CLOSED / IN FORCE",
+              "BLOCKED",
+              "DEFERRED",
+              "SUPERSEDED / REJECTED",
+              "UNKNOWN / UNVERIFIED"
+            ]
+          },
+          "stateClass": {"enum": ["conversation", "work-product", "canonical", "unknown"]},
+          "source": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "freshness": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "note": {"type": "string", "maxLength": 8192}
+        }
+      }
+    },
+    "notChecked": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject", "reason"],
+        "properties": {
+          "subject": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 8192}
+        }
+      }
+    },
+    "contradictions": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject", "sources", "detail"],
+        "properties": {
+          "subject": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "sources": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 20,
+            "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+          },
+          "detail": {"type": "string", "minLength": 1, "maxLength": 8192}
+        }
+      }
+    },
+    "advisoryNote": {
+      "const": "Advisory coordination analysis by the DC13 Delivery Coordinator capability. Visibility confers no authority: this report approves, adopts, certifies, and gates nothing, and it is never verification evidence. Only present-worker verify produces PASS."
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mock": {"const": true}}, "required": ["mock"]},
+      "then": {
+        "properties": {
+          "items": {"maxItems": 0},
+          "notChecked": {"minItems": 1}
+        }
+      }
+    }
+  ]
+}

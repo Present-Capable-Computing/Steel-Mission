@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900071",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-lease-broker evidence graph",
+  "workflowId": "DEV-900071-workflow",
+  "workflowRunId": "wr-111111111111111111111111",
+  "contractHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "nodes": [
+    {
+      "evidenceId": "ev-plan",
+      "nodeId": "plan",
+      "role": "advisory-plan",
+      "status": "SUCCEEDED",
+      "gateEligible": false,
+      "acceptedBy": ["verify"]
+    }
+  ],
+  "redactionStatus": "CLEAN",
+  "gateDecision": "ACCEPTED"
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900071",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-lease-broker deterministic acceptance",
+  "workflowId": "DEV-900071-workflow",
+  "workflowRunId": "wr-111111111111111111111111",
+  "contractHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reason": "verification evidence accepted",
+  "acceptedEvidence": []
+}

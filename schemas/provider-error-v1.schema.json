@@ -1,0 +1,15 @@
+{
+  "_provisional": "Local placeholder. Codifies the CREDENTIAL_MISSING / GLIMMER_NOT_READY / TEST_CONTRACT_DISPUTED / BLOCKED refusal shapes from the brief. Supersede wholesale at Plan 2 if the Mini defines its own.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "provider-error-v1",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": {
+      "enum": ["CREDENTIAL_MISSING", "GLIMMER_NOT_READY", "TEST_CONTRACT_DISPUTED", "BLOCKED"]
+    },
+    "provider": { "type": "string" },
+    "reason": { "type": "string" },
+    "retryable": { "type": "boolean" }
+  }
+}

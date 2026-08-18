@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/task-contract-v3.json",
+  "title": "Task contract v3",
+  "description": "Adds a control-plain-authored workflow DAG of capability-constrained executions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "provenance", "verification", "workflow", "policyPack"],
+  "properties": {
+    "schemaVersion": {"const": 3},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"const": "control-plain"},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "build": {"$ref": "#/$defs/buildCommands"},
+    "policyPack": {"$ref": "#/$defs/policyPack"},
+    "verification": {"$ref": "#/$defs/verificationCommands"},
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes"],
+      "properties": {
+        "workflowId": {"type": "string", "minLength": 1, "maxLength": 80},
+        "maxParallel": {"type": "integer", "minimum": 1, "maximum": 8},
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/workflowNode"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "argv", "expectedExitCode", "timeoutSeconds"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "argv": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+        "expectedExitCode": {"type": "integer", "minimum": 0, "maximum": 255},
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "buildCommands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "commands"],
+      "properties": {
+        "target": {"enum": ["worker", "present-repository"]},
+        "commands": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/command"}}
+      }
+    },
+    "verificationCommands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "commands"],
+      "properties": {
+        "target": {"enum": ["worker", "present-repository"]},
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {"allOf": [{"$ref": "#/$defs/command"}, {"properties": {"timeoutSeconds": {"maximum": 900}}}]}
+        }
+      }
+    },
+    "workflowNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "capability", "dependsOn"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+        "capability": {
+          "enum": [
+            "plan",
+            "build",
+            "detached-build",
+            "candidate",
+            "candidate-fix",
+            "fix",
+            "code-review",
+            "review",
+            "security-review",
+            "adversarial",
+            "deterministic-verify",
+            "verify",
+            "coordination-report"
+          ]
+        },
+        "dependsOn": {"type": "array", "items": {"type": "string"}},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "commitFrom": {"type": "string"},
+            "artifactsFrom": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": {"type": "boolean"},
+            "blocksOn": {"type": "array", "items": {"enum": ["SUCCEEDED", "WAITING", "FAILED", "BLOCKED"]}},
+            "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+          }
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schema": {"type": "string", "minLength": 1, "maxLength": 120},
+            "evidenceRole": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+          }
+        }
+      }
+    },
+    "policyPack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "registryHash",
+        "riskClass",
+        "requiredCapabilities",
+        "requiredEvidenceRoles",
+        "forbiddenCapabilities",
+        "minVerifierCount"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+        "version": {"type": "integer", "minimum": 1},
+        "registryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "riskClass": {"enum": ["low", "normal", "high", "critical"]},
+        "requiredCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/workflowCapability"}
+        },
+        "requiredEvidenceRoles": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+        },
+        "forbiddenCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/workflowCapability"}
+        },
+        "minVerifierCount": {"type": "integer", "minimum": 0, "maximum": 8},
+        "acceptancePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "minVerifierCount"],
+          "properties": {
+            "mode": {"enum": ["single-deterministic-verifier", "quorum", "unanimous"]},
+            "minVerifierCount": {"type": "integer", "minimum": 0, "maximum": 8},
+            "requiredEvidenceRoles": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+            },
+            "allowMockEvidence": {"type": "boolean"}
+          }
+        },
+        "retentionPolicy": {"$ref": "#/$defs/retentionPolicy"}
+      }
+    },
+    "retentionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "ttlSeconds"],
+      "properties": {
+        "class": {"enum": ["ephemeral", "standard", "audit", "regulated"]},
+        "ttlSeconds": {"type": "integer", "minimum": 0},
+        "redactionRequired": {"type": "boolean"},
+        "purgeOnCompletion": {"type": "boolean"}
+      }
+    },
+    "workflowCapability": {
+      "enum": [
+        "plan",
+        "build",
+        "detached-build",
+        "candidate",
+        "candidate-fix",
+        "fix",
+        "code-review",
+        "review",
+        "security-review",
+        "adversarial",
+        "deterministic-verify",
+        "verify",
+        "coordination-report"
+      ]
+    }
+  }
+}

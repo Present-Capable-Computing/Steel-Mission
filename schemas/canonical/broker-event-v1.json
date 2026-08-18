@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-event-v1.json",
+  "title": "Broker event v1",
+  "description": "Durable broker event envelope. Event-specific fields remain extensible.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["eventId", "taskId", "type", "producedAt"],
+  "properties": {
+    "eventId": {"type": "string", "minLength": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "type": {"type": "string", "minLength": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "workerId": {"type": "string"},
+    "leaseId": {"type": "string"},
+    "nodeId": {"type": "string"},
+    "status": {"type": "string"},
+    "reason": {"type": "string"},
+    "timingsMs": {"type": "object"}
+  }
+}

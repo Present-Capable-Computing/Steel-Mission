@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-000051",
+  "producedAt": "2026-08-17T01:30:00Z",
+  "producer": "present-worker coordination-report (claude)",
+  "mock": false,
+  "provenance": {"source": "worker"},
+  "packIdentity": {"probe": "ok"},
+  "summary": "Pack identity was guessed.",
+  "items": [],
+  "notChecked": [],
+  "contradictions": [],
+  "advisoryNote": "Advisory coordination analysis by the DC13 Delivery Coordinator capability. Visibility confers no authority: this report approves, adopts, certifies, and gates nothing, and it is never verification evidence. Only present-worker verify produces PASS."
+}

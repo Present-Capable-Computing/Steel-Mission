@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-state-v1.json",
+  "title": "Broker state v1",
+  "description": "Durable control-plain broker state for worker selection, leases, dispatches, and reconciliation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producedAt", "producer", "updatedAt", "tasks", "events"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "updatedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "tasks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "status", "contractHash", "selectedWorker", "attempts", "updatedAt"],
+        "properties": {
+          "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+          "status": {
+            "enum": [
+              "SELECTED",
+              "LEASED",
+              "DISPATCHED",
+              "RUNNING",
+              "WAITING",
+              "COMPLETE",
+              "CANCELLED",
+              "FAILED",
+              "LEASE_EXPIRED",
+              "WORKER_UNREACHABLE",
+              "INCONSISTENT",
+              "FAILOVER_LEASED",
+              "DISTRIBUTED_RUNNING",
+              "DISTRIBUTED_COMPLETE",
+              "DISTRIBUTED_FAILED"
+            ]
+          },
+          "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+          "selectedWorker": {"type": "string"},
+          "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"},
+          "lastHeartbeatAt": {"type": "string", "minLength": 1},
+          "terminalAt": {"type": "string", "minLength": 1},
+          "updatedAt": {"type": "string", "minLength": 1},
+          "distributed": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "taskId",
+              "producedAt",
+              "producer",
+              "updatedAt",
+              "workflowId",
+              "contractHash",
+              "storeRoot",
+              "placements",
+              "artifactTransferManifest",
+              "nodes",
+              "nodeDispatches",
+              "artifactStore",
+              "importedArtifacts"
+            ],
+            "properties": {
+              "schemaVersion": {"const": 1},
+              "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+              "producedAt": {"type": "string", "minLength": 1},
+              "producer": {"type": "string", "minLength": 1},
+              "updatedAt": {"type": "string", "minLength": 1},
+              "workflowId": {"type": "string", "minLength": 1},
+              "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+              "storeRoot": {"type": "string", "minLength": 1},
+              "artifactStoreAdapter": {"type": "object"},
+              "placements": {"type": "array", "items": {"type": "object"}},
+              "artifactTransferManifest": {"type": "object"},
+              "nodes": {"type": "object", "additionalProperties": {"type": "object"}},
+              "nodeDispatches": {"type": "array", "items": {"type": "object"}},
+              "artifactStore": {"type": "array", "items": {"type": "object"}},
+              "importedArtifacts": {"type": "array", "items": {"type": "object"}},
+              "contextCheckpoints": {"type": "array", "items": {"type": "object"}},
+              "attemptLedger": {"type": "array", "items": {"type": "object"}},
+              "handoffSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+              "pendingRecoveryIdempotencyKey": {"type": "string", "minLength": 1},
+              "workflowDag": {"type": "object"},
+              "replayReport": {"type": "object"},
+              "acceptanceManifest": {"type": "object"},
+              "compactionSummary": {"type": "object"},
+              "cancelledNodes": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["attemptId", "workerId", "status", "startedAt"],
+              "properties": {
+                "attemptId": {"type": "string", "minLength": 1},
+                "workerId": {"type": "string", "minLength": 1},
+                "status": {"type": "string", "minLength": 1},
+                "startedAt": {"type": "string", "minLength": 1},
+                "finishedAt": {"type": "string", "minLength": 1},
+                "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["eventId", "taskId", "type", "producedAt"],
+        "properties": {
+          "eventId": {"type": "string", "minLength": 1},
+          "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+          "type": {"type": "string", "minLength": 1},
+          "producedAt": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "recoveryLedger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "idempotencyKey", "status", "producedAt", "appliedActions"],
+        "properties": {
+          "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+          "idempotencyKey": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "minLength": 1},
+          "producedAt": {"type": "string", "minLength": 1},
+          "appliedActions": {"type": "array", "items": {"type": "object"}}
+        }
+      }
+    },
+    "operatorAuditLog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["auditId", "taskId", "action", "operatorRole", "producedAt"],
+        "properties": {
+          "auditId": {"type": "string", "pattern": "^oa-[a-f0-9]{24}$"},
+          "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+          "action": {"type": "string", "minLength": 1},
+          "operatorRole": {"type": "string", "minLength": 1},
+          "producedAt": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "provisionerReplay": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["replayId", "taskId", "provisionerId", "action", "producedAt", "exitCode", "request", "response"],
+        "properties": {
+          "replayId": {"type": "string", "pattern": "^pr-[a-f0-9]{24}$"},
+          "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+          "provisionerId": {"type": "string", "minLength": 1},
+          "action": {"type": "string", "minLength": 1},
+          "producedAt": {"type": "string", "minLength": 1},
+          "exitCode": {"type": "integer"},
+          "request": {"type": "object"},
+          "response": {"type": "object"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/artifact-provenance-chain-v1.json",
+  "title": "Artifact provenance chain v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "workflowId", "workflowRunId", "contractHash", "artifacts"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker artifact provenance"},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifacts": {"type": "array", "items": {"type": "object"}}
+  }
+}

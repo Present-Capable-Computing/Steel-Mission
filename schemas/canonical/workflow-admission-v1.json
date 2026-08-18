@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "status",
+    "workflowId",
+    "workflowRunId",
+    "contractHash",
+    "maxParallel",
+    "nodes",
+    "schedule",
+    "missingCapabilities",
+    "policyPack",
+    "advisoryNote"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "DEV-[0-9]{6}"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "status": {"enum": ["ADMITTED", "PARTIAL", "WAITING_FOR_CAPABILITY", "REJECTED"]},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "maxParallel": {"type": "integer", "minimum": 1, "maximum": 8},
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "capability",
+          "verb",
+          "dependsOn",
+          "nodeContractHash",
+          "policy",
+          "decision",
+          "reasons"
+        ],
+        "properties": {
+          "id": {"type": "string", "pattern": "[a-z][a-z0-9-]{0,63}"},
+          "capability": {"type": "string", "minLength": 1},
+          "verb": {"enum": ["plan", "build", "fix", "review", "adversarial", "verify", "coordination-report"]},
+          "dependsOn": {"type": "array", "items": {"type": "string"}},
+          "nodeContractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "inputs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "commitFrom": {"type": "string"},
+              "artifactsFrom": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "outputs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schema": {"type": "string", "minLength": 1},
+              "evidenceRole": {"type": "string", "minLength": 1}
+            }
+          },
+          "policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["required", "blocksOn", "timeoutSeconds"],
+            "properties": {
+              "required": {"type": "boolean"},
+              "blocksOn": {"type": "array", "items": {"enum": ["SUCCEEDED", "WAITING", "FAILED", "BLOCKED"]}},
+              "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+            }
+          },
+          "decision": {"enum": ["ADMITTED", "REJECTED", "WAITING_FOR_CAPABILITY"]},
+          "reasons": {"type": "array", "items": {"type": "string"}},
+          "registry": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "verb", "provider", "authority", "available", "missing", "maxParallel"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "verb": {"type": "string", "minLength": 1},
+              "provider": {"type": "string", "minLength": 1},
+              "authority": {"type": "string", "minLength": 1},
+              "available": {"type": "boolean"},
+              "missing": {"type": "array", "items": {"type": "string"}},
+              "maxParallel": {"type": "integer", "minimum": 1, "maximum": 8}
+            }
+          },
+          "plannedBatch": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "schedule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["batch", "nodeIds"],
+        "properties": {
+          "batch": {"type": "integer", "minimum": 1},
+          "nodeIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "pattern": "[a-z][a-z0-9-]{0,63}"}
+          }
+        }
+      }
+    },
+    "missingCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capability", "missing"],
+        "properties": {
+          "capability": {"type": "string", "minLength": 1},
+          "missing": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "policyPack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "registryHash",
+        "riskClass",
+        "status",
+        "violations",
+        "requiredCapabilities",
+        "requiredEvidenceRoles",
+        "forbiddenCapabilities",
+        "minVerifierCount"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "[a-z][a-z0-9-]{0,63}"},
+        "version": {"type": "integer", "minimum": 1},
+        "registryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "riskClass": {"enum": ["low", "normal", "high", "critical"]},
+        "status": {"enum": ["SATISFIED", "REJECTED"]},
+        "violations": {"type": "array", "items": {"type": "string"}},
+        "requiredCapabilities": {"type": "array", "items": {"type": "string"}},
+        "requiredEvidenceRoles": {"type": "array", "items": {"type": "string"}},
+        "forbiddenCapabilities": {"type": "array", "items": {"type": "string"}},
+        "minVerifierCount": {"type": "integer", "minimum": 0, "maximum": 8}
+      }
+    },
+    "advisoryNote": {"type": "string", "minLength": 1}
+  }
+}

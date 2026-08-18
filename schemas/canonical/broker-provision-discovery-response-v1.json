@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-provision-discovery-response-v1.json",
+  "title": "Broker provision discovery response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "canProvision", "workerKinds", "trustLevels", "supportedProviders"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "status": {"enum": ["DISCOVERED", "NO_CAPACITY", "FAILED"]},
+    "canProvision": {"type": "boolean"},
+    "workerKinds": {"type": "array", "items": {"type": "string"}},
+    "trustLevels": {"type": "array", "items": {"type": "string"}},
+    "supportedProviders": {"type": "array", "items": {"type": "string"}},
+    "estimatedStartupSeconds": {"type": "integer", "minimum": 0},
+    "costClass": {"type": "string"},
+    "reason": {"type": "string"},
+    "retryable": {"type": "boolean"}
+  }
+}

@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "closed-claw",
+  "profiles": [
+    {
+      "id": "dc13.auto",
+      "label": "Delivery Coordinator Auto",
+      "status": "active",
+      "modelRole": "dc13.coordination-report",
+      "modelProvider": "auto",
+      "snapshotProfile": "worker-local-default",
+      "defaultFor": ["closed-claw-chat"],
+      "editableBy": ["owner", "admin", "publisher"],
+      "visibilityRoleKeys": [
+        "DC13",
+        "DC01",
+        "DC02",
+        "DC03",
+        "DC04",
+        "DC05",
+        "DC06",
+        "DC07",
+        "DC08",
+        "DC09",
+        "DC10",
+        "DC11",
+        "DC12"
+      ],
+      "includeCollections": ["tasks", "advisoryTasks", "buildJobs", "verifyResults", "distributedWorkflows", "generalDocuments", "missions"],
+      "limits": {
+        "tasks": 30,
+        "advisoryTasks": 5,
+        "buildJobs": 25,
+        "verifyResults": 30,
+        "distributedWorkflows": 12,
+        "brokerStateSources": 8,
+        "brokerArtifacts": 10,
+        "operatorAudit": 8,
+        "generalDocuments": 12,
+        "missions": 25
+      },
+      "taskSelector": {"mode": "latest"},
+      "sources": {
+        "taskRoots": ["${PRESENT_TASKS_DIR}"],
+        "logRoots": ["${PRESENT_LOGS_DIR}"],
+        "buildJobRoots": ["${PRESENT_JOBS_DIR}"],
+        "missionRoots": ["${PRESENT_MISSIONS_DIR}"],
+        "verifyResultRoots": ["${PRESENT_TEST_RESULTS_DIR}"],
+        "brokerStatePaths": [
+          "${WORKER_DIR}/broker-state.json",
+          "${WORKER_DIR}/state.json",
+          "${PRESENT_DEV}/broker-state.json",
+          "${PRESENT_DEV}/state.json",
+          "${PRESENT_TASKS_DIR}/../broker-state.json",
+          "${PRESENT_TASKS_DIR}/../state.json"
+        ],
+        "repositoryRoots": [
+          {"name": "worker", "path": "${WORKER_DIR}"},
+          {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
+        ],
+        "documentPaths": [
+          {"title": "Northstar Forge Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Northstar Forge Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Northstar Forge Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Northstar Forge Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+        ]
+      }
+    },
+    {
+      "id": "dc13.local",
+      "label": "Delivery Coordinator / Glimmer",
+      "status": "active",
+      "modelRole": "dc13.coordination-report",
+      "modelProvider": "glimmer",
+      "snapshotProfile": "worker-local-glimmer-fallback",
+      "defaultFor": [],
+      "editableBy": ["owner", "admin", "publisher"],
+      "visibilityRoleKeys": [
+        "DC13",
+        "DC01",
+        "DC02",
+        "DC03",
+        "DC04",
+        "DC05",
+        "DC06",
+        "DC07",
+        "DC08",
+        "DC09",
+        "DC10",
+        "DC11",
+        "DC12"
+      ],
+      "includeCollections": ["tasks", "advisoryTasks", "buildJobs", "verifyResults", "distributedWorkflows", "generalDocuments", "missions"],
+      "limits": {
+        "tasks": 12,
+        "advisoryTasks": 2,
+        "buildJobs": 12,
+        "verifyResults": 12,
+        "distributedWorkflows": 4,
+        "brokerStateSources": 4,
+        "brokerArtifacts": 6,
+        "operatorAudit": 4,
+        "generalDocuments": 8,
+        "missions": 12
+      },
+      "taskSelector": {"mode": "latest"},
+      "sources": {
+        "taskRoots": ["${PRESENT_TASKS_DIR}"],
+        "logRoots": ["${PRESENT_LOGS_DIR}"],
+        "buildJobRoots": ["${PRESENT_JOBS_DIR}"],
+        "missionRoots": ["${PRESENT_MISSIONS_DIR}"],
+        "verifyResultRoots": ["${PRESENT_TEST_RESULTS_DIR}"],
+        "brokerStatePaths": [
+          "${WORKER_DIR}/broker-state.json",
+          "${WORKER_DIR}/state.json",
+          "${PRESENT_DEV}/broker-state.json",
+          "${PRESENT_DEV}/state.json"
+        ],
+        "repositoryRoots": [
+          {"name": "worker", "path": "${WORKER_DIR}"},
+          {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
+        ],
+        "documentPaths": [
+          {"title": "Northstar Forge Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Northstar Forge Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Northstar Forge Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Northstar Forge Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+        ]
+      }
+    },
+    {
+      "id": "dc13.claude",
+      "label": "Delivery Coordinator Claude",
+      "status": "active",
+      "modelRole": "dc13.coordination-report",
+      "modelProvider": "claude",
+      "snapshotProfile": "worker-local-default",
+      "defaultFor": [],
+      "editableBy": ["owner", "admin", "publisher"],
+      "visibilityRoleKeys": [
+        "DC13",
+        "DC01",
+        "DC02",
+        "DC03",
+        "DC04",
+        "DC05",
+        "DC06",
+        "DC07",
+        "DC08",
+        "DC09",
+        "DC10",
+        "DC11",
+        "DC12"
+      ],
+      "includeCollections": ["tasks", "advisoryTasks", "buildJobs", "verifyResults", "distributedWorkflows", "generalDocuments", "missions"],
+      "limits": {
+        "tasks": 30,
+        "advisoryTasks": 5,
+        "buildJobs": 25,
+        "verifyResults": 30,
+        "distributedWorkflows": 12,
+        "brokerStateSources": 8,
+        "brokerArtifacts": 10,
+        "operatorAudit": 8,
+        "generalDocuments": 12,
+        "missions": 25
+      },
+      "taskSelector": {"mode": "latest"},
+      "sources": {
+        "taskRoots": ["${PRESENT_TASKS_DIR}"],
+        "logRoots": ["${PRESENT_LOGS_DIR}"],
+        "buildJobRoots": ["${PRESENT_JOBS_DIR}"],
+        "missionRoots": ["${PRESENT_MISSIONS_DIR}"],
+        "verifyResultRoots": ["${PRESENT_TEST_RESULTS_DIR}"],
+        "brokerStatePaths": [
+          "${WORKER_DIR}/broker-state.json",
+          "${WORKER_DIR}/state.json",
+          "${PRESENT_DEV}/broker-state.json",
+          "${PRESENT_DEV}/state.json",
+          "${PRESENT_TASKS_DIR}/../broker-state.json",
+          "${PRESENT_TASKS_DIR}/../state.json"
+        ],
+        "repositoryRoots": [
+          {"name": "worker", "path": "${WORKER_DIR}"},
+          {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
+        ],
+        "documentPaths": [
+          {"title": "Northstar Forge Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Northstar Forge Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Northstar Forge Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Northstar Forge Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+        ]
+      }
+    }
+  ]
+}

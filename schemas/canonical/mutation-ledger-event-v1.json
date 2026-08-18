@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/mutation-ledger-event-v1.json",
+  "title": "Mutation ledger event v1",
+  "description": "Configuration or repo mutation audit event emitted by the DC13 local control surface.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "mutationId",
+    "producedAt",
+    "producer",
+    "actorRole",
+    "action",
+    "status",
+    "targetPath",
+    "beforeHash",
+    "afterHash",
+    "changed",
+    "details"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "mutationId": {"type": "string", "pattern": "^mu-[a-f0-9]{24}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "closed-claw-chat mutation-ledger"},
+    "actorRole": {"enum": ["owner", "admin", "publisher", "user"]},
+    "action": {"type": "string", "minLength": 1},
+    "status": {"enum": ["applied", "rejected", "failed"]},
+    "targetPath": {"type": "string", "minLength": 1},
+    "beforeHash": {"type": "string"},
+    "afterHash": {"type": "string"},
+    "changed": {"type": "boolean"},
+    "details": {"type": "object"}
+  }
+}

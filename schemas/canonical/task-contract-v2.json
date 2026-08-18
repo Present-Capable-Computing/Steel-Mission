@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/task-contract-v2.json",
+  "title": "Task contract v2",
+  "description": "Adds an argv-only detached build contract alongside deterministic verification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "provenance", "build", "verification"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "provenance": {"type": "object", "additionalProperties": false, "required": ["source"], "properties": {"source": {"const": "control-plain"}, "host": {"type": "string"}, "commit": {"type": "string"}}},
+    "build": {"$ref": "#/$defs/buildCommands"},
+    "verification": {"$ref": "#/$defs/verificationCommands"}
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "argv", "expectedExitCode", "timeoutSeconds"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "argv": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+        "expectedExitCode": {"type": "integer", "minimum": 0, "maximum": 255},
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "buildCommands": {
+      "type": "object", "additionalProperties": false, "required": ["target", "commands"],
+      "properties": {
+        "target": {"enum": ["worker", "present-repository"]},
+        "commands": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/command"}}
+      }
+    },
+    "verificationCommands": {
+      "type": "object", "additionalProperties": false, "required": ["target", "commands"],
+      "properties": {
+        "target": {"enum": ["worker", "present-repository"]},
+        "commands": {
+          "type": "array", "minItems": 1, "maxItems": 16,
+          "items": {"allOf": [{"$ref": "#/$defs/command"}, {"properties": {"timeoutSeconds": {"maximum": 900}}}]}
+        }
+      }
+    }
+  }
+}

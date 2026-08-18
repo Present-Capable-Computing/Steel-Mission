@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/worker-glimmer-response-v1.json",
+  "title": "Worker glimmer response v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["provider"],
+  "anyOf": [
+    {"required": ["status"]},
+    {"required": ["ready"]}
+  ],
+  "properties": {
+    "status": {"type": "string", "minLength": 1},
+    "provider": {"const": "glimmer"},
+    "ready": {"type": "boolean"},
+    "installed": {"type": "boolean"},
+    "retryable": {"type": "boolean"},
+    "reason": {"type": "string"}
+  }
+}

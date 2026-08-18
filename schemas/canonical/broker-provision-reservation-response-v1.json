@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-provision-reservation-response-v1.json",
+  "title": "Broker provision reservation response v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["status"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "status": {"enum": ["RESERVED", "RELEASED", "DENIED", "FAILED"]},
+    "reservationId": {"type": "string", "minLength": 1},
+    "ttlSeconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+    "reason": {"type": "string"},
+    "retryable": {"type": "boolean"}
+  }
+}

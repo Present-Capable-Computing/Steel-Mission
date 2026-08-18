@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-000089",
+  "producedAt": "2026-08-17T19:15:01Z",
+  "producer": "present-worker coordination-report",
+  "mock": false,
+  "provenance": {
+    "source": "worker",
+    "host": "present-worker"
+  },
+  "packIdentity": {
+    "probe": "failed",
+    "reason": "pack manifest could not be read; no pack-scoped state was classified"
+  },
+  "summary": "The requested state report is unavailable because pack identity could not be established.",
+  "items": [],
+  "notChecked": [
+    {
+      "subject": "all pack-scoped state sources",
+      "reason": "pack identity probe failed before snapshot classification"
+    }
+  ],
+  "contradictions": [],
+  "advisoryNote": "Advisory coordination analysis by the DC13 Delivery Coordinator capability. Visibility confers no authority: this report approves, adopts, certifies, and gates nothing, and it is never verification evidence. Only present-worker verify produces PASS."
+}

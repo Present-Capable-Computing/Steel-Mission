@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-response-compact-v1.json",
+  "title": "Broker compaction response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "producedAt",
+    "producer",
+    "schemaRegistryHash",
+    "status",
+    "dryRun",
+    "removedTasks",
+    "candidateTasks",
+    "removedEvents",
+    "candidateEvents",
+    "artifactStore",
+    "artifactCandidates",
+    "removedArtifacts",
+    "retainedArtifactCount"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker"},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"const": "COMPACTED"},
+    "mode": {"type": "string", "minLength": 1},
+    "dryRun": {"type": "boolean"},
+    "removedTasks": {"type": "array", "items": {"type": "string", "pattern": "^DEV-[0-9]{6}$"}},
+    "candidateTasks": {"type": "array", "items": {"type": "string", "pattern": "^DEV-[0-9]{6}$"}},
+    "compactedTasks": {"type": "array", "items": {"type": "string", "pattern": "^DEV-[0-9]{6}$"}},
+    "removedEvents": {"type": "integer", "minimum": 0},
+    "candidateEvents": {"type": "integer", "minimum": 0},
+    "artifactStore": {"type": "string", "minLength": 1},
+    "artifactCandidates": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "removedArtifacts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "retainedArtifactCount": {"type": "integer", "minimum": 0}
+  }
+}

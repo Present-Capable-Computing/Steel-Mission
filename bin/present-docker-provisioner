@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Provision a Present worker execution surface backed by Docker."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def _utc_now() -> str:
+    import datetime
+
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_json_file(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _read_request() -> dict[str, Any]:
+    try:
+        value = json.loads(sys.stdin.read() or "{}")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"provision request must be JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("provision request must be a JSON object")
+    return value
+
+
+def _emit(payload: dict[str, Any], *, exit_code: int = 0) -> int:
+    print(json.dumps(payload, indent=2, sort_keys=True), file=sys.stdout if exit_code == 0 else sys.stderr)
+    return exit_code
+
+
+def _ensure_container(name: str, image: str) -> None:
+    docker = shutil.which("docker")
+    if docker is None:
+        raise RuntimeError("docker executable is not available")
+    inspect = subprocess.run([docker, "inspect", name], capture_output=True, text=True, timeout=30)
+    if inspect.returncode == 0:
+        return
+    result = subprocess.run(
+        [docker, "run", "-d", "--name", name, image, "sleep", "infinity"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "docker run failed")
+
+
+def _worker_env(args) -> dict[str, str]:
+    root = args.root
+    return {
+        "PRESENT_WORKER_ID": args.worker_id,
+        "PRESENT_WORKER_KIND": args.worker_kind,
+        "PRESENT_WORKER_SURFACE": "container",
+        "PRESENT_TASKS_DIR": str(root / "tasks"),
+        "PRESENT_LOGS_DIR": str(root / "logs"),
+        "PRESENT_TEST_RESULTS_DIR": str(root / "test-results"),
+        "PRESENT_JOBS_DIR": str(root / "jobs"),
+        "PRESENT_WORKTREES_DIR": str(root / "worktrees"),
+        "PRESENT_REPOS_DIR": str(root / "repos"),
+    }
+
+
+def _worker(args, status: dict[str, Any] | None) -> dict[str, Any]:
+    name = args.name or args.worker_id.replace(":", "-")
+    command = [*args.command]
+    if not args.dry_run:
+        command = ["docker", "exec", name, *args.command]
+    worker = {
+        "id": args.worker_id,
+        "command": command,
+        "transport": {
+            "kind": "container",
+            "command": command,
+            "timeoutSeconds": args.timeout_seconds,
+            "env": _worker_env(args),
+        },
+        "health": {"score": args.health_score},
+        "lifecycle": {
+            "retireAfterTask": args.retire_after_task,
+            **({"deprovisionCommand": args.deprovision_command} if args.deprovision_command else {}),
+        },
+    }
+    if status is not None:
+        worker["status"] = status
+    return worker
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="present-docker-provisioner")
+    parser.add_argument("--worker-id", required=True)
+    parser.add_argument("--worker-kind", default="linux-container")
+    parser.add_argument("--image", default="present-worker:latest")
+    parser.add_argument("--name", default="")
+    parser.add_argument("--root", type=Path, default=Path("/tmp/present-worker-docker"))
+    parser.add_argument("--command", nargs="+", default=["present-worker"])
+    parser.add_argument("--status-json", type=Path, default=None)
+    parser.add_argument("--timeout-seconds", type=int, default=120)
+    parser.add_argument("--health-score", type=int, default=90)
+    parser.add_argument("--retire-after-task", action="store_true", default=False)
+    parser.add_argument("--deprovision-command", nargs="+", default=None)
+    parser.add_argument("--dry-run", action="store_true", default=False)
+    args = parser.parse_args()
+    try:
+        request = _read_request()
+        if request.get("action") == "discover":
+            return _emit({
+                "schemaVersion": 1,
+                "status": "DISCOVERED",
+                "canProvision": True,
+                "workerKinds": [args.worker_kind],
+                "trustLevels": ["container-isolated"],
+                "supportedProviders": ["docker"],
+                "estimatedStartupSeconds": 30 if args.dry_run else 120,
+                "costClass": "local",
+            })
+        if request.get("action") == "reserve":
+            return _emit({
+                "schemaVersion": 1,
+                "status": "RESERVED",
+                "reservationId": f"docker-{args.worker_id.replace(':', '-')}",
+                "ttlSeconds": int(request.get("ttlSeconds") or 300),
+            })
+        if request.get("action") == "release-reservation":
+            return _emit({
+                "schemaVersion": 1,
+                "status": "RELEASED",
+                "reservationId": request.get("reservationId") or f"docker-{args.worker_id.replace(':', '-')}",
+            })
+        if request.get("action") != "provision":
+            raise ValueError("provision request action must be 'discover', 'reserve', 'release-reservation', or 'provision'")
+        if not args.dry_run:
+            _ensure_container(args.name or args.worker_id.replace(":", "-"), args.image)
+        status = _parse_json_file(args.status_json)
+        return _emit({
+            "schemaVersion": 1,
+            "status": "PROVISIONED",
+            "taskId": request.get("taskId"),
+            "producedAt": _utc_now(),
+            "workers": [_worker(args, status)],
+        })
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        return _emit({"schemaVersion": 1, "status": "FAILED", "reason": str(exc), "retryable": True}, exit_code=30)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

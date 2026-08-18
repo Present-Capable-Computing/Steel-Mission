@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/fix-result-v1.json",
+  "title": "Fix result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","taskId","producedAt","producer","mock","provenance","outcome"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "outcome": {"enum":["FIXED","PARTIAL","UNCHANGED","BUILD_FAILED","WORKER_OFFLINE"]},
+    "addressedFindings": {"type":"array","items":{"type":"string"}},
+    "diffStat": {"type":"object","properties":{"filesChanged":{"type":"integer","minimum":0},"insertions":{"type":"integer","minimum":0},"deletions":{"type":"integer","minimum":0}}}
+  }
+}

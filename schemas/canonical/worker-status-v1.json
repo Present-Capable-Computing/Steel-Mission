@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/worker-status-v1.json",
+  "title": "Worker status v1",
+  "description": "Return value of 'present-worker status'. The worker being absent is a normal classification, never an error.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","classification","producedAt","producer","mock","provenance"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "classification": {"enum":["ONLINE","OFFLINE","READY","PARTIAL","CREDENTIAL_MISSING","GLIMMER_NOT_READY","BUILD_ENVIRONMENT_NOT_READY"]},
+    "reachable": {"type":"boolean"},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "capabilities": {"type":"array","items":{"type":"string"}},
+    "missing": {"type":"array","items":{"type":"string"}},
+    "attempt": {"type":"integer","minimum":1},
+    "nextCheckAt": {"type":"string","format":"date-time"},
+    "detail": {"type":"object"}
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/workflow-dag-v1.json",
+  "title": "Workflow DAG v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "workflowId", "workflowRunId", "contractHash", "maxParallel", "nodes", "edges"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker workflow DAG"},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "maxParallel": {"type": "integer", "minimum": 1, "maximum": 8},
+    "nodes": {"type": "array", "items": {"type": "object"}},
+    "edges": {"type": "array", "items": {"type": "object"}}
+  }
+}

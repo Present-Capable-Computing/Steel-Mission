@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/handoff-package-v1.json",
+  "title": "Handoff package v1",
+  "description": "Compact worker-to-control-plain decision package emitted after workflow execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "workflowId",
+    "workflowRunId",
+    "contractHash",
+    "policyPack",
+    "admissionArtifact",
+    "workflowArtifact",
+    "evidenceManifest",
+    "redactionReport",
+    "exportable",
+    "verificationEvidence",
+    "gateDecision",
+    "gateReason",
+    "persistRecommendations"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "policyPack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "registryHash", "riskClass", "status"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+        "version": {"type": "integer", "minimum": 1},
+        "registryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "riskClass": {"enum": ["low", "normal", "high", "critical"]},
+        "status": {"enum": ["SATISFIED", "REJECTED"]}
+      }
+    },
+    "admissionArtifact": {"$ref": "#/$defs/artifactRefWithStatus"},
+    "workflowArtifact": {"$ref": "#/$defs/artifactRefWithStatus"},
+    "evidenceManifest": {"$ref": "#/$defs/evidenceManifestRef"},
+    "redactionReport": {"$ref": "#/$defs/artifactRefWithStatus"},
+    "exportable": {"type": "boolean"},
+    "executionLease": {"$ref": "#/$defs/leaseRef"},
+    "verificationEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "nodeId", "path", "sha256", "gateEligible"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^ev-[a-f0-9]{24}$"},
+          "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "gateEligible": {"type": "boolean"},
+          "schema": {"type": "string", "minLength": 1},
+          "evidenceRole": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "gateDecision": {"enum": ["PASS", "FAIL", "INCONCLUSIVE", "BLOCKED"]},
+    "gateReason": {"type": "string", "minLength": 1},
+    "policyEvaluation": {"type": "object"},
+    "persistRecommendations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "artifact", "purpose"],
+        "properties": {
+          "target": {"type": "string", "minLength": 1},
+          "artifact": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "artifactRefWithStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "status"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "status": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidenceManifestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "gateEligible"],
+      "properties": {
+        "kind": {"const": "evidence-manifest"},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "gateEligible": {"type": "boolean"}
+      }
+    },
+    "leaseRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaseId", "workerId", "workerKind", "status", "contractHash", "acquiredAt", "expiresAt", "ttlSeconds"],
+      "properties": {
+        "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"},
+        "workerId": {"type": "string", "minLength": 1},
+        "workerKind": {"type": "string", "minLength": 1},
+        "status": {"enum": ["ACTIVE", "RELEASED", "EXPIRED"]},
+        "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "acquiredAt": {"type": "string", "minLength": 1},
+        "expiresAt": {"type": "string", "minLength": 1},
+        "ttlSeconds": {"type": "integer", "minimum": 30, "maximum": 86400}
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/worker-version-v1.json",
+  "title": "Worker version response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producedAt", "producer", "name", "version", "protocolVersion", "schemaAuthority", "schemaRegistryHash"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-worker version"},
+    "name": {"const": "present-worker"},
+    "version": {"type": "string", "minLength": 1},
+    "protocolVersion": {"type": "string", "minLength": 1},
+    "schemaAuthority": {"type": "string", "minLength": 1},
+    "schemaRegistryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

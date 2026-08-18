@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900001",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-lease-broker distributed state",
+  "workflowId": "DEV-900001-workflow",
+  "contractHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "storeRoot": "/tmp/present-artifacts",
+  "placements": [
+    {
+      "nodeId": "plan",
+      "capability": "plan",
+      "workerId": "macbook-local:test",
+      "eligibleWorkers": [{"workerId": "macbook-local:test", "score": 100}]
+    }
+  ],
+  "artifactTransferManifest": {},
+  "nodes": {},
+  "nodeDispatches": [],
+  "artifactStore": [],
+  "importedArtifacts": []
+}

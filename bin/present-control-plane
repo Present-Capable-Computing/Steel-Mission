@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Guarded Present control-plane entrypoint for agent actions."""
+from __future__ import annotations
+
+import argparse
+import json
+import runpy
+import sys
+from pathlib import Path
+from typing import Any
+
+
+WORKER_DIR = Path(__file__).resolve().parent.parent
+SERVER_PATH = WORKER_DIR / "closed-claw-chat" / "server.py"
+
+
+def load_server() -> dict[str, Any]:
+    return runpy.run_path(str(SERVER_PATH))
+
+
+def read_payload(args: argparse.Namespace) -> dict[str, Any]:
+    if args.json:
+        payload = json.loads(args.json)
+    elif args.file:
+        payload = json.loads(Path(args.file).read_text())
+    else:
+        payload = json.loads(sys.stdin.read() or "{}")
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be a JSON object")
+    return payload
+
+
+def command_session(args: argparse.Namespace) -> int:
+    server = load_server()
+    session = server["issue_enterprise_session"](args.actor, args.role)
+    print(json.dumps({"ok": True, "session": session}, indent=2, sort_keys=True))
+    return 0
+
+
+def command_exec(args: argparse.Namespace) -> int:
+    payload = read_payload(args)
+    server = load_server()
+    token = args.token or payload.get("accessToken") or payload.get("session") or ""
+    verified = server["verify_enterprise_session"](token)
+    if verified.get("ok") is not True:
+        print(json.dumps({
+            "ok": False,
+            "error": "signed session is required",
+            "detail": verified.get("error") or "",
+        }, indent=2, sort_keys=True), file=sys.stderr)
+        return 1
+    actor = {
+        "actorId": verified.get("actorId") or "",
+        "role": verified.get("role") or "user",
+        "authPolicyHash": verified.get("authPolicyHash") or "",
+        "sessionVerified": True,
+    }
+    result = server["control_plane_execute_action"](payload, actor)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result.get("ok") else 2
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="present-control-plane")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    session = subparsers.add_parser("session", help="Issue a local signed enterprise-session token.")
+    session.add_argument("--actor", default="local-user")
+    session.add_argument("--role", default="user")
+    session.set_defaults(func=command_session)
+    exec_parser = subparsers.add_parser("exec", help="Run one guarded action through the control plane.")
+    exec_parser.add_argument("--token", default="")
+    source = exec_parser.add_mutually_exclusive_group()
+    source.add_argument("--json", default="")
+    source.add_argument("--file", default="")
+    exec_parser.set_defaults(func=command_exec)
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        return int(args.func(args))
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

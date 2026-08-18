@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900071",
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-lease-broker workflow DAG",
+  "workflowId": "DEV-900071-workflow",
+  "workflowRunId": "wr-111111111111111111111111",
+  "contractHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "maxParallel": 2,
+  "nodes": [
+    {
+      "nodeId": "plan",
+      "capability": "plan",
+      "dependsOn": [],
+      "policy": {"required": true, "blocksOn": ["FAILED", "BLOCKED"], "timeoutSeconds": 900},
+      "workerId": "macbook-local:plan",
+      "nodeContractHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "nodeId": "verify",
+      "capability": "deterministic-verify",
+      "dependsOn": ["plan"],
+      "policy": {"required": true, "blocksOn": ["FAILED", "BLOCKED"], "timeoutSeconds": 900},
+      "workerId": "linux-container:verify",
+      "nodeContractHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "edges": [
+    {"from": "plan", "to": "verify"}
+  ]
+}

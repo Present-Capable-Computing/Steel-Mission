@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/broker-distributed-artifacts-v1.json",
+  "title": "Broker distributed artifacts v1",
+  "description": "Broker response wrapper for distributed workflow handoff artifacts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "status",
+    "workflowId",
+    "workflowRunId",
+    "contractHash",
+    "admission",
+    "workflowDag",
+    "workflowDagPath",
+    "workflowPath",
+    "evidenceManifest",
+    "evidenceGraph",
+    "evidenceGraphPath",
+    "redactionReport",
+    "replayReport",
+    "replayReportPath",
+    "artifactProvenance",
+    "artifactProvenancePath",
+    "acceptanceManifest",
+    "acceptanceManifestPath",
+    "retentionPolicy",
+    "handoffPackage",
+    "handoffPath",
+    "handoffSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "status": {"enum": ["READY", "REDACTION_BLOCKED"]},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "workflowDag": {"type": "object"},
+    "workflowDagPath": {"type": "string", "minLength": 1},
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "taskId",
+        "producedAt",
+        "producer",
+        "mock",
+        "provenance",
+        "status",
+        "workflowId",
+        "contractHash",
+        "policyPack"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+        "producedAt": {"type": "string", "minLength": 1},
+        "producer": {"type": "string", "minLength": 1},
+        "mock": {"type": "boolean"},
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {
+            "source": {"enum": ["worker", "mock-adapter"]},
+            "host": {"type": "string"},
+            "commit": {"type": "string"}
+          }
+        },
+        "status": {"const": "ADMITTED"},
+        "workflowId": {"type": "string", "minLength": 1},
+        "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "policyPack": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version", "registryHash", "riskClass", "status"],
+          "properties": {
+            "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+            "version": {"type": "integer", "minimum": 1},
+            "registryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "riskClass": {"enum": ["low", "normal", "high", "critical"]},
+            "status": {"const": "SATISFIED"}
+          }
+        }
+      }
+    },
+    "workflowPath": {"type": "string", "minLength": 1},
+    "evidenceManifest": {"type": "object"},
+    "evidenceGraph": {"type": "object"},
+    "evidenceGraphPath": {"type": "string", "minLength": 1},
+    "redactionReport": {"type": "object"},
+    "replayReport": {"type": "object"},
+    "replayReportPath": {"type": "string", "minLength": 1},
+    "artifactProvenance": {"type": "object"},
+    "artifactProvenancePath": {"type": "string", "minLength": 1},
+    "acceptanceManifest": {"type": "object"},
+    "acceptanceManifestPath": {"type": "string", "minLength": 1},
+    "retentionPolicy": {"type": "object"},
+    "handoffPackage": {"type": "object"},
+    "handoffPath": {"type": "string", "minLength": 1},
+    "handoffSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

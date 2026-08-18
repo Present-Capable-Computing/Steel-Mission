@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/coordination-snapshot-policy-v1.json",
+  "title": "Coordination snapshot policy v1",
+  "description": "Bounded worker-side source selection policy for advisory coordination-report snapshots. It selects from known worker-visible sources only and grants no model tool, filesystem, verification, evidence, or gate authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "includeCollections", "limits", "sources"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "sourceProfile": {"type": "string", "minLength": 1, "maxLength": 128},
+    "includeCollections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "items": {
+        "enum": [
+          "tasks",
+          "advisoryTasks",
+          "buildJobs",
+          "verifyResults",
+          "distributedWorkflows",
+          "generalDocuments",
+          "missions"
+        ]
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tasks": {"type": "integer", "minimum": 0, "maximum": 500},
+        "advisoryTasks": {"type": "integer", "minimum": 0, "maximum": 100},
+        "buildJobs": {"type": "integer", "minimum": 0, "maximum": 500},
+        "verifyResults": {"type": "integer", "minimum": 0, "maximum": 500},
+        "distributedWorkflows": {"type": "integer", "minimum": 0, "maximum": 100},
+        "brokerStateSources": {"type": "integer", "minimum": 0, "maximum": 50},
+        "brokerArtifacts": {"type": "integer", "minimum": 0, "maximum": 50},
+        "operatorAudit": {"type": "integer", "minimum": 0, "maximum": 100},
+        "generalDocuments": {"type": "integer", "minimum": 0, "maximum": 100},
+        "missions": {"type": "integer", "minimum": 0, "maximum": 100}
+      }
+    },
+    "taskSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {"enum": ["latest", "explicit"]},
+        "taskIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {"type": "string", "pattern": "^DEV-[0-9]{6}$"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"mode": {"const": "explicit"}},
+            "required": ["mode"]
+          },
+          "then": {"required": ["taskIds"]}
+        }
+      ]
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskRoots", "logRoots", "buildJobRoots", "verifyResultRoots", "brokerStatePaths"],
+      "properties": {
+        "taskRoots": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "logRoots": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "buildJobRoots": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "missionRoots": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "verifyResultRoots": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "brokerStatePaths": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "repositoryRoots": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "path"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "maxLength": 128},
+              "path": {"type": "string", "minLength": 1, "maxLength": 4096}
+            }
+          }
+        },
+        "documentPaths": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "path"],
+            "properties": {
+              "title": {"type": "string", "minLength": 1, "maxLength": 256},
+              "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+              "kind": {"type": "string", "minLength": 1, "maxLength": 64}
+            }
+          }
+        }
+      }
+    }
+  }
+}

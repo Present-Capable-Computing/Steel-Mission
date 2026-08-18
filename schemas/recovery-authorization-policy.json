@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-recovery-authorization-policy",
+  "rules": [
+    {"action": "cancel-workflow", "minimumRole": "operator"},
+    {"action": "failover-lease", "minimumRole": "operator"},
+    {"action": "mark-inconsistent", "minimumRole": "admin"},
+    {"action": "recover-node-lease", "minimumRole": "operator"},
+    {"action": "reimport-artifact", "minimumRole": "operator"},
+    {"action": "rematerialize-artifact", "minimumRole": "operator"},
+    {"action": "retry-node", "minimumRole": "operator"},
+    {"action": "cancel-subgraph", "minimumRole": "operator"},
+    {"action": "retire-worker", "minimumRole": "admin"}
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "closed-claw",
+  "users": [
+    {
+      "id": "morgan-vale",
+      "name": "Morgan Vale",
+      "email": "morgan.vale@example.test",
+      "role": "owner",
+      "status": "active",
+      "assignedCapabilities": []
+    },
+    {
+      "id": "riley-chen",
+      "name": "Riley Chen",
+      "email": "riley.chen@example.test",
+      "role": "admin",
+      "status": "active",
+      "assignedCapabilities": []
+    },
+    {
+      "id": "avery-stone",
+      "name": "Avery Stone",
+      "email": "avery.stone@example.test",
+      "role": "publisher",
+      "status": "active",
+      "assignedCapabilities": ["DC03", "DC04", "DC06", "DC09", "DC11", "DC13"]
+    },
+    {
+      "id": "jordan-lee",
+      "name": "Jordan Lee",
+      "email": "jordan.lee@example.test",
+      "role": "user",
+      "status": "active",
+      "assignedCapabilities": ["DC04", "DC05", "DC13"]
+    }
+  ]
+}

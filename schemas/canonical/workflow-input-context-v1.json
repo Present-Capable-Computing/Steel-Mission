@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/workflow-input-context-v1.json",
+  "title": "Workflow input context v1",
+  "description": "Worker-local resolved input artifact context for one workflow node.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "nodeId",
+    "resolvedInputs"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "nodeId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "resolvedInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nodeId"],
+          "properties": {
+            "nodeId": {"type": "string"},
+            "commit": {"type": "string"}
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["nodeId", "kind", "path"],
+            "properties": {
+              "nodeId": {"type": "string"},
+              "kind": {"type": "string", "minLength": 1},
+              "path": {"type": "string", "minLength": 1},
+              "localPath": {"type": "string", "minLength": 1},
+              "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

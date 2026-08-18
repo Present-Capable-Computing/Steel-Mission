@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/coordination-report-request-v1.json",
+  "title": "Coordination report request contract v1",
+  "description": "Command-free input contract for the advisory-only coordination-report verb. It carries no verification, build, state-transition, evidence, or gate authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "provenance",
+    "verb",
+    "advisory",
+    "verificationAuthority",
+    "runtimeProfile",
+    "modelPolicy",
+    "snapshotPolicy"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1, "maxLength": 256},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "enum": ["control-plain", "worker-local-advisory-client"]
+        },
+        "host": {"type": "string", "minLength": 1, "maxLength": 256},
+        "commit": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "verb": {"const": "coordination-report"},
+    "advisory": {"const": true},
+    "verificationAuthority": {"const": false},
+    "runtimeProfile": {"$ref": "#/$defs/runtimeProfile"},
+    "modelPolicy": {"$ref": "#/$defs/modelPolicy"},
+    "snapshotPolicy": {"$ref": "#/$defs/snapshotPolicy"}
+  },
+  "$defs": {
+    "runtimeProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "label",
+        "status",
+        "modelRole",
+        "modelProvider",
+        "snapshotProfile",
+        "defaultFor",
+        "editableBy",
+        "visibilityRoleKeys",
+        "registryPath",
+        "registryHash",
+        "resolvedAt"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "label": {"type": "string", "minLength": 1, "maxLength": 128},
+        "status": {"enum": ["active", "disabled"]},
+        "modelRole": {"type": "string", "minLength": 1, "maxLength": 128},
+        "modelProvider": {"enum": ["auto", "claude", "glimmer"]},
+        "snapshotProfile": {"type": "string", "minLength": 1, "maxLength": 128},
+        "defaultFor": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "editableBy": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {"enum": ["owner", "admin", "publisher", "user", "local-user", "org-admin"]}
+        },
+        "visibilityRoleKeys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {"type": "string", "pattern": "^(KD0[1-9]|KD[1-9][0-9]|DC0[1-9]|DC[1-9][0-9])$"}
+        },
+        "registryPath": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "registryHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "resolvedAt": {"type": "string", "minLength": 1, "maxLength": 64}
+      }
+    },
+    "modelPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "role", "selectedModel", "provider", "transport", "snapshotProfile"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "role": {"type": "string", "minLength": 1, "maxLength": 128},
+        "selectedModel": {"type": "string", "minLength": 1, "maxLength": 128},
+        "provider": {"enum": ["claude", "glimmer"]},
+        "transport": {"enum": ["claude-code", "ollama"]},
+        "snapshotProfile": {"type": "string", "minLength": 1, "maxLength": 128},
+        "fallbackReason": {"type": "string", "minLength": 1, "maxLength": 256},
+        "registryPath": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "resolvedAt": {"type": "string", "minLength": 1, "maxLength": 64}
+      }
+    },
+    "snapshotPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "includeCollections", "limits", "sources"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "sourceProfile": {"type": "string", "minLength": 1, "maxLength": 128},
+        "includeCollections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "items": {
+            "enum": [
+              "tasks",
+              "advisoryTasks",
+              "buildJobs",
+              "verifyResults",
+              "distributedWorkflows",
+              "generalDocuments",
+              "missions"
+            ]
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tasks": {"type": "integer", "minimum": 0, "maximum": 500},
+            "advisoryTasks": {"type": "integer", "minimum": 0, "maximum": 100},
+            "buildJobs": {"type": "integer", "minimum": 0, "maximum": 500},
+            "verifyResults": {"type": "integer", "minimum": 0, "maximum": 500},
+            "distributedWorkflows": {"type": "integer", "minimum": 0, "maximum": 100},
+            "brokerStateSources": {"type": "integer", "minimum": 0, "maximum": 50},
+            "brokerArtifacts": {"type": "integer", "minimum": 0, "maximum": 50},
+            "operatorAudit": {"type": "integer", "minimum": 0, "maximum": 100},
+            "generalDocuments": {"type": "integer", "minimum": 0, "maximum": 100},
+            "missions": {"type": "integer", "minimum": 0, "maximum": 100}
+          }
+        },
+        "taskSelector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {"enum": ["latest", "explicit"]},
+            "taskIds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {"type": "string", "pattern": "^DEV-[0-9]{6}$"}
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"mode": {"const": "explicit"}},
+                "required": ["mode"]
+              },
+              "then": {"required": ["taskIds"]}
+            }
+          ]
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["taskRoots", "logRoots", "buildJobRoots", "verifyResultRoots", "brokerStatePaths"],
+          "properties": {
+            "taskRoots": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+            },
+            "logRoots": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+            },
+            "buildJobRoots": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+            },
+            "missionRoots": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+            },
+            "verifyResultRoots": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+            },
+            "brokerStatePaths": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+            },
+            "repositoryRoots": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "path"],
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "maxLength": 128},
+                  "path": {"type": "string", "minLength": 1, "maxLength": 4096}
+                }
+              }
+            },
+            "documentPaths": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["title", "path"],
+                "properties": {
+                  "title": {"type": "string", "minLength": 1, "maxLength": 256},
+                  "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+                  "kind": {"type": "string", "minLength": 1, "maxLength": 64}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

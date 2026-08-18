@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/distributed-replay-report-v1.json",
+  "title": "Distributed replay report v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "workflowId", "workflowRunId", "contractHash", "reusedNodes", "freshNodes", "invalidatedNodes", "skippedNodes"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker replay reporter"},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reusedNodes": {"type": "array", "items": {"type": "string"}},
+    "freshNodes": {"type": "array", "items": {"type": "string"}},
+    "invalidatedNodes": {"type": "array", "items": {"type": "string"}},
+    "skippedNodes": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-000089",
+  "producedAt": "2026-08-17T19:15:00Z",
+  "producer": "closed-claw-chat-local",
+  "provenance": {
+    "source": "worker-local-advisory-client",
+    "host": "present-worker"
+  },
+  "verb": "coordination-report",
+  "advisory": true,
+  "verificationAuthority": false,
+  "runtimeProfile": {
+    "schemaVersion": 1,
+    "id": "dc13.local",
+    "label": "DC13 Local / Glimmer",
+    "status": "active",
+    "modelRole": "dc13.coordination-report",
+    "modelProvider": "glimmer",
+    "snapshotProfile": "worker-local-glimmer-fallback",
+    "defaultFor": [],
+    "editableBy": ["owner", "admin", "publisher"],
+    "visibilityRoleKeys": ["DC13", "DC11", "DC12"],
+    "registryPath": "/tmp/present/config/runtime-profiles.json",
+    "registryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "resolvedAt": "2026-08-17T19:15:00Z"
+  },
+  "modelPolicy": {
+    "schemaVersion": 1,
+    "role": "dc13.coordination-report",
+    "selectedModel": "qwen2.5-coder:14b",
+    "provider": "glimmer",
+    "transport": "ollama",
+    "snapshotProfile": "worker-local-glimmer-fallback"
+  },
+  "snapshotPolicy": {
+    "schemaVersion": 1,
+    "sourceProfile": "fixture",
+    "includeCollections": ["tasks", "verifyResults"],
+    "limits": {
+      "tasks": 30,
+      "advisoryTasks": 0,
+      "buildJobs": 0,
+      "verifyResults": 30,
+      "distributedWorkflows": 0,
+      "brokerStateSources": 0,
+      "brokerArtifacts": 0,
+      "operatorAudit": 0,
+      "generalDocuments": 0
+    },
+    "taskSelector": {"mode": "latest"},
+    "sources": {
+      "taskRoots": ["/tmp/present/tasks"],
+      "logRoots": ["/tmp/present/logs"],
+      "buildJobRoots": [],
+      "verifyResultRoots": ["/tmp/present/test-results"],
+      "brokerStatePaths": [],
+      "repositoryRoots": [],
+      "documentPaths": []
+    }
+  }
+}

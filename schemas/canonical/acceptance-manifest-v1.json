@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/acceptance-manifest-v1.json",
+  "title": "Acceptance manifest v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "workflowId", "workflowRunId", "contractHash", "decision", "reason", "acceptedEvidence"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker deterministic acceptance"},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "decision": {"type": "string"},
+    "reason": {"type": "string"},
+    "acceptedEvidence": {"type": "array", "items": {"type": "object"}}
+  }
+}

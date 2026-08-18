@@ -1,0 +1,1 @@
+{"schemaVersion":1,"producedAt":"2026-08-16T17:30:00Z","producer":"deterministic-verifier","provenance":{"source":"control-plain"},"mock":false,"taskId":"DEV-000001","result":"PASS","deterministic":true,"checks":[{"name":"schema","passed":true}]}

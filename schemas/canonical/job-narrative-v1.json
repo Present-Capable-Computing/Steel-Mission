@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/job-narrative-v1.json",
+  "title": "Job narrative v1",
+  "description": "Human-readable end-to-end execution story for one brokered job.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "workflowId",
+    "workflowRunId",
+    "status",
+    "summary",
+    "events",
+    "plainText"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker job narrative"},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1},
+    "summary": {"type": "string", "minLength": 1},
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "at", "actor", "action", "target", "humanText"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 1},
+          "at": {"type": "string", "minLength": 1},
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": {"enum": ["control-plain", "worker", "agent", "tool", "verifier"]},
+              "id": {"type": "string", "minLength": 1}
+            }
+          },
+          "action": {"type": "string", "minLength": 1},
+          "target": {"type": "string", "minLength": 1},
+          "workerId": {"type": "string", "minLength": 1},
+          "nodeId": {"type": "string", "minLength": 1},
+          "toolId": {"type": "string", "minLength": 1},
+          "artifactRefs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": {"type": "string", "minLength": 1},
+                "path": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+              }
+            }
+          },
+          "evidenceRefs": {"type": "array", "items": {"type": "object"}},
+          "humanText": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "plainText": {"type": "string", "minLength": 1}
+  }
+}

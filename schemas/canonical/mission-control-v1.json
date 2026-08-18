@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/mission-control-v1.json",
+  "title": "Mission control record v1",
+  "description": "Durable DC13 mission record for one advisory or orchestrated job, including runtime binding, snapshot-policy summary, mission nodes, evidence, progress, and audit counters.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "missionId",
+    "jobId",
+    "taskId",
+    "producer",
+    "createdAt",
+    "updatedAt",
+    "state",
+    "operatorRole",
+    "profile",
+    "snapshotPolicySummary",
+    "auditCount"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "missionId": {"type": "string", "pattern": "^ms-[a-f0-9]{24}$"},
+    "jobId": {"type": "string", "minLength": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producer": {"const": "closed-claw-chat mission-control"},
+    "createdAt": {"type": "string", "minLength": 1},
+    "updatedAt": {"type": "string", "minLength": 1},
+    "startedAt": {"type": "string", "minLength": 1},
+    "completedAt": {"type": "string", "minLength": 1},
+    "state": {
+      "enum": [
+        "running",
+        "paused",
+        "waiting_for_decision",
+        "waiting_for_approval",
+        "cancelled",
+        "done",
+        "error",
+        "unknown"
+      ]
+    },
+    "operatorRole": {"enum": ["owner", "admin", "publisher", "user"]},
+    "mock": {"type": "boolean"},
+    "missionKind": {"enum": ["advisory-chat", "orchestrated"]},
+    "templateId": {"type": "string"},
+    "templateTitle": {"type": "string"},
+    "objective": {"type": "string"},
+    "question": {"type": "string"},
+    "profile": {"type": "string", "minLength": 1},
+    "runtimeProfile": {"type": "object"},
+    "modelPolicy": {"type": "object"},
+    "snapshotPolicySummary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["policyHash", "includeCollections", "sourceCounts"],
+      "properties": {
+        "sourceProfile": {"type": "string"},
+        "policyHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "includeCollections": {"type": "array", "items": {"type": "string"}},
+        "limits": {"type": "object"},
+        "sourceCounts": {"type": "object"}
+      }
+    },
+    "snapshotCollections": {"type": "array", "items": {"type": "object"}},
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["nodeId", "title", "kind", "capability", "state"],
+        "properties": {
+          "nodeId": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "capability": {"type": "string", "minLength": 1},
+          "requiresApproval": {"type": "boolean"},
+          "state": {
+            "enum": [
+              "pending",
+              "running",
+              "waiting_for_approval",
+              "approved",
+              "done",
+              "skipped",
+              "error"
+            ]
+          },
+          "attempts": {"type": "integer", "minimum": 0},
+          "evidenceRefs": {"type": "array", "items": {"type": "object"}},
+          "resultSummary": {"type": "string"}
+        }
+      }
+    },
+    "approvals": {"type": "array", "items": {"type": "object"}},
+    "evidenceLedger": {"type": "array", "items": {"type": "object"}},
+    "currentNodeId": {"type": "string"},
+    "resumable": {"type": "boolean"},
+    "steeringRevision": {"type": "integer", "minimum": 0},
+    "followUpCount": {"type": "integer", "minimum": 0},
+    "restartCount": {"type": "integer", "minimum": 0},
+    "durationSeconds": {"type": "number", "minimum": 0},
+    "exitCode": {"type": "integer"},
+    "ok": {"type": "boolean"},
+    "error": {"type": "string"},
+    "lastPhase": {"type": "string"},
+    "progress": {"type": "object"},
+    "auditCount": {"type": "integer", "minimum": 0},
+    "lastAuditAction": {"type": "string"},
+    "lastAuditAt": {"type": "string"},
+    "latestAudit": {"type": "object"}
+  }
+}

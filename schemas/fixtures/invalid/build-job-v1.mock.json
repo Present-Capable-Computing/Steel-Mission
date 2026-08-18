@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-000017",
+  "producedAt": "2026-08-16T22:00:00Z",
+  "producer": "present-worker build",
+  "mock": true,
+  "provenance": {"source": "worker"},
+  "jobId": "DEV-000017-build",
+  "state": "QUEUED",
+  "pollAfterSeconds": 5
+}

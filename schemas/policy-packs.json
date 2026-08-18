@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-18T00:00:00Z",
+  "producer": "present-control policy-pack registry",
+  "packs": [
+    {
+      "id": "present-default-change",
+      "version": 1,
+      "riskClass": "normal",
+      "requiredCapabilities": [],
+      "requiredEvidenceRoles": [],
+      "forbiddenCapabilities": [],
+      "minVerifierCount": 0
+    },
+    {
+      "id": "present-standard-change",
+      "version": 1,
+      "riskClass": "normal",
+      "requiredCapabilities": ["plan", "code-review", "deterministic-verify"],
+      "requiredEvidenceRoles": ["advisory-review", "deterministic-acceptance"],
+      "forbiddenCapabilities": ["coordination-report"],
+      "minVerifierCount": 1,
+      "acceptancePolicy": {
+        "mode": "single-deterministic-verifier",
+        "minVerifierCount": 1,
+        "requiredEvidenceRoles": ["advisory-review", "deterministic-acceptance"],
+        "allowMockEvidence": false
+      }
+    },
+    {
+      "id": "present-high-risk-change",
+      "version": 1,
+      "riskClass": "high",
+      "requiredCapabilities": ["plan", "deterministic-verify"],
+      "requiredEvidenceRoles": ["deterministic-acceptance"],
+      "forbiddenCapabilities": [],
+      "minVerifierCount": 1,
+      "acceptancePolicy": {
+        "mode": "unanimous",
+        "minVerifierCount": 1,
+        "requiredEvidenceRoles": ["deterministic-acceptance"],
+        "allowMockEvidence": false
+      }
+    },
+    {
+      "id": "present-no-planning",
+      "version": 1,
+      "riskClass": "normal",
+      "requiredCapabilities": [],
+      "requiredEvidenceRoles": [],
+      "forbiddenCapabilities": ["plan"],
+      "minVerifierCount": 1
+    },
+    {
+      "id": "present-evidence-gated",
+      "version": 1,
+      "riskClass": "normal",
+      "requiredCapabilities": ["code-review", "deterministic-verify"],
+      "requiredEvidenceRoles": ["advisory-review", "deterministic-acceptance"],
+      "forbiddenCapabilities": [],
+      "minVerifierCount": 1,
+      "acceptancePolicy": {
+        "mode": "single-deterministic-verifier",
+        "minVerifierCount": 1,
+        "requiredEvidenceRoles": ["advisory-review", "deterministic-acceptance"],
+        "allowMockEvidence": false
+      }
+    },
+    {
+      "id": "present-retained-change",
+      "version": 1,
+      "riskClass": "normal",
+      "requiredCapabilities": [],
+      "requiredEvidenceRoles": [],
+      "forbiddenCapabilities": [],
+      "minVerifierCount": 0,
+      "retentionPolicy": {
+        "class": "audit",
+        "ttlSeconds": 2592000,
+        "redactionRequired": true,
+        "purgeOnCompletion": false
+      }
+    }
+  ]
+}

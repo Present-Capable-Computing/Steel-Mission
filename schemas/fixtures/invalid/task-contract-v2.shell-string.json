@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "taskId": "DEV-000017",
+  "producedAt": "2026-08-16T22:00:00Z",
+  "producer": "present-control",
+  "provenance": {"source": "control-plain"},
+  "build": {"target": "present-repository", "commands": ["make all"]},
+  "verification": {
+    "target": "present-repository",
+    "commands": [{"name": "tests", "argv": ["/usr/bin/make", "test"], "expectedExitCode": 0, "timeoutSeconds": 900}]
+  }
+}

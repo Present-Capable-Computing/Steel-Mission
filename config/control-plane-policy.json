@@ -1,0 +1,76 @@
+{
+  "approvalRequired": {
+    "deployEnvironments": [
+      "production",
+      "prod"
+    ],
+    "deployProviders": [
+      "command",
+      "sites"
+    ],
+    "phases": [
+      "modify",
+      "repair"
+    ],
+    "prModes": [
+      "draft",
+      "create"
+    ]
+  },
+  "autoApprovedPhases": [
+    "build",
+    "test",
+    "inspect"
+  ],
+  "blockedCommandPatterns": [
+    "\\bsudo\\b",
+    "\\brm\\s+-rf\\s+/",
+    "\\bcurl\\b.*\\|\\s*(?:sh|bash)\\b",
+    "\\bwget\\b.*\\|\\s*(?:sh|bash)\\b",
+    "\\bchmod\\s+-R\\s+777\\b",
+    "\\bdd\\s+if=",
+    "\\bmkfs(?:\\.[A-Za-z0-9]+)?\\b",
+    ":\\(\\)\\{\\s*:\\|:&\\s*\\};:"
+  ],
+  "complianceMappings": {
+    "ISO 27001": [
+      "A.5.15",
+      "A.5.23",
+      "A.8.9",
+      "A.8.16",
+      "A.8.32"
+    ],
+    "ISO 42001": [
+      "A.6.2",
+      "A.7.4",
+      "A.8.2"
+    ],
+    "SOC 2": [
+      "CC6.1",
+      "CC7.2",
+      "CC8.1",
+      "CC8.5"
+    ]
+  },
+  "customerBoundary": {
+    "deployment": "customer-vpc-or-private-cloud",
+    "description": "Missions run against customer-bound repositories, documents, and infrastructure.",
+    "required": true
+  },
+  "executionBoundary": {
+    "description": "Executable agent actions must enter through the signed guarded runner boundary.",
+    "directCommandMode": "block",
+    "guardedEntrypoints": [
+      "bin/present-control-plane",
+      "/api/control-plane/execute"
+    ],
+    "guardedRunnerRequired": true
+  },
+  "modelIndependence": {
+    "description": "The same pre-execution policy is applied regardless of model provider.",
+    "required": true
+  },
+  "policyId": "present.delivery-control.ga-boundary",
+  "producer": "closed-claw-chat control-plane",
+  "schemaVersion": 1
+}

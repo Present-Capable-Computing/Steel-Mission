@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-16T17:34:03Z",
+  "producer": "worker-health.sh",
+  "mock": false,
+  "provenance": { "source": "control-plain", "host": "macmini" },
+  "classification": "OFFLINE",
+  "reachable": false,
+  "capabilities": [],
+  "missing": ["worker-host-unconfigured"],
+  "attempt": 1,
+  "nextCheckAt": "2026-08-16T17:35:03Z",
+  "detail": { "note": "MacBook not configured yet (Plan 2). Absence is expected, not a failure." }
+}

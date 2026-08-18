@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/build-result-v1.json",
+  "title": "Build result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","taskId","producedAt","producer","mock","provenance","outcome"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "outcome": {"enum":["SUCCEEDED","BUILD_FAILED","WORKER_OFFLINE","INFRASTRUCTURE_FAILURE"]},
+    "exitCode": {"type":"integer"},
+    "durationSeconds": {"type":"number","minimum":0},
+    "artifacts": {"type":"array","items":{"type":"object","required":["path","sha256"],"properties":{"path":{"type":"string"},"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"}}}},
+    "logExcerpt": {"type":"string"}
+  }
+}

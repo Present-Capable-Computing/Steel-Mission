@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "status",
+    "workflowId",
+    "workflowRunId",
+    "contractHash",
+    "maxParallel",
+    "freshNodes",
+    "reusedNodes",
+    "nodes",
+    "evidence",
+    "advisoryNote"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "DEV-[0-9]{6}"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "status": {"enum": ["SUCCEEDED", "WAITING", "FAILED", "BLOCKED"]},
+    "workflowId": {"type": "string", "minLength": 1},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "maxParallel": {"type": "integer", "minimum": 1, "maximum": 8},
+    "freshNodes": {"type": "array", "items": {"type": "string", "pattern": "[a-z][a-z0-9-]{0,63}"}},
+    "reusedNodes": {"type": "array", "items": {"type": "string", "pattern": "[a-z][a-z0-9-]{0,63}"}},
+    "resumedFromRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "executionLease": {"$ref": "#/$defs/leaseRef"},
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "capability",
+          "verb",
+          "dependsOn",
+          "nodeContractHash",
+          "status",
+          "exitCode",
+          "startedAt",
+          "finishedAt",
+          "payload"
+        ],
+        "properties": {
+          "id": {"type": "string", "pattern": "[a-z][a-z0-9-]{0,63}"},
+          "capability": {"type": "string", "minLength": 1},
+          "verb": {"enum": ["plan", "build", "fix", "review", "adversarial", "verify", "coordination-report"]},
+          "dependsOn": {"type": "array", "items": {"type": "string"}},
+          "nodeContractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "inputs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "commitFrom": {"type": "string"},
+              "artifactsFrom": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["required", "blocksOn", "timeoutSeconds"],
+            "properties": {
+              "required": {"type": "boolean"},
+              "blocksOn": {"type": "array", "items": {"enum": ["SUCCEEDED", "WAITING", "FAILED", "BLOCKED"]}},
+              "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+            }
+          },
+          "outputs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schema": {"type": "string", "minLength": 1},
+              "evidenceRole": {"type": "string", "minLength": 1}
+            }
+          },
+          "resolvedInputs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "commit": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["nodeId"],
+                "properties": {
+                  "nodeId": {"type": "string"},
+                  "commit": {"type": "string"}
+                }
+              },
+              "artifacts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["nodeId", "kind", "path"],
+                  "properties": {
+                    "nodeId": {"type": "string"},
+                    "kind": {"type": "string", "minLength": 1},
+                    "path": {"type": "string", "minLength": 1},
+                    "localPath": {"type": "string", "minLength": 1},
+                    "sha256": {"type": "string", "pattern": "[0-9a-f]{64}"}
+                  }
+                }
+              }
+            }
+          },
+          "status": {"enum": ["SUCCEEDED", "WAITING", "FAILED", "BLOCKED"]},
+          "exitCode": {"type": "integer", "minimum": 0, "maximum": 255},
+          "startedAt": {"type": "string", "minLength": 1},
+          "finishedAt": {"type": "string", "minLength": 1},
+          "payload": {"type": "object"},
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "path"],
+              "properties": {
+                "kind": {"type": "string", "minLength": 1},
+                "path": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "[0-9a-f]{64}"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "nodeId", "capability", "artifactKind", "kind", "path", "sha256", "mock", "gateEligible", "producedAt", "upstreamNodeIds"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^ev-[a-f0-9]{24}$"},
+          "nodeId": {"type": "string", "pattern": "[a-z][a-z0-9-]{0,63}"},
+          "capability": {"type": "string", "minLength": 1},
+          "artifactKind": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "[0-9a-f]{64}"},
+          "mock": {"type": "boolean"},
+          "gateEligible": {"type": "boolean"},
+          "schema": {"type": "string", "minLength": 1},
+          "evidenceRole": {"type": "string", "minLength": 1},
+          "producedAt": {"type": "string", "minLength": 1},
+          "upstreamNodeIds": {"type": "array", "items": {"type": "string"}},
+          "acceptedBy": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "advisoryNote": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "leaseRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaseId", "workerId", "workerKind", "status", "contractHash", "acquiredAt", "expiresAt", "ttlSeconds"],
+      "properties": {
+        "leaseId": {"type": "string", "pattern": "^wl-[a-f0-9]{24}$"},
+        "workerId": {"type": "string", "minLength": 1},
+        "workerKind": {"type": "string", "minLength": 1},
+        "status": {"enum": ["ACTIVE", "RELEASED", "EXPIRED"]},
+        "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "acquiredAt": {"type": "string", "minLength": 1},
+        "expiresAt": {"type": "string", "minLength": 1},
+        "ttlSeconds": {"type": "integer", "minimum": 30, "maximum": 86400}
+      }
+    }
+  }
+}

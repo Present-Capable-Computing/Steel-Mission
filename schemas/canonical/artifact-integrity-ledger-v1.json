@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/artifact-integrity-ledger-v1.json",
+  "title": "Artifact integrity ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "producedAt", "producer", "contractHash", "workflowRunId", "entries"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"const": "present-lease-broker artifact integrity"},
+    "contractHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "workflowRunId": {"type": "string", "pattern": "^wr-[a-f0-9]{24}$"},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "operation", "status", "producedAt"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "operation": {
+            "enum": [
+              "export",
+              "materialize",
+              "import",
+              "redaction",
+              "handoff",
+              "workflow-dag",
+              "attempt-replay",
+              "artifact-provenance",
+              "evidence-graph",
+              "acceptance"
+            ]
+          },
+          "status": {"type": "string", "minLength": 1},
+          "producedAt": {"type": "string", "minLength": 1},
+          "nodeId": {"type": "string"},
+          "workerId": {"type": "string"},
+          "kind": {"type": "string"},
+          "path": {"type": "string"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "reason": {"type": "string"}
+        }
+      }
+    }
+  }
+}

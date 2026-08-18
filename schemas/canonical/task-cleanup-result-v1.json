@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/task-cleanup-result-v1.json",
+  "title": "Task cleanup result v1",
+  "description": "Remote cleanup and retention-policy result for worker task leftovers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "producedAt",
+    "producer",
+    "mock",
+    "provenance",
+    "status",
+    "reason",
+    "dryRun",
+    "retentionPolicy",
+    "stateStatus",
+    "contractHash",
+    "handoffSha256",
+    "candidates",
+    "deleted",
+    "retained"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "mock-adapter"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "status": {"enum": ["DRY_RUN", "CLEANED", "BLOCKED"]},
+    "reason": {"type": "string", "minLength": 1},
+    "dryRun": {"type": "boolean"},
+    "retentionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delete", "retain"],
+      "properties": {
+        "delete": {"type": "array", "items": {"type": "string"}},
+        "retain": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "stateStatus": {"type": "string", "minLength": 1},
+    "contractHash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+    "handoffSha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+    "candidates": {"type": "array", "items": {"$ref": "#/$defs/pathItem"}},
+    "deleted": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/pathItem"},
+          {
+            "type": "object",
+            "required": ["removed"],
+            "properties": {
+              "removed": {"type": "boolean"},
+              "error": {"type": "string"}
+            }
+          }
+        ]
+      }
+    },
+    "retained": {"type": "array", "items": {"$ref": "#/$defs/pathItem"}}
+  },
+  "$defs": {
+    "pathItem": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "role": {"type": "string"},
+        "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  }
+}

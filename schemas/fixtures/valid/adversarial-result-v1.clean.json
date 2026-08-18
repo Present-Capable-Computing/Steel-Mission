@@ -1,0 +1,1 @@
+{"schemaVersion":1,"producedAt":"2026-08-16T17:30:00Z","producer":"test-fixture","provenance":{"source":"mock-adapter"},"mock":true,"taskId":"DEV-000001","attacksAttempted":12,"breaches":[],"coverageNote":"synthetic; absence of breaches is not evidence of correctness"}

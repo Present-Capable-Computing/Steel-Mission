@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/schema-registry-v1.json",
+  "title": "Schema registry v1",
+  "description": "Registry of canonical schemas, artifact stages, producers, owners, and validation points.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producedAt", "producer", "schemas"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "schemas": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "schemaFile",
+          "owner",
+          "artifactKind",
+          "producer",
+          "lifecycle",
+          "compatibility",
+          "introducedAt",
+          "validationPoints"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "version": {"type": "integer", "minimum": 1},
+          "schemaFile": {"type": "string", "pattern": "^[a-z0-9-]+-v[0-9]+\\.json$"},
+          "owner": {"enum": ["worker", "broker", "schema-authority"]},
+          "artifactKind": {"type": "string", "minLength": 1},
+          "artifactStages": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "producer": {"type": "string", "minLength": 1},
+          "lifecycle": {"enum": ["active", "deprecated", "retired"]},
+          "compatibility": {"enum": ["initial", "patch", "minor", "breaking"]},
+          "introducedAt": {"type": "string", "minLength": 1},
+          "deprecatedAt": {"type": "string", "minLength": 1},
+          "removalNotBefore": {"type": "string", "minLength": 1},
+          "replacementFor": {"type": "string", "minLength": 1},
+          "replacedBy": {"type": "string", "minLength": 1},
+          "changeSummary": {"type": "string", "minLength": 1},
+          "validationPoints": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"lifecycle": {"const": "deprecated"}}, "required": ["lifecycle"]},
+            "then": {"required": ["deprecatedAt", "removalNotBefore", "replacedBy"]}
+          },
+          {
+            "if": {"properties": {"lifecycle": {"const": "retired"}}, "required": ["lifecycle"]},
+            "then": {"required": ["deprecatedAt", "replacedBy"]}
+          }
+        ]
+      }
+    }
+  }
+}

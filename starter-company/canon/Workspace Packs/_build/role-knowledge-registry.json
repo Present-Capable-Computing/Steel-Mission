@@ -1,0 +1,13 @@
+{
+  "id": "CLOSED-CLAW-ROLE-KNOWLEDGE-REGISTRY",
+  "revision": "starter-r01",
+  "rule": "Synthetic starter knowledge is intentionally small. Owners and admins replace or extend it with customer-owned repositories, folders, and documents.",
+  "exclusionsCommon": [],
+  "roles": {
+    "DC03": {"domainSources": [{"path": "starter-company/knowledge/architecture.md", "why": "starter architecture context", "class": "starter-document", "carriage": "text", "inclusion": "starter", "bytes": 0}], "count": 1},
+    "DC04": {"domainSources": [{"path": "starter-company/knowledge/product.md", "why": "starter product context", "class": "starter-document", "carriage": "text", "inclusion": "starter", "bytes": 0}], "count": 1},
+    "DC06": {"domainSources": [{"path": "starter-company/knowledge/security-and-compliance.md", "why": "starter risk and compliance context", "class": "starter-document", "carriage": "text", "inclusion": "starter", "bytes": 0}], "count": 1},
+    "DC11": {"domainSources": [{"path": "starter-company/knowledge/delivery-operations.md", "why": "starter delivery context", "class": "starter-document", "carriage": "text", "inclusion": "starter", "bytes": 0}], "count": 1},
+    "DC13": {"domainSources": [{"path": "starter-company/knowledge/mission-coordination.md", "why": "starter mission coordination context", "class": "starter-document", "carriage": "text", "inclusion": "starter", "bytes": 0}], "count": 1}
+  }
+}

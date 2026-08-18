@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/adversarial-result-v1.json",
+  "title": "Adversarial result v1",
+  "description": "Adversarial probing. Finding nothing is not evidence of correctness.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","taskId","producedAt","producer","mock","provenance","attacksAttempted","breaches"],
+  "properties": {
+    "schemaVersion":{"const":1},"taskId":{"type":"string","pattern":"^DEV-[0-9]{6}$"},"producedAt":{"type":"string","format":"date-time"},"producer":{"type":"string","minLength":1},"mock":{"type":"boolean"},"provenance":{"type":"object","required":["source"],"properties":{"source":{"enum":["worker","control-plain","mock-adapter","human"]},"host":{"type":"string"},"commit":{"type":"string"}}},
+    "attacksAttempted": {"type":"integer","minimum":0},
+    "breaches": {"type":"array","items":{"type":"object","required":["summary","severity"],"properties":{"summary":{"type":"string"},"severity":{"enum":["critical","high","medium","low"]},"reproduction":{"type":"string"}}}},
+    "coverageNote": {"type":"string"}
+  }
+}

@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Forced-command SSH guard for the Mini -> MacBook automation key.
+
+This script is intentionally small and strict. It reads SSH_ORIGINAL_COMMAND,
+    parses it as tokens, compares those tokens against the protocol-2.10 allowlist,
+and then execs the local present-worker binary. It never uses eval, shell
+expansion, substring matching, or a shell=True subprocess.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shlex
+import sys
+from pathlib import Path
+
+# Resolve the dispatcher beside this guard. The authorized_keys forced command
+# names this guard by absolute path, so clients cannot redirect the sibling.
+WORKER = Path(__file__).resolve().parent / "present-worker"
+TASK_ID_RE = re.compile(r"^DEV-[0-9]{6}$")
+TASK_VERBS = {
+    "plan",
+    "specialist",
+    "build",
+    "review",
+    "fix",
+    "adversarial",
+    "verify",
+    "coordination-report",
+    "task-cleanup",
+    "task-state",
+    "workflow-cancel",
+}
+
+
+def deny(reason: str) -> int:
+    print(
+        json.dumps(
+            {
+                "status": "DENIED",
+                "reason": reason,
+                "retryable": False,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 30
+
+
+def main() -> int:
+    original = os.environ.get("SSH_ORIGINAL_COMMAND", "")
+    if not original:
+        return deny("missing SSH_ORIGINAL_COMMAND")
+
+    try:
+        tokens = shlex.split(original, posix=True)
+    except ValueError as exc:
+        return deny(f"invalid command syntax: {exc}")
+
+    if tokens == ["present-worker", "status"]:
+        os.execv(str(WORKER), [str(WORKER), "status"])
+
+    if len(tokens) == 3 and tokens[0] == "present-worker" and tokens[1] in TASK_VERBS:
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        os.execv(str(WORKER), [str(WORKER), tokens[1], task_id])
+
+    lease_re = re.compile(r"^wl-[a-f0-9]{24}$")
+    hex_re = re.compile(r"^[a-f0-9]{64}$")
+
+    if (len(tokens) == 4 and tokens[0] == "present-worker" and tokens[1] == "workflow"
+            and tokens[3] == "--admit-only"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        os.execv(str(WORKER), [str(WORKER), "workflow", task_id, "--admit-only"])
+
+    if (len(tokens) == 6 and tokens[0] == "present-worker" and tokens[1] == "workflow-node"
+            and tokens[4] == "--lease-id"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", tokens[3]):
+            return deny("workflow node id is invalid")
+        if not lease_re.fullmatch(tokens[5]):
+            return deny("lease id must match wl-<24 hex chars>")
+        os.execv(str(WORKER), [str(WORKER), "workflow-node", task_id, tokens[3], "--lease-id", tokens[5]])
+
+    if (len(tokens) == 7 and tokens[0] == "present-worker" and tokens[1] == "workflow-node"
+            and tokens[4] == "--lease-id" and tokens[6] == "--mock"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", tokens[3]):
+            return deny("workflow node id is invalid")
+        if not lease_re.fullmatch(tokens[5]):
+            return deny("lease id must match wl-<24 hex chars>")
+        os.execv(str(WORKER), [
+            str(WORKER), "workflow-node", task_id, tokens[3], "--lease-id", tokens[5], "--mock",
+        ])
+
+    if (len(tokens) == 6 and tokens[0] == "present-worker" and tokens[1] == "artifact-export"
+            and tokens[4] == "--sha256"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", tokens[3]):
+            return deny("artifact kind is invalid")
+        if not hex_re.fullmatch(tokens[5]):
+            return deny("artifact sha256 must be a sha256 hex digest")
+        os.execv(str(WORKER), [
+            str(WORKER), "artifact-export", task_id, tokens[3], "--sha256", tokens[5],
+        ])
+
+    if len(tokens) == 3 and tokens[0] == "present-worker" and tokens[1] == "artifact-import":
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        os.execv(str(WORKER), [str(WORKER), "artifact-import", task_id])
+
+    if (len(tokens) == 4 and tokens[0] == "present-worker" and tokens[1] == "task-cleanup"
+            and tokens[3] == "--dry-run"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        os.execv(str(WORKER), [str(WORKER), "task-cleanup", task_id, "--dry-run"])
+
+    if (len(tokens) == 8 and tokens[0] == "present-worker" and tokens[1] == "task-cleanup"
+            and tokens[3] == "--force" and tokens[4] == "--contract-hash" and tokens[6] == "--handoff-sha256"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        if not hex_re.fullmatch(tokens[5]) or not hex_re.fullmatch(tokens[7]):
+            return deny("cleanup proof hashes must be sha256 hex digests")
+        os.execv(str(WORKER), [
+            str(WORKER), "task-cleanup", task_id, "--force",
+            "--contract-hash", tokens[5], "--handoff-sha256", tokens[7],
+        ])
+
+    if (len(tokens) == 8 and tokens[0] == "present-worker" and tokens[1] == "worker-lease"
+            and tokens[3] == "--acquire" and tokens[4] == "--contract-hash" and tokens[6] == "--ttl-seconds"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        if not hex_re.fullmatch(tokens[5]):
+            return deny("lease contract hash must be a sha256 hex digest")
+        if not tokens[7].isdigit() or not 30 <= int(tokens[7]) <= 86400:
+            return deny("lease ttl must be 30..86400 seconds")
+        os.execv(str(WORKER), [
+            str(WORKER), "worker-lease", task_id, "--acquire",
+            "--contract-hash", tokens[5], "--ttl-seconds", tokens[7],
+        ])
+
+    if (len(tokens) == 8 and tokens[0] == "present-worker" and tokens[1] == "worker-lease"
+            and tokens[3] == "--renew" and tokens[4] == "--lease-id" and tokens[6] == "--ttl-seconds"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        if not lease_re.fullmatch(tokens[5]):
+            return deny("lease id must match wl-<24 hex chars>")
+        if not tokens[7].isdigit() or not 30 <= int(tokens[7]) <= 86400:
+            return deny("lease ttl must be 30..86400 seconds")
+        os.execv(str(WORKER), [
+            str(WORKER), "worker-lease", task_id, "--renew",
+            "--lease-id", tokens[5], "--ttl-seconds", tokens[7],
+        ])
+
+    if (len(tokens) == 6 and tokens[0] == "present-worker" and tokens[1] == "worker-lease"
+            and tokens[3] == "--release" and tokens[4] == "--lease-id"):
+        task_id = tokens[2]
+        if not TASK_ID_RE.fullmatch(task_id):
+            return deny("task id must match DEV-NNNNNN")
+        if not lease_re.fullmatch(tokens[5]):
+            return deny("lease id must match wl-<24 hex chars>")
+        os.execv(str(WORKER), [
+            str(WORKER), "worker-lease", task_id, "--release", "--lease-id", tokens[5],
+        ])
+
+    return deny("command is not in the present-worker protocol-2.10 allowlist")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
