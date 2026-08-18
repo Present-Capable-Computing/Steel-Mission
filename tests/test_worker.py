@@ -6147,6 +6147,12 @@ def test_closed_claw_knowledge_registry_loads_foundations_and_project_roles():
     assert {item["domainKey"] for item in payload["knowledgeDomains"]} >= {"KD01", "KD02", "KD03"}
     roles = {item["roleKey"]: item for item in payload["roles"]}
     capabilities = {item["capabilityKey"]: item for item in payload["capabilities"]}
+    expected_capabilities = {f"DC{i:02d}" for i in range(1, 14)}
+    assert set(roles) >= expected_capabilities
+    assert set(capabilities) >= expected_capabilities
+    assert all(roles[key]["sourceCount"] >= 1 for key in expected_capabilities)
+    assert roles["DC01"]["displayName"] == "Counterweight"
+    assert roles["DC12"]["displayName"] == "Synthesis"
     assert roles["DC13"]["currentFNumber"] == "DC13"
     assert roles["DC13"]["displayName"] == "Delivery Coordinator"
     assert capabilities["DC13"]["fNumber"] == "DC13"

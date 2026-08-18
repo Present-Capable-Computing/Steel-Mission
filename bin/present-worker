@@ -4711,7 +4711,7 @@ def cmd_workflow(args) -> int:
 def cmd_specialist(args) -> int:
     result = {
         "status": "DEPRECATED", "task_id": args.task_id, "verb": "specialist",
-        "reason": "SPEC-01 resolved: no responsibility distinct from plan, review, fix, or adversarial; retained only for protocol compatibility",
+        "reason": "SPEC-01 resolved: no responsibility distinct from plan, review, fix, or adversarial",
         "retryable": False,
     }
     common.record_stage(args.task_id, "specialist", result)

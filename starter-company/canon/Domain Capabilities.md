@@ -2,18 +2,22 @@
 
 Company: Northstar Forge
 
-This synthetic capability map gives Closed-Claw an up-and-running organization on first launch. Capability names carry the product meaning. Internal slot numbers can remain in registries for compatibility, but owners and admins should manage the organization by domain and capability names.
+This synthetic capability map gives Closed-Claw an up-and-running organization on first launch. Capability names carry the product meaning. Owners and admins manage the organization by knowledge domain and domain capability names.
 
-- DC01 Counterweight: challenge assumptions, surface missing risks, and prevent premature convergence.
-- DC02 Creative: shape narrative, product language, and communication options.
-- DC03 Architecture: protect system boundaries, feasibility, and technical coherence.
-- DC04 Product: translate user needs into product scope and acceptance.
-- DC05 Design: make workflows understandable, usable, and consistent.
-- DC06 Security and Trust: evaluate risk, access, evidence, and misuse paths.
-- DC07 Intelligence: structure research, synthesis, and model/provider use.
-- DC08 Platform: track infrastructure, runtime, and deployment constraints.
-- DC09 Governance: preserve policy, compliance, and decision records.
-- DC10 Ecosystem: evaluate partners, adoption paths, and market channels.
-- DC11 Operations and Delivery: turn plans into executable delivery systems.
-- DC12 Synthesis: reconcile cross-domain findings before closure.
-- DC13 Delivery Coordinator: coordinate mission state, evidence, approvals, and closure.
+Each Domain Capability has a synthetic starter dossier under `starter-company/knowledge/domain-capabilities/`. Those dossiers preserve the shape of the original capability system without carrying private canon, private people, or private product specifics.
+
+| Capability | Name | Starter dossier |
+|---|---|---|
+| DC01 | Counterweight | `starter-company/knowledge/domain-capabilities/DC01-counterweight.md` |
+| DC02 | Creative | `starter-company/knowledge/domain-capabilities/DC02-creative.md` |
+| DC03 | Architecture | `starter-company/knowledge/domain-capabilities/DC03-architecture.md` |
+| DC04 | Product | `starter-company/knowledge/domain-capabilities/DC04-product.md` |
+| DC05 | Design | `starter-company/knowledge/domain-capabilities/DC05-design.md` |
+| DC06 | Security and Trust | `starter-company/knowledge/domain-capabilities/DC06-security-and-trust.md` |
+| DC07 | Intelligence | `starter-company/knowledge/domain-capabilities/DC07-intelligence.md` |
+| DC08 | Platform | `starter-company/knowledge/domain-capabilities/DC08-platform.md` |
+| DC09 | Governance | `starter-company/knowledge/domain-capabilities/DC09-governance.md` |
+| DC10 | Ecosystem | `starter-company/knowledge/domain-capabilities/DC10-ecosystem.md` |
+| DC11 | Operations and Delivery | `starter-company/knowledge/domain-capabilities/DC11-operations-and-delivery.md` |
+| DC12 | Synthesis | `starter-company/knowledge/domain-capabilities/DC12-synthesis.md` |
+| DC13 | Delivery Coordinator | `starter-company/knowledge/domain-capabilities/DC13-delivery-coordinator.md` |
