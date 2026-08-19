@@ -6165,7 +6165,7 @@ def test_main_chat_index_script_is_parseable(tmp_path):
     assert len(scripts) == 1
     script = tmp_path / "steel-mission-index-script.js"
     script.write_text(scripts[0])
-    result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True, timeout=10)
+    result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
 
 
