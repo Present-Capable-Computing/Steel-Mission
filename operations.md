@@ -22,6 +22,40 @@ Steel Mission starts with the synthetic Northstar Forge organization:
 
 Owners and admins can replace starter data from Settings.
 
+## Organization Data
+
+An installation runs on its own organization by pointing `STEEL_MISSION_ORG_DIR` at
+a directory outside the product tree. Everything under it follows the same shape as
+the shipped `starter-company/`: `canon/`, `knowledge/`, and the registries under
+`canon/Workspace Packs/_build/`.
+
+```sh
+STEEL_MISSION_ORG_DIR=/srv/acme-org bin/steel-mission serve
+```
+
+Config and runtime profiles refer to `${ORG_DIR}`, so one variable redirects all of
+them. `PRESENT_CANON_DIR` predates this and still takes precedence where it is set.
+
+In a container, mount the directory rather than building it into the image:
+
+```yaml
+services:
+  steel-mission:
+    environment:
+      STEEL_MISSION_ORG_DIR: /data/org
+    volumes:
+      - ./acme-org:/data/org:ro
+```
+
+A published image that carries an organization's data distributes that data to
+everyone who pulls it. The image ships the synthetic starter company; installations
+mount over it.
+
+Never make an installation work by writing your files into `starter-company/`. It is
+product data, distributed to every user, and it is under version control in a public
+repository. `tests/test_org_data_boundary.py` fails if the shipped company is
+overwritten.
+
 ## Knowledge Hygiene
 
 Give each durable source an accountable owner plus review or expiration metadata. Treat an `insufficient` knowledge-quality result as an operational blocker for claims about organizational policy or intent: repair the source, resolve conflicts, or ask the owner. Do not solve quality warnings by copying the same documents into a second Steel Mission-only documentation system; bind the authoritative repositories and systems that teams already maintain.

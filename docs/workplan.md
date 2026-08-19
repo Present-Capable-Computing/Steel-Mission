@@ -69,13 +69,13 @@ other phase.
 | [MS-0005](../plan/MS-0005.json) | P4 | One orchestration path; missions resume after restart | 3.0 |
 | [MS-0006](../plan/MS-0006.json) | P5 | The repository names one product | 2.0 |
 
-Total focused effort is 16.1 days before contingency and approximately 20 days with
-the declared 25 percent. That figure is a planning estimate computed under the
-focused-effort rule at a mid-range stance, with security-sensitive and novel
-integration work held at the cautious half of their ranges and empirical time — kill
-tests, image builds, continuous integration waits — counted at no acceleration at
-all. It is not a commitment, and a milestone being inside its budget is not evidence
-that the work is correct. Re-defend the estimate at every milestone boundary and
+Total estimated effort is 16.1 days before contingency and approximately 20 days
+with the declared 25 percent. It is estimated per category and divided by an
+expected acceleration factor, with security-sensitive and novel integration work
+held at the cautious end of its range and irreducible empirical time — kill tests,
+image builds, continuous integration waits — counted at no acceleration at all. It
+is not a commitment, and a milestone being inside its budget is not evidence that
+the work is correct. Re-defend the estimate at every milestone boundary and
 print the delta rather than absorbing it.
 
 Target dates on the milestone records are targets. `AT_RISK` describes the schedule.

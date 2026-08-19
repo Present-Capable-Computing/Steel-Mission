@@ -24,7 +24,7 @@
     "technicalPlan": "docs/durable-core-plan.md",
     "githubProject": "https://github.com/orgs/Present-Capable-Computing/projects/1",
     "estimate": {
-      "rule": "PW-EST focused-effort, mid-range stance, security-sensitive and novel-integration at the cautious half of their ranges, empirical time at 1x",
+      "rule": "Effort estimated per category and divided by an expected acceleration factor, with security-sensitive and novel-integration work held at the cautious end and irreducible empirical time counted at no acceleration.",
       "conventionalPersonDays": 140,
       "focusedDays": 16.1,
       "contingencyPercent": 25,

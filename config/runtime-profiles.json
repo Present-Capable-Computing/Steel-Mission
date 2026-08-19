@@ -58,13 +58,13 @@
         ],
         "repositoryRoots": [
           {"name": "worker", "path": "${WORKER_DIR}"},
-          {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
+          {"name": "starter-company", "path": "${ORG_DIR}"}
         ],
         "documentPaths": [
-          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Starter Organization Operating Context", "path": "${ORG_DIR}/canon/KD01 Operating Context.md"},
+          {"title": "Starter Organization Team Doctrine", "path": "${ORG_DIR}/canon/KD02 Team Doctrine.md"},
+          {"title": "Starter Organization Team Roster and Workflow", "path": "${ORG_DIR}/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Capability Map", "path": "${ORG_DIR}/canon/Domain Capabilities.md"}
         ]
       }
     },
@@ -121,13 +121,13 @@
         ],
         "repositoryRoots": [
           {"name": "worker", "path": "${WORKER_DIR}"},
-          {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
+          {"name": "starter-company", "path": "${ORG_DIR}"}
         ],
         "documentPaths": [
-          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Starter Organization Operating Context", "path": "${ORG_DIR}/canon/KD01 Operating Context.md"},
+          {"title": "Starter Organization Team Doctrine", "path": "${ORG_DIR}/canon/KD02 Team Doctrine.md"},
+          {"title": "Starter Organization Team Roster and Workflow", "path": "${ORG_DIR}/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Capability Map", "path": "${ORG_DIR}/canon/Domain Capabilities.md"}
         ]
       }
     },
@@ -186,13 +186,13 @@
         ],
         "repositoryRoots": [
           {"name": "worker", "path": "${WORKER_DIR}"},
-          {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
+          {"name": "starter-company", "path": "${ORG_DIR}"}
         ],
         "documentPaths": [
-          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Starter Organization Operating Context", "path": "${ORG_DIR}/canon/KD01 Operating Context.md"},
+          {"title": "Starter Organization Team Doctrine", "path": "${ORG_DIR}/canon/KD02 Team Doctrine.md"},
+          {"title": "Starter Organization Team Roster and Workflow", "path": "${ORG_DIR}/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Capability Map", "path": "${ORG_DIR}/canon/Domain Capabilities.md"}
         ]
       }
     }
