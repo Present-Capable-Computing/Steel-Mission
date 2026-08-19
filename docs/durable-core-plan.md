@@ -270,9 +270,9 @@ of what is not yet included), and the protocol document gains the v2 surfaces.
 
 ## 9. Estimate
 
-Computed under the focused-effort rule at a mid-range stance, with security-sensitive
-and novel-integration work held at the cautious half of their ranges and empirical time
-counted at no acceleration.
+Estimated per category and divided by an expected acceleration factor, with
+security-sensitive and novel-integration work held at the cautious end of its range
+and irreducible empirical time counted at no acceleration at all.
 
 | Category | Conventional days | Acceleration | Focused days |
 |---|---|---|---|
