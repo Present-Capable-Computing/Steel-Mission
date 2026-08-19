@@ -2528,7 +2528,14 @@ def authenticate_http_request(handler: BaseHTTPRequestHandler, path: str, method
     if identity_mode(policy) == "oidc-required":
         raise PermissionError("OIDC-authenticated session is required")
     if boundary.get("allowLoopbackDevelopmentIdentity") is not True or not is_loopback_request(handler):
-        raise PermissionError("development identity is restricted to loopback requests")
+        # Say where the request came from. Behind published container ports the
+        # peer is the bridge gateway, never 127.0.0.1, so this fires for every
+        # browser on a containerised run and the address is the whole diagnosis.
+        origin = str(handler.client_address[0] if handler.client_address else "unknown")
+        raise PermissionError(
+            "development identity is restricted to loopback requests; this request came "
+            f"from {origin}. Sign in with a development session at /auth/login."
+        )
     route_parts = path.strip("/").split("/")
     fallback_role = route_parts[1] if len(route_parts) > 2 and route_parts[0] == "api" and route_parts[1] in {"owner", "admin", "publisher", "user"} else "user"
     actor = actor_from_request(handler, fallback_role)
@@ -2539,6 +2546,63 @@ def authenticate_http_request(handler: BaseHTTPRequestHandler, path: str, method
         actor.update({"organizationIds": [str(organization_registry().get("activeOrganizationId") or "")], "organizationId": str(organization_registry().get("activeOrganizationId") or ""), "capabilities": [], "identitySource": "loopback-development"})
     actor.update({"sessionVerified": False, "authPolicyHash": canonical_json_hash(policy), "cookieAuthenticated": False})
     return actor
+
+
+DEVELOPMENT_LOGIN_PAGE = """<!doctype html>
+<meta charset="utf-8"><title>Steel Mission \u2014 development sign-in</title>
+<style>
+ body{font:15px/1.6 system-ui,sans-serif;max-width:44rem;margin:6vh auto;padding:0 1.5rem;color:#111}
+ code,textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+ textarea{width:100%;height:7rem;font-size:12px;padding:.6rem;box-sizing:border-box}
+ pre{background:#f4f4f5;padding:.8rem;overflow-x:auto;font-size:12px}
+ button{font-size:15px;padding:.5rem 1.1rem;margin-top:.6rem}
+ .why{color:#555;font-size:14px}
+</style>
+<h1>Development sign-in</h1>
+<p class="why">This server is in <code>development-local</code> mode, so there is no
+identity provider to redirect to. Development identity is also refused for this
+request because it did not arrive from a loopback address &mdash; behind a published
+container port the client is the container network gateway, never
+<code>127.0.0.1</code>.</p>
+<p>Issue a session where the server is running, then paste it below:</p>
+<pre>docker exec -i __CONTAINER__ bin/present-control-plane session \\
+  --actor &lt;your-user-id&gt; --role admin</pre>
+<form method="post" action="/auth/login">
+  <label for="t">Session token (<code>session.accessToken</code>)</label>
+  <textarea id="t" name="token" autofocus spellcheck="false"></textarea>
+  <button type="submit">Sign in</button>
+</form>
+<p class="why">The token is the credential and is verified on arrival; this page
+grants nothing on its own. Issuing one requires access to the machine or container
+the server runs in.</p>
+"""
+
+
+def development_login_available(policy: dict[str, Any] | None = None) -> bool:
+    """Whether /auth/login can complete without an identity provider.
+
+    In development-local mode there is no provider to redirect to, so starting an
+    OIDC flow is a dead end by construction: the browser follows the login path it
+    was given and is told OIDC is disabled.
+    """
+    return identity_mode(policy) == "development-local"
+
+
+def login_path_for(policy: dict[str, Any] | None = None) -> str | None:
+    """The login path to advertise on a 401, or None when none can work."""
+    selected = policy or auth_policy()
+    if development_login_available(selected):
+        return "/auth/login"
+    oidc = selected.get("oidc") if isinstance(selected.get("oidc"), dict) else {}
+    return "/auth/login" if oidc.get("enabled") is True else None
+
+
+def unauthenticated_payload(error: str, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"ok": False, "error": error}
+    path = login_path_for(policy)
+    if path:
+        payload["loginPath"] = path
+    return payload
 
 
 def oidc_redirect_uri(handler: BaseHTTPRequestHandler, oidc: dict[str, Any]) -> str:
@@ -8632,7 +8696,7 @@ class Handler(BaseHTTPRequestHandler):
             self.auth_actor = actor
             return actor
         except PermissionError as exc:
-            json_response(self, 401, {"ok": False, "error": str(exc), "loginPath": "/auth/login"})
+            json_response(self, 401, unauthenticated_payload(str(exc)))
             return None
 
     def do_HEAD(self) -> None:
@@ -8659,6 +8723,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/auth/login":
+            if development_login_available():
+                # A literal placeholder, not %-formatting: the page embeds CSS,
+                # and a stylesheet is full of characters that % treats as
+                # conversion specifiers.
+                body = DEVELOPMENT_LOGIN_PAGE.replace(
+                    "__CONTAINER__", os.environ.get("HOSTNAME") or "steel-mission"
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
             try:
                 location = begin_oidc_login(self)
                 state = (parse_qs(urlparse(location).query).get("state") or [""])[0]
@@ -8680,7 +8758,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.redirect("/")
             except Exception as exc:  # noqa: BLE001
                 append_auth_audit("oidc-login-failed", ok=False, details={"error": str(exc)})
-                json_response(self, 401, {"ok": False, "error": str(exc), "loginPath": "/auth/login"})
+                json_response(self, 401, unauthenticated_payload(str(exc)))
             return
         actor: dict[str, Any] | None = None
         if path.startswith("/api/") and path != "/api/health":
@@ -8933,6 +9011,34 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/auth/login":
+            # Completes the development sign-in the GET form starts. The posted
+            # token is the credential: it is verified here exactly as a bearer
+            # token is, so this route grants no authority of its own, and issuing
+            # a token requires access to the machine the server runs on.
+            if not development_login_available():
+                json_response(self, 404, {"ok": False, "error": "not found"})
+                return
+            try:
+                raw = read_request_bytes(self)
+                token = (parse_qs(raw.decode("utf-8", "replace")).get("token") or [""])[0].strip()
+            except Exception:  # noqa: BLE001
+                token = ""
+            verified = verify_control_plane_session(token) if token else {"ok": False, "error": "a session token is required"}
+            if verified.get("ok") is not True:
+                append_auth_audit("development-login-failed", "", ok=False,
+                                  details={"error": str(verified.get("error") or "invalid session")})
+                json_response(self, 401, unauthenticated_payload(str(verified.get("error") or "invalid session")))
+                return
+            csrf = secrets.token_urlsafe(32)
+            append_auth_audit("development-login", str(verified.get("actorId") or ""), ok=True,
+                              details={"origin": str(self.client_address[0] if self.client_address else "")})
+            self.response_headers = [
+                ("Set-Cookie", f"present_session={token}; Path=/; HttpOnly; SameSite=Lax"),
+                ("Set-Cookie", f"present_csrf={csrf}; Path=/; SameSite=Lax"),
+            ]
+            self.redirect("/")
+            return
         ingress_source = {
             "/api/integrations/github/webhook": "github",
             "/api/integrations/slack/events": "slack",

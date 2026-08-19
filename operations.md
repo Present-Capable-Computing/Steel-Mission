@@ -79,6 +79,28 @@ product data, distributed to every user, and it is under version control in a pu
 repository. `tests/test_org_data_boundary.py` fails if the shipped company is
 overwritten.
 
+## Signing In To A Container
+
+Development identity is accepted only from a loopback address. A published
+container port never presents one: Docker forwards the connection, so the server
+sees the container network gateway. Every browser reaching a containerised server
+is therefore refused on its first API call, whatever the host-side binding was.
+
+Issue a session where the server runs, and paste it into the sign-in page:
+
+```sh
+docker exec -i <container> bin/present-control-plane session \
+  --actor <user-id> --role admin
+```
+
+Open `/auth/login`, paste the `accessToken`, and the browser is signed in. The
+token is the credential and is verified on arrival exactly as a bearer token is,
+so the page grants nothing on its own; issuing one requires access to the
+container. Sign-ins and failures are recorded in the auth audit.
+
+This is a development path. In `oidc-required` mode the page does not exist and
+`/auth/login` is the provider redirect.
+
 ## Knowledge Hygiene
 
 Give each durable source an accountable owner plus review or expiration metadata. Treat an `insufficient` knowledge-quality result as an operational blocker for claims about organizational policy or intent: repair the source, resolve conflicts, or ask the owner. Do not solve quality warnings by copying the same documents into a second Steel Mission-only documentation system; bind the authoritative repositories and systems that teams already maintain.
