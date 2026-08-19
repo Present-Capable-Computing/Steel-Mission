@@ -1,6 +1,6 @@
 # Install Steel Mission Alpha v0.1
 
-Steel Mission is an Agent Delivery Plane for governed AI-assisted software delivery. The core repository is open source under Apache-2.0 and runs locally with synthetic starter data.
+Steel Mission is an Agent Delivery Plane for governed AI-assisted software delivery. The core repository is open source under Apache-2.0 and runs locally with the Steel Mission starter company.
 
 ## Fast Start
 
@@ -14,7 +14,7 @@ bin/steel-mission serve
 
 Open `http://127.0.0.1:8765/`.
 
-The first run starts with the synthetic Northstar Forge organization. Owners and admins can replace it from Settings.
+The first run starts with the founder-led Steel Mission organization, its thirteen Domain Capabilities, and the active PRJ-0001 Durable Core portfolio. Owners and admins can revise it from Settings.
 
 ## Requirements
 

@@ -1,4 +1,4 @@
-.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop private-runner-image private-runner-status release-check plan-check plan-sync
+.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop docker-build docker-up docker-down docker-status private-runner-image private-runner-status release-check plan-check plan-sync
 
 PYTHON ?= python3
 HOST ?= 127.0.0.1
@@ -35,6 +35,18 @@ glimmer-status:
 
 glimmer-stop:
 	bin/present-worker glimmer stop
+
+docker-build:
+	docker compose build steel-mission
+
+docker-up:
+	docker compose up -d steel-mission
+
+docker-down:
+	docker compose down
+
+docker-status:
+	docker compose ps
 
 private-runner-image:
 	docker build -f Dockerfile.private-runner -t steel-mission-private-runner:alpha .

@@ -10,17 +10,18 @@ Open `http://127.0.0.1:8765/`.
 
 ## First-Run Setup
 
-Steel Mission starts with the synthetic Northstar Forge organization:
+Steel Mission starts with its founder-led launch organization:
 
-- starter users;
+- founder and cross-functional team users;
 - knowledge domains;
 - domain capabilities;
+- PRJ-0001 Durable Core with 6 epic issues and 52 child issues;
 - Delivery Coordinator;
 - local runtime profile;
 - guarded runner policy;
 - external signer policy.
 
-Owners and admins can replace starter data from Settings.
+Owners and admins can revise or extend the launch data from Settings.
 
 ## Organization Data
 

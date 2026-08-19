@@ -55,7 +55,11 @@ ORG_DIR = Path(
 )
 # PRESENT_CANON_DIR predates ORG_DIR and still wins where it is set, so an
 # existing deployment keeps working.
-CANON_DIR = Path(os.environ.get("PRESENT_CANON_DIR") or ORG_DIR / "canon")
+CANON_DIR = Path(
+    os.environ.get("STEEL_MISSION_CANON_DIR")
+    or os.environ.get("PRESENT_CANON_DIR")
+    or ORG_DIR / "canon"
+)
 ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.json"
 ROLE_KNOWLEDGE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-knowledge-registry.json"
 DOMAIN_CAPABILITIES_PATH = WORKER_DIR / "config" / "domain-capabilities.json"

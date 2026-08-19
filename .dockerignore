@@ -1,0 +1,24 @@
+.DS_Store
+.git
+.pytest_cache
+**/__pycache__
+**/*.pyc
+broker-artifacts
+jobs
+logs
+missions
+tasks
+test-results
+tmp
+worktrees
+
+# Secrets. The image is pushed to a registry and pulled by strangers; a local
+# .env copied in at build time is published with it.
+.env
+.env.*
+!.env.example
+
+# The plan layer. Effort figures and internal scheduling are not product, and
+# an image is a distribution channel like any other.
+plan
+tooling

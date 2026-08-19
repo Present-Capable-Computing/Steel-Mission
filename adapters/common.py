@@ -21,12 +21,12 @@ from typing import Any
 DEFAULT_WORKER_DIR = Path(__file__).resolve().parents[1]
 PRESENT_DEV = Path(os.environ.get("STEEL_MISSION_DEV") or os.environ.get("PRESENT_DEV", DEFAULT_WORKER_DIR.parent))
 WORKER_DIR = Path(os.environ.get("STEEL_MISSION_WORKER_DIR") or os.environ.get("PRESENT_WORKER_DIR", DEFAULT_WORKER_DIR))
-LOGS_DIR = Path(os.environ.get("PRESENT_LOGS_DIR", WORKER_DIR / "logs"))
-TASKS_DIR = Path(os.environ.get("PRESENT_TASKS_DIR", WORKER_DIR / "tasks"))
-WORKTREES_DIR = Path(os.environ.get("PRESENT_WORKTREES_DIR", WORKER_DIR / "worktrees"))
-REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR", WORKER_DIR / "repos"))
-TEST_RESULTS_DIR = Path(os.environ.get("PRESENT_TEST_RESULTS_DIR", WORKER_DIR / "test-results"))
-JOBS_DIR = Path(os.environ.get("PRESENT_JOBS_DIR", WORKER_DIR / "jobs"))
+LOGS_DIR = Path(os.environ.get("STEEL_MISSION_LOGS_DIR") or os.environ.get("PRESENT_LOGS_DIR", WORKER_DIR / "logs"))
+TASKS_DIR = Path(os.environ.get("STEEL_MISSION_TASKS_DIR") or os.environ.get("PRESENT_TASKS_DIR", WORKER_DIR / "tasks"))
+WORKTREES_DIR = Path(os.environ.get("STEEL_MISSION_WORKTREES_DIR") or os.environ.get("PRESENT_WORKTREES_DIR", WORKER_DIR / "worktrees"))
+REPOS_DIR = Path(os.environ.get("STEEL_MISSION_REPOS_DIR") or os.environ.get("PRESENT_REPOS_DIR", WORKER_DIR / "repos"))
+TEST_RESULTS_DIR = Path(os.environ.get("STEEL_MISSION_TEST_RESULTS_DIR") or os.environ.get("PRESENT_TEST_RESULTS_DIR", WORKER_DIR / "test-results"))
+JOBS_DIR = Path(os.environ.get("STEEL_MISSION_JOBS_DIR") or os.environ.get("PRESENT_JOBS_DIR", WORKER_DIR / "jobs"))
 
 # The organisation whose canon, knowledge and roster this installation runs on.
 #

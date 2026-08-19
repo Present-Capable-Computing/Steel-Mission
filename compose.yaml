@@ -1,0 +1,33 @@
+name: steel-mission
+
+services:
+  steel-mission:
+    container_name: steel-mission
+    image: steel-mission:starter-company
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8765:8765"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      STEEL_MISSION_RUNTIME_PROFILE: dc13.local
+      STEEL_MISSION_COORDINATOR_PROVIDER: glimmer
+      STEEL_MISSION_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      STEEL_MISSION_WORKER_CLAUDE_TOKEN_FILE: /run/secrets/claude-token
+    volumes:
+      - steel-mission-state:/var/lib/steel-mission
+      - type: bind
+        source: ${HOME}/.claude/steel-mission-worker-token
+        target: /run/secrets/claude-token
+        read_only: true
+      - type: bind
+        source: ${HOME}/.codex/auth.json
+        target: /home/steelmission/.codex/auth.json
+        read_only: true
+    restart: unless-stopped
+
+volumes:
+  steel-mission-state:
+    name: steel-mission-state

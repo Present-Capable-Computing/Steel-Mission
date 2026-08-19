@@ -38,7 +38,8 @@ GENERAL_KNOWLEDGE_ENV = "PRESENT_GENERAL_KNOWLEDGE_REGISTRY"
 GENERAL_KNOWLEDGE_DEFAULT = WORKER_DIR / "config" / "general-knowledge.json"
 ORGANIZATION_REGISTRY_ENV = "PRESENT_ORGANIZATION_REGISTRY"
 ORGANIZATION_REGISTRY_DEFAULT = WORKER_DIR / "config" / "organizations.json"
-MISSIONS_DIR_ENV = "PRESENT_MISSIONS_DIR"
+MISSIONS_DIR_ENV = "STEEL_MISSION_MISSIONS_DIR"
+LEGACY_MISSIONS_DIR_ENV = "PRESENT_MISSIONS_DIR"
 MISSIONS_DIR_DEFAULT = WORKER_DIR / "missions"
 DEFAULT_COORDINATOR_ROLE = "dc13.coordination-report"
 DEFAULT_RUNTIME_PROFILE = "dc13.auto"
@@ -306,6 +307,7 @@ def _provider_ready(provider: str, provider_capabilities: dict | None = None) ->
     if capabilities is None:
         capabilities = {
             "claude": claude_adapter.status(),
+            "codex": codex_adapter.status(),
             "glimmer": glimmer_adapter.status(),
         }
     status = capabilities.get(provider, {}) if isinstance(capabilities, dict) else {}
@@ -542,7 +544,7 @@ def _runtime_path_variables() -> dict[str, str]:
     jobs_dir = Path(os.environ.get("PRESENT_JOBS_DIR") or common.JOBS_DIR)
     test_results_dir = Path(os.environ.get("PRESENT_TEST_RESULTS_DIR") or common.TEST_RESULTS_DIR)
     repos_dir = Path(os.environ.get("PRESENT_REPOS_DIR") or common.REPOS_DIR)
-    missions_dir = Path(os.environ.get(MISSIONS_DIR_ENV) or MISSIONS_DIR_DEFAULT)
+    missions_dir = Path(os.environ.get(MISSIONS_DIR_ENV) or os.environ.get(LEGACY_MISSIONS_DIR_ENV) or MISSIONS_DIR_DEFAULT)
     return {
         "WORKER_DIR": str(common.WORKER_DIR),
         # Config files say ${ORG_DIR} rather than a path under the product tree,
@@ -801,8 +803,8 @@ def _capability_registry(provider_capabilities: dict, *, git_ready: bool) -> dic
             input_kinds=["requirement"], output_schemas=["plan-v1"],
             evidence_roles=["advisory-plan"], constraints={"requiresRequirement": True}),
         "code-review": _capability_entry(
-            "code-review", verb="review", provider="claude", authority="advisory",
-            available=claude_ready, missing=claude_missing, targets=target_both,
+            "code-review", verb="review", provider="codex", authority="advisory",
+            available=codex_ready, missing=codex_missing, targets=target_both,
             input_kinds=["requirement", "plan", "diff", "commit"], output_schemas=["review-v1"],
             evidence_roles=["advisory-review"], constraints={"requiresRequirement": True}),
         "security-review": _capability_entry(
@@ -1756,7 +1758,7 @@ def cmd_review(args) -> int:
     contract = _load_or_synthesize_contract(args.task_id, args.mock)
     if contract is None:
         return emit({"status": "BLOCKED", "reason": "missing task contract", "retryable": False})
-    refusal = _requirement_gate(args.task_id, "review", "claude", args.mock)
+    refusal = _requirement_gate(args.task_id, "review", "codex", args.mock)
     if refusal:
         return emit(refusal)
     commit = _latest_stage_output_commit(args.task_id, "build") or common.git_rev_parse(common.DEFAULT_REPO) or ""
@@ -1765,13 +1767,13 @@ def cmd_review(args) -> int:
     if worktree.exists():
         diff = common.run(["git", "-C", str(worktree), "diff", commit], timeout=30).stdout[-60000:]
     input_context = _workflow_input_context_text()
-    result = claude_adapter.review(
+    result = codex_adapter.review(
         args.task_id, "mock" if args.mock else "live", common.load_requirement(args.task_id),
         _artifact_plan_text(args.task_id), commit, diff, "", input_context=input_context,
     )
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "review", result)
-    common.record_stage(args.task_id, "review", result, role="claude", reviewed_commit=commit)
+    common.record_stage(args.task_id, "review", result, role="codex", reviewed_commit=commit)
     return emit(result)
 
 

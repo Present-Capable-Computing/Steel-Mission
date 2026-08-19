@@ -1337,6 +1337,21 @@
       "introducedAt": "2026-08-18"
     },
     {
+      "id": "enterprise-knowledge-first-start-v1",
+      "version": 1,
+      "schemaFile": "enterprise-knowledge-first-start-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "enterprise-knowledge-first-start",
+      "producer": "steel-mission",
+      "validationPoints": [
+        "container-first-start",
+        "starter-company-test"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-19"
+    },
+    {
       "id": "project-v1",
       "version": 1,
       "schemaFile": "project-v1.json",
