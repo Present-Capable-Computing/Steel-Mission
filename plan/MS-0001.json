@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0001",
+  "projectId": "PRJ-0001",
+  "title": "P0 - Toolchain and CI baseline",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "ACTIVE",
+  "targetDate": "2026-08-26",
+  "outcome": "Every dependency and runtime jump currently open is landed or explicitly rejected with the full test suite green on each, the continuous integration job compiles every entrypoint rather than four of them, and the test harness has the markers and fixtures the later phases need before any of them start writing tests.",
+  "notInScope": "No durable store, no runner protocol, no orchestration change. This milestone touches build, test and dependency surfaces only. It does not rename anything; naming is MS-0006.",
+  "taskIds": [],
+  "completionEvidence": "The four open dependency pull requests are each merged or closed with a written reason. `make release-check` compiles steel-mission-chat/server.py, bin/present-worker, bin/present-control-plane, bin/present-evidence-signer, bin/present-private-runner and bin/present-lease-broker, and the same list is compiled in continuous integration. `python -m pytest` reports the full suite green on the supported interpreter matrix. Absent evidence means unestablished, never done.",
+  "metadata": {
+    "phase": "P0",
+    "focusedDaysBudget": 1.0,
+    "risk": "The private-runner base image and the continuous integration interpreter matrix are different runtimes. They fail independently and must be gated independently: a green matrix says nothing about the container, and a built container says nothing about the matrix.",
+    "githubMilestone": 1
+  }
+}

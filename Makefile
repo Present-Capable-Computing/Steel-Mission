@@ -1,4 +1,4 @@
-.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop private-runner-image private-runner-status release-check
+.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop private-runner-image private-runner-status release-check plan-check plan-sync
 
 PYTHON ?= python3
 HOST ?= 127.0.0.1
@@ -41,6 +41,13 @@ private-runner-image:
 
 private-runner-status:
 	PRESENT_PRIVATE_RUNNER_MODE=docker bin/present-private-runner status
+
+plan-check:
+	$(PYTHON) -m pytest tests/test_plan_records.py -q
+	$(PYTHON) tooling/gh-plan-sync.py --dry-run
+
+plan-sync:
+	$(PYTHON) tooling/gh-plan-sync.py
 
 release-check:
 	git diff --check

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0006",
+  "projectId": "PRJ-0001",
+  "title": "P5 - Steel-Mission naming",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-12-02",
+  "outcome": "The repository names one product. Executable names, environment variable prefixes, schema identifier namespaces and prose all read Steel-Mission, with no residual reference to the separate Present programme this code was extracted from.",
+  "notInScope": "No behaviour change of any kind. This milestone renames and shims; a rename that also fixes something is a rename whose regression cannot be attributed. It does not touch the durable store, the runner protocol, the connectors or orchestration.",
+  "taskIds": [],
+  "completionEvidence": "A search of the tracked tree for the prior product name returns only the migration provenance record and the compatibility shim table, both of which name it deliberately. The full suite passes before and after each rename step. Every renamed executable keeps a working compatibility name for one release, and the removal of each shim is its own recorded decision rather than a silent deletion.",
+  "metadata": {
+    "phase": "P5",
+    "focusedDaysBudget": 2.0,
+    "sequencing": "Last. This milestone collides with the file paths of every other phase, so it runs after P4 lands. The one exception is the new package name, which is settled up front by decision PRJ-0001-D4 so that P1 never creates a package that P5 must rename.",
+    "risk": "The suite drives the executables as subprocesses by name, so a rename is a test-visible change in roughly two hundred places at once. Land the compatibility shim first, migrate call sites second, remove the shim third, with the suite green between each.",
+    "githubMilestone": 6
+  }
+}

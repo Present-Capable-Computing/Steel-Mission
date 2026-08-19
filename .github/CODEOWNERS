@@ -20,3 +20,14 @@
 /.github/workflows/             @andrewHermann
 /Dockerfile.private-runner      @andrewHermann
 /requirements-dev.txt           @andrewHermann
+
+# The durable core. Every transaction boundary, lease, fence token and state
+# transition in the project lives here once P1 starts.
+/steel_core/                    @andrewHermann
+
+# The plan layer. These records are the source of truth for the shape of the
+# delivery work, and docs/workplan.md is what other people are relying on: a rule
+# changed without review is a rule that was never agreed.
+/plan/                          @andrewHermann
+/docs/workplan.md               @andrewHermann
+/tooling/                       @andrewHermann
