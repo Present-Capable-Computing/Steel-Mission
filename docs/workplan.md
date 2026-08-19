@@ -208,6 +208,11 @@ and the templates do not have a bypass in normal use.
 - **One issue per branch.** The pull request closes it by number.
 - **Draft early.** A draft pull request opened on the first commit is how the rest of
   us see what is being worked on without asking.
+- **Auto-merge is on.** Queue a pull request and it lands by itself once the checks
+  and the required review pass — which means it lands without you looking at it
+  again. Queue it only when you are finished, never as a way of not waiting for a
+  review you expect to be told something in. The head branch is deleted on merge;
+  the commits are on `main`, so nothing is lost.
 - **Ask in the issue, not in a private message.** A decision taken where nobody can
   find it later gets retaken.
 - **Blocked is a status, not a failure.** Say so in the issue the day it happens.
