@@ -22,7 +22,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
 
 try:
@@ -42,6 +42,7 @@ REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR") or WORKER_DIR / "repos")
 PRESENT_DEV_DIR = Path(os.environ.get("PRESENT_DEV") or WORKER_DIR.parent)
 WORKER_BIN = WORKER_DIR / "bin" / "steel-mission"
 BROKER_BIN = WORKER_DIR / "bin" / "present-lease-broker"
+PRIVATE_RUNNER_BIN = WORKER_DIR / "bin" / "present-private-runner"
 INDEX = APP_DIR / "index.html"
 CANON_DIR = Path(os.environ.get("PRESENT_CANON_DIR") or WORKER_DIR / "starter-company" / "canon")
 ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.json"
@@ -63,6 +64,10 @@ EVIDENCE_SIGNER_ID_ENV = "PRESENT_EVIDENCE_SIGNER_ID"
 EVIDENCE_SIGNER_COMMAND_ENV = "PRESENT_EVIDENCE_SIGNER_COMMAND"
 AUTH_SIGNING_KEY_ENV = "PRESENT_AUTH_SIGNING_KEY"
 CONNECTOR_WEBHOOK_SECRET_ENV = "PRESENT_CONNECTOR_WEBHOOK_SECRET"
+PRIVATE_RUNNER_MODE_ENV = "PRESENT_PRIVATE_RUNNER_MODE"
+PRIVATE_RUNNER_ALLOW_LOCAL_ENV = "PRESENT_PRIVATE_RUNNER_ALLOW_LOCAL"
+PRIVATE_RUNNER_SIGNING_KEY_ENV = "PRESENT_PRIVATE_RUNNER_SIGNING_KEY"
+PRIVATE_RUNNER_SIGNER_ID_ENV = "PRESENT_PRIVATE_RUNNER_SIGNER_ID"
 STEEL_MISSION_EDITION_ENV = "STEEL_MISSION_EDITION"
 STEEL_MISSION_LICENSE_KEY_ENV = "STEEL_MISSION_LICENSE_KEY"
 STEEL_MISSION_LICENSE_KEY_SHA256_ENV = "STEEL_MISSION_LICENSE_KEY_SHA256"
@@ -89,6 +94,7 @@ JOBS_LOCK = threading.Lock()
 MISSION_LOCK = threading.Lock()
 MISSION_ORCHESTRATORS: set[str] = set()
 MISSION_ORCHESTRATORS_LOCK = threading.Lock()
+WORKFLOW_INGRESS_LOCK = threading.Lock()
 
 MISSION_TEMPLATES: list[dict[str, Any]] = [
     {
@@ -2195,8 +2201,14 @@ def default_control_policy() -> dict[str, Any]:
         "executionBoundary": {
             "guardedRunnerRequired": True,
             "directCommandMode": "block",
+            "privateRunnerRequired": True,
+            "privateRunnerMode": "development-local",
+            "privateRunnerCommand": [str(PRIVATE_RUNNER_BIN), "execute"],
+            "privateRunnerStatusCommand": [str(PRIVATE_RUNNER_BIN), "status"],
+            "requiredProductionIsolation": "container",
+            "allowedEnvironment": ["GH_TOKEN", "GITHUB_TOKEN"],
             "guardedEntrypoints": ["bin/present-control-plane", "/api/control-plane/execute"],
-            "description": "Executable agent actions must enter through the signed guarded runner boundary.",
+            "description": "Executable agent actions must enter through the signed guarded runner and execute on an attested private-worker surface.",
         },
         "blockedCommandPatterns": [
             r"\bsudo\b",
@@ -2240,6 +2252,9 @@ def normalize_control_policy(payload: dict[str, Any]) -> dict[str, Any]:
     base = default_control_policy()
     approval_source = source.get("approvalRequired") if isinstance(source.get("approvalRequired"), dict) else {}
     compliance_source = source.get("complianceMappings") if isinstance(source.get("complianceMappings"), dict) else {}
+    execution_source = source.get("executionBoundary") if isinstance(source.get("executionBoundary"), dict) else {}
+    runner_command = execution_source.get("privateRunnerCommand")
+    runner_status_command = execution_source.get("privateRunnerStatusCommand")
     return {
         "schemaVersion": 1,
         "policyId": clean_optional_string(source.get("policyId"), limit=160) or base["policyId"],
@@ -2256,9 +2271,24 @@ def normalize_control_policy(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "executionBoundary": {
             **base["executionBoundary"],
-            **(source.get("executionBoundary") if isinstance(source.get("executionBoundary"), dict) else {}),
+            **execution_source,
             "guardedRunnerRequired": True,
             "directCommandMode": "block",
+            "privateRunnerRequired": True,
+            "privateRunnerMode": clean_choice(
+                execution_source.get("privateRunnerMode"), {"container", "development-local"}, "development-local"
+            ),
+            "privateRunnerCommand": [
+                str(item).strip() for item in runner_command[:8]
+                if isinstance(item, str) and item.strip()
+            ] if isinstance(runner_command, list) else base["executionBoundary"]["privateRunnerCommand"],
+            "privateRunnerStatusCommand": [
+                str(item).strip() for item in runner_status_command[:8]
+                if isinstance(item, str) and item.strip()
+            ] if isinstance(runner_status_command, list) else base["executionBoundary"]["privateRunnerStatusCommand"],
+            "requiredProductionIsolation": "container",
+            "allowedEnvironment": clean_string_list(execution_source.get("allowedEnvironment"), limit=30)
+            or base["executionBoundary"]["allowedEnvironment"],
         },
         "blockedCommandPatterns": clean_string_list(source.get("blockedCommandPatterns"), limit=120) or base["blockedCommandPatterns"],
         "approvalRequired": {
@@ -2327,11 +2357,11 @@ def default_integration_registry() -> dict[str, Any]:
             {"id": "local", "label": "Local model", "status": "provider-adapter-ready"},
         ],
         "connectors": [
-            {"id": "github", "label": "GitHub", "kind": "scm-pr-ci", "status": "alpha-native-gh-cli", "enabled": True, "mode": "registry", "events": ["pr", "ci"]},
+            {"id": "github", "label": "GitHub", "kind": "scm-pr-ci", "status": "alpha-native-bidirectional", "enabled": True, "mode": "native", "adapter": "github", "tokenEnv": "GITHUB_TOKEN", "secretEnv": "GITHUB_WEBHOOK_SECRET", "ingressRole": "user", "events": ["status", "approval-requested", "control-decision", "evidence", "mission-completed"]},
             {"id": "gitlab", "label": "GitLab", "kind": "scm-pr-ci", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["pr", "ci"]},
-            {"id": "jira", "label": "Jira", "kind": "work-tracking", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
+            {"id": "jira", "label": "Jira", "kind": "work-tracking", "status": "alpha-native-bidirectional", "enabled": False, "mode": "native", "adapter": "jira", "tokenEnv": "JIRA_API_TOKEN", "secretEnv": "JIRA_WEBHOOK_SECRET", "baseUrlEnv": "JIRA_BASE_URL", "ingressRole": "user", "events": ["status", "approval-requested", "control-decision", "evidence", "mission-completed"]},
             {"id": "linear", "label": "Linear", "kind": "work-tracking", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
-            {"id": "slack", "label": "Slack", "kind": "approval-notifications", "status": "alpha-outbox-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
+            {"id": "slack", "label": "Slack", "kind": "approval-notifications", "status": "alpha-native-bidirectional", "enabled": False, "mode": "native", "adapter": "slack", "tokenEnv": "SLACK_BOT_TOKEN", "secretEnv": "SLACK_SIGNING_SECRET", "ingressRole": "user", "events": ["status", "approval-requested", "control-decision", "evidence", "mission-completed"]},
             {"id": "ci-cd", "label": "CI/CD pipelines", "kind": "build-test-deploy", "status": "alpha-command-and-github-actions", "enabled": True, "mode": "registry", "events": ["build", "test", "deploy"]},
             {"id": "siem", "label": "SIEM/security monitoring", "kind": "security-evidence-export", "status": "core-export-ready", "enabled": False, "mode": "registry", "events": ["audit", "evidence", "control-decision"]},
         ],
@@ -2340,8 +2370,9 @@ def default_integration_registry() -> dict[str, Any]:
 
 def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
     connector_id = safe_path_part(str(item.get("id") or item.get("label") or "connector"), "connector")
-    mode = clean_choice(item.get("mode"), {"registry", "outbox", "command", "webhook"}, "registry")
+    mode = clean_choice(item.get("mode"), {"registry", "outbox", "command", "webhook", "native"}, "registry")
     kind = clean_optional_string(item.get("kind"), limit=120) or "integration"
+    default_adapter = connector_id if connector_id in {"github", "slack", "jira"} else "generic"
     return {
         "id": connector_id,
         "label": clean_optional_string(item.get("label"), limit=120) or connector_id,
@@ -2349,9 +2380,18 @@ def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
         "status": clean_optional_string(item.get("status"), limit=120) or "registry-ready",
         "enabled": bool_from_payload(item.get("enabled"), False),
         "mode": mode,
+        "adapter": clean_choice(item.get("adapter"), {"generic", "github", "slack", "jira"}, default_adapter),
         "command": clean_optional_string(item.get("command"), limit=1000),
         "webhookUrl": clean_optional_string(item.get("webhookUrl"), limit=1000),
         "webhookSecretEnv": clean_optional_string(item.get("webhookSecretEnv"), limit=120) or CONNECTOR_WEBHOOK_SECRET_ENV,
+        "tokenEnv": clean_optional_string(item.get("tokenEnv"), limit=120),
+        "secretEnv": clean_optional_string(item.get("secretEnv"), limit=120),
+        "baseUrl": clean_optional_string(item.get("baseUrl"), limit=1000),
+        "baseUrlEnv": clean_optional_string(item.get("baseUrlEnv"), limit=120),
+        # Signed workflow events represent an external actor, never a local
+        # control-plane administrator. Privilege elevation remains an explicit
+        # approval inside the mission lifecycle.
+        "ingressRole": "user",
         "exportPath": clean_optional_string(item.get("exportPath"), limit=1000),
         "events": clean_string_list(item.get("events"), limit=40),
     }
@@ -2450,6 +2490,14 @@ def attach_integration_edition_metadata(registry: dict[str, Any]) -> dict[str, A
     entitlement = license_entitlement()
     return {
         **registry,
+        "connectors": [
+            {
+                **item,
+                **({"nativeReadiness": native_connector_readiness(item)} if item.get("mode") == "native" else {}),
+            }
+            for item in registry.get("connectors", [])
+            if isinstance(item, dict)
+        ],
         "entitlement": entitlement,
     }
 
@@ -2514,6 +2562,18 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
     kms = auth.get("kms") if isinstance(auth.get("kms"), dict) else {}
     execution_boundary = policy.get("executionBoundary") if isinstance(policy.get("executionBoundary"), dict) else {}
     signer = evidence_signer_health(auth)
+    private_runner = private_runner_health()
+    native_connectors = [
+        item for item in connectors
+        if isinstance(item, dict) and item.get("adapter") in {"github", "slack", "jira"}
+    ]
+    native_ready = [
+        item for item in native_connectors
+        if item.get("enabled")
+        and isinstance(item.get("nativeReadiness"), dict)
+        and item["nativeReadiness"].get("ingressReady") is True
+        and item["nativeReadiness"].get("egressReady") is True
+    ]
     wrapper_path = WORKER_DIR / "bin" / "present-control-plane"
     runner_enforced = (
         execution_boundary.get("guardedRunnerRequired") is True
@@ -2543,6 +2603,13 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "detail": "The guarded CLI/API runs policy before command or provider execution, and direct command paths are blocked.",
         },
         {
+            "id": "isolated-private-runner",
+            "label": "Isolated private runner",
+            "alpha": private_runner.get("ok") is True,
+            "production": private_runner.get("productionEligible") is True and private_runner.get("isolationLevel") == "container",
+            "detail": "Executable delivery and provider commands cross an attested private-runner boundary; production requires the hardened ephemeral container surface.",
+        },
+        {
             "id": "tamper-evident-evidence",
             "label": "Tamper-evident evidence",
             "alpha": True,
@@ -2566,9 +2633,9 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
         {
             "id": "tool-integrations",
             "label": "Existing tool integrations",
-            "alpha": len(connectors) >= 7,
-            "production": len(enabled) >= 3 and any(item.get("mode") in {"command", "webhook", "outbox"} for item in enabled),
-            "detail": "GitHub/GitHub Actions plus command/webhook/outbox connectors cover GitLab, Jira, Linear, Slack, CI/CD, and SIEM categories.",
+            "alpha": {item.get("adapter") for item in native_connectors} >= {"github", "slack", "jira"},
+            "production": bool(native_ready),
+            "detail": "Signed GitHub, Slack, and Jira ingress preserves source/thread identity and native egress returns status, approvals, decisions, evidence, and completion.",
         },
         {
             "id": "baseline-auth",
@@ -2594,16 +2661,18 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "requiresSignedSession": auth.get("enforcementMode") == "signed-session-required-for-control-plane",
             "directCommandMode": str(execution_boundary.get("directCommandMode") or ""),
             "guardedRunnerRequired": execution_boundary.get("guardedRunnerRequired") is True,
+            "privateRunnerRequired": execution_boundary.get("privateRunnerRequired") is True,
+            "privateRunner": private_runner,
         },
         "entitlement": entitlement,
         "evidenceSigner": signer,
         "checks": checks,
         "remainingProductionHardening": [
             item for item in [
-                "Run agents in containers or private workers where direct shell/tool access is removed.",
+                None if private_runner.get("productionEligible") and private_runner.get("isolationLevel") == "container" else "Build and select the hardened private-runner image for container-isolated execution.",
                 None if signer.get("ok") and kms.get("requireExternalSigning") else "Back evidence signing with a customer-controlled KMS or external signing command.",
                 None if oidc.get("enabled") else "Configure an OIDC issuer/JWKS for organization identity verification.",
-                None if enabled else "Attach native connector credentials and webhook destinations for each customer tool.",
+                None if native_ready else "Configure signed ingress and native egress credentials for at least one GitHub, Slack, or Jira workflow.",
                 None if runner_enforced else "Force executable agent actions through the guarded control-plane runner.",
             ]
             if item
@@ -2635,7 +2704,61 @@ def connector_outbox_path(connector: dict[str, Any], event_id: str) -> Path:
     return MISSION_ROOT / "_connector-outbox" / safe_path_part(str(connector.get("id") or "connector"), "connector") / f"{event_id}.json"
 
 
+def normalize_workflow_origin(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    source_system = clean_choice(source.get("sourceSystem"), {"github", "slack", "jira", "api", "ui"}, "")
+    if not source_system:
+        return {}
+    fields = {
+        "sourceSystem": source_system,
+        "sourceType": clean_optional_string(source.get("sourceType"), limit=80),
+        "sourceId": clean_optional_string(source.get("sourceId"), limit=240),
+        "threadId": clean_optional_string(source.get("threadId"), limit=240),
+        "actorId": clean_optional_string(source.get("actorId"), limit=160),
+        "returnChannel": clean_optional_string(source.get("returnChannel"), limit=80),
+        "returnTarget": clean_optional_string(source.get("returnTarget"), limit=500),
+        "deepLink": clean_optional_string(source.get("deepLink"), limit=1000),
+        "repository": clean_optional_string(source.get("repository"), limit=240),
+        "issueNumber": clean_optional_string(source.get("issueNumber"), limit=40),
+        "channelId": clean_optional_string(source.get("channelId"), limit=160),
+        "threadTs": clean_optional_string(source.get("threadTs"), limit=160),
+        "issueKey": clean_optional_string(source.get("issueKey"), limit=120),
+    }
+    return {key: item for key, item in fields.items() if item}
+
+
+def connector_payload_origin(payload: dict[str, Any]) -> dict[str, Any]:
+    return normalize_workflow_origin(payload.get("origin") or payload.get("workflowOrigin"))
+
+
+def native_connector_readiness(connector: dict[str, Any]) -> dict[str, Any]:
+    adapter = str(connector.get("adapter") or connector.get("id") or "generic")
+    token_env = str(connector.get("tokenEnv") or {
+        "github": "GITHUB_TOKEN", "slack": "SLACK_BOT_TOKEN", "jira": "JIRA_API_TOKEN"
+    }.get(adapter, ""))
+    secret_env = str(connector.get("secretEnv") or {
+        "github": "GITHUB_WEBHOOK_SECRET", "slack": "SLACK_SIGNING_SECRET", "jira": "JIRA_WEBHOOK_SECRET"
+    }.get(adapter, ""))
+    base_url_env = str(connector.get("baseUrlEnv") or ("JIRA_BASE_URL" if adapter == "jira" else ""))
+    token_configured = bool(token_env and os.environ.get(token_env)) or (adapter == "github" and bool(os.environ.get("GH_TOKEN")))
+    base_url = str(connector.get("baseUrl") or (os.environ.get(base_url_env) if base_url_env else "") or "").rstrip("/")
+    egress_ready = token_configured and (adapter != "jira" or bool(base_url))
+    return {
+        "adapter": adapter,
+        "native": adapter in {"github", "slack", "jira"},
+        "tokenEnv": token_env,
+        "tokenConfigured": token_configured,
+        "secretEnv": secret_env,
+        "ingressSecretConfigured": bool(secret_env and os.environ.get(secret_env)),
+        "baseUrlEnv": base_url_env,
+        "baseUrlConfigured": bool(base_url) if adapter == "jira" else True,
+        "ingressReady": bool(secret_env and os.environ.get(secret_env)),
+        "egressReady": egress_ready,
+    }
+
+
 def connector_action_plan(connector: dict[str, Any], event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    origin = connector_payload_origin(payload)
     return {
         "schemaVersion": 1,
         "interface": ["plan", "preflight", "execute", "observe", "evidence", "rollback/export"],
@@ -2647,6 +2770,10 @@ def connector_action_plan(connector: dict[str, Any], event_type: str, payload: d
         "enabled": bool(connector.get("enabled")),
         "interactionModel": "workflow-embedded",
         "controlSurfaceRole": "administration-investigation-and-fallback",
+        "origin": origin,
+        "originContextPreserved": bool(origin),
+        "returnToOrigin": bool(origin and origin.get("sourceSystem") == connector.get("adapter")),
+        "investigationPath": payload.get("investigationPath") or "",
         "payloadHash": canonical_json_hash(payload),
     }
 
@@ -2664,6 +2791,11 @@ def connector_action_preflight(connector: dict[str, Any], event_type: str, paylo
         blockers.append("connector command is not configured")
     if mode == "webhook" and not str(connector.get("webhookUrl") or "").strip():
         blockers.append("connector webhookUrl is not configured")
+    origin = connector_payload_origin(payload)
+    native_readiness = native_connector_readiness(connector) if mode == "native" else {}
+    native_targets_origin = bool(origin and origin.get("sourceSystem") == connector.get("adapter"))
+    if mode == "native" and native_targets_origin and native_readiness.get("egressReady") is not True:
+        blockers.append(f"native {connector.get('adapter') or connector.get('id')} egress credentials are not configured")
     blocked_patterns = command_matches_blocked_pattern(command, control_policy()) if command else []
     blockers.extend(f"connector command matches blocked policy pattern: {pattern}" for pattern in blocked_patterns)
     decision = "allow" if not blockers else "block"
@@ -2676,50 +2808,29 @@ def connector_action_preflight(connector: dict[str, Any], event_type: str, paylo
         "blockers": blockers,
         "modelIndependent": True,
         "customerControlled": True,
+        "nativeReadiness": native_readiness,
         "policyHash": canonical_json_hash(control_policy()),
     }
 
 
 def run_connector_command(command: str, payload: dict[str, Any], *, timeout: int = 60) -> dict[str, Any]:
-    try:
-        argv = shlex.split(command)
-    except ValueError as exc:
-        return {"ok": False, "status": "blocked", "error": f"connector command could not be parsed: {exc}"}
-    if not argv:
-        return {"ok": False, "status": "blocked", "error": "connector command is not configured"}
-    started = time.time()
-    env = {**os.environ, "PRESENT_CONNECTOR_PAYLOAD_SHA256": canonical_json_hash(payload)}
-    try:
-        result = subprocess.run(
-            argv,
-            cwd=str(WORKER_DIR),
-            input=json.dumps(payload, sort_keys=True),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-            env=env,
-        )
-    except FileNotFoundError as exc:
-        return {"ok": False, "status": "failed", "error": str(exc), "argv": argv}
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "ok": False,
-            "status": "timeout",
-            "argv": argv,
-            "timeoutSeconds": timeout,
-            "stdout": limited_text(exc.stdout or ""),
-            "stderr": limited_text(exc.stderr or ""),
-        }
-    return {
-        "ok": result.returncode == 0,
-        "status": "succeeded" if result.returncode == 0 else "failed",
-        "argv": argv,
-        "exitCode": result.returncode,
-        "durationSeconds": round(time.time() - started, 1),
-        "stdout": limited_text(result.stdout or ""),
-        "stderr": limited_text(result.stderr or ""),
-    }
+    nested = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    payload_hash = canonical_json_hash(payload)
+    mission_id = str(nested.get("missionId") or "")
+    if not re.fullmatch(r"ms-[a-f0-9]{24}", mission_id):
+        mission_id = "ms-" + payload_hash[:24]
+    task_id = str(nested.get("taskId") or "")
+    if not re.fullmatch(r"DEV-[0-9]{6}", task_id):
+        task_id = f"DEV-{int(payload_hash[24:36], 16) % 1_000_000:06d}"
+    return run_delivery_private_runner(
+        command,
+        WORKER_DIR,
+        {"missionId": mission_id, "taskId": task_id},
+        "inspect",
+        timeout=timeout,
+        stdin_text=json.dumps(payload, sort_keys=True),
+        request_environment={"PRESENT_CONNECTOR_PAYLOAD_SHA256": payload_hash},
+    )
 
 
 def post_connector_webhook(connector: dict[str, Any], payload: dict[str, Any], *, timeout: int = 30) -> dict[str, Any]:
@@ -2750,6 +2861,379 @@ def post_connector_webhook(connector: dict[str, Any], payload: dict[str, Any], *
             }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "status": "failed", "error": str(exc), "durationSeconds": round(time.time() - started, 1)}
+
+
+def workflow_event_message(envelope: dict[str, Any]) -> str:
+    payload = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {}
+    event_type = str(envelope.get("eventType") or "status")
+    mission_id = str(payload.get("missionId") or "")
+    title = {
+        "approval-requested": "Approval needed",
+        "control-decision": "Control decision recorded",
+        "evidence": "Evidence recorded",
+        "mission-completed": "Mission completed",
+        "status": "Mission status",
+    }.get(event_type, event_type.replace("-", " ").title())
+    detail = str(payload.get("summary") or payload.get("title") or payload.get("state") or payload.get("decision") or "").strip()
+    investigation = str(payload.get("investigationUrl") or payload.get("investigationPath") or "").strip()
+    lines = [f"Steel Mission · {title}"]
+    if mission_id:
+        lines.append(f"Mission: {mission_id}")
+    if detail:
+        lines.append(detail[:1500])
+    if investigation:
+        lines.append(f"Investigate: {investigation}")
+    return "\n".join(lines)
+
+
+def post_native_json(url: str, body: dict[str, Any], headers: dict[str, str], *, timeout: int = 30) -> dict[str, Any]:
+    started = time.time()
+    request = Request(
+        url,
+        data=json.dumps(body, sort_keys=True).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "Steel-Mission-Control-Plane/alpha", **headers},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read(65536).decode("utf-8", errors="replace")
+            try:
+                response_payload = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                response_payload = {"body": limited_text(raw, limit=4000)}
+            ok = 200 <= int(response.status) < 300
+            return {
+                "ok": ok,
+                "status": "succeeded" if ok else "failed",
+                "httpStatus": int(response.status),
+                "durationSeconds": round(time.time() - started, 1),
+                "response": response_payload,
+                "url": url,
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": "failed", "error": str(exc), "durationSeconds": round(time.time() - started, 1), "url": url}
+
+
+def run_native_github_connector(connector: dict[str, Any], envelope: dict[str, Any], origin: dict[str, Any]) -> dict[str, Any]:
+    repository = str(origin.get("repository") or "").strip()
+    issue_number = str(origin.get("issueNumber") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not issue_number.isdigit():
+        return {"ok": False, "status": "blocked", "error": "GitHub origin is missing repository or issue number"}
+    token_env = str(connector.get("tokenEnv") or "GITHUB_TOKEN")
+    token = str(os.environ.get(token_env) or os.environ.get("GH_TOKEN") or "")
+    if not token:
+        return {"ok": False, "status": "blocked", "error": f"GitHub token is unavailable in {token_env}"}
+    url = f"https://api.github.com/repos/{repository}/issues/{quote(issue_number, safe='')}/comments"
+    return post_native_json(
+        url,
+        {"body": workflow_event_message(envelope)},
+        {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
+    )
+
+
+def run_native_slack_connector(connector: dict[str, Any], envelope: dict[str, Any], origin: dict[str, Any]) -> dict[str, Any]:
+    channel = str(origin.get("channelId") or origin.get("returnTarget") or "").strip()
+    if not channel:
+        return {"ok": False, "status": "blocked", "error": "Slack origin is missing channel id"}
+    token_env = str(connector.get("tokenEnv") or "SLACK_BOT_TOKEN")
+    token = str(os.environ.get(token_env) or "")
+    if not token:
+        return {"ok": False, "status": "blocked", "error": f"Slack token is unavailable in {token_env}"}
+    body: dict[str, Any] = {"channel": channel, "text": workflow_event_message(envelope), "unfurl_links": False}
+    if origin.get("threadTs"):
+        body["thread_ts"] = origin["threadTs"]
+    result = post_native_json("https://slack.com/api/chat.postMessage", body, {"Authorization": f"Bearer {token}"})
+    response = result.get("response") if isinstance(result.get("response"), dict) else {}
+    if result.get("ok") is True and response.get("ok") is False:
+        return {**result, "ok": False, "status": "failed", "error": str(response.get("error") or "Slack API rejected the message")}
+    return result
+
+
+def run_native_jira_connector(connector: dict[str, Any], envelope: dict[str, Any], origin: dict[str, Any]) -> dict[str, Any]:
+    issue_key = str(origin.get("issueKey") or origin.get("returnTarget") or "").strip()
+    base_url_env = str(connector.get("baseUrlEnv") or "JIRA_BASE_URL")
+    base_url = str(connector.get("baseUrl") or os.environ.get(base_url_env) or "").rstrip("/")
+    if not issue_key or not base_url:
+        return {"ok": False, "status": "blocked", "error": "Jira origin or base URL is not configured"}
+    token_env = str(connector.get("tokenEnv") or "JIRA_API_TOKEN")
+    token = str(os.environ.get(token_env) or "")
+    if not token:
+        return {"ok": False, "status": "blocked", "error": f"Jira token is unavailable in {token_env}"}
+    url = f"{base_url}/rest/api/2/issue/{quote(issue_key, safe='')}/comment"
+    return post_native_json(url, {"body": workflow_event_message(envelope)}, {"Authorization": f"Bearer {token}", "Accept": "application/json"})
+
+
+def run_native_connector(connector: dict[str, Any], envelope: dict[str, Any]) -> dict[str, Any]:
+    origin = connector_payload_origin(envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {})
+    adapter = str(connector.get("adapter") or connector.get("id") or "")
+    if not origin or origin.get("sourceSystem") != adapter:
+        return {
+            "ok": True,
+            "status": "skipped",
+            "message": "native connector does not own the originating workflow",
+            "originSourceSystem": origin.get("sourceSystem") or "",
+        }
+    if adapter == "github":
+        return run_native_github_connector(connector, envelope, origin)
+    if adapter == "slack":
+        return run_native_slack_connector(connector, envelope, origin)
+    if adapter == "jira":
+        return run_native_jira_connector(connector, envelope, origin)
+    return {"ok": False, "status": "blocked", "error": f"native connector adapter {adapter!r} is not supported"}
+
+
+def normalized_request_headers(headers: Any) -> dict[str, str]:
+    if isinstance(headers, dict):
+        items = headers.items()
+    elif hasattr(headers, "items"):
+        items = headers.items()
+    else:
+        items = []
+    return {str(key).lower(): str(value) for key, value in items}
+
+
+def verify_workflow_ingress_signature(source: str, connector: dict[str, Any], headers: Any, raw_body: bytes) -> dict[str, Any]:
+    normalized = normalized_request_headers(headers)
+    secret_env = str(connector.get("secretEnv") or {
+        "github": "GITHUB_WEBHOOK_SECRET", "slack": "SLACK_SIGNING_SECRET", "jira": "JIRA_WEBHOOK_SECRET"
+    }.get(source, ""))
+    secret = str(os.environ.get(secret_env) or "")
+    if not secret:
+        return {"ok": False, "error": f"{source} ingress secret is unavailable in {secret_env}"}
+    if source == "slack":
+        timestamp = normalized.get("x-slack-request-timestamp", "")
+        signature = normalized.get("x-slack-signature", "")
+        try:
+            replay_safe = abs(int(time.time()) - int(timestamp)) <= 300
+        except (TypeError, ValueError):
+            replay_safe = False
+        expected = "v0=" + hmac.new(secret.encode("utf-8"), b"v0:" + timestamp.encode("ascii", errors="ignore") + b":" + raw_body, hashlib.sha256).hexdigest()
+        return {
+            "ok": replay_safe and bool(signature) and hmac.compare_digest(signature, expected),
+            "algorithm": "slack-v0-hmac-sha256",
+            "replaySafe": replay_safe,
+            **({"error": "Slack signature is invalid or outside the five-minute replay window"} if not (replay_safe and signature and hmac.compare_digest(signature, expected)) else {}),
+        }
+    signature_header = "x-hub-signature-256" if source == "github" else "x-steel-mission-signature"
+    signature = normalized.get(signature_header, "")
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    ok = bool(signature) and hmac.compare_digest(signature, expected)
+    return {
+        "ok": ok,
+        "algorithm": "hmac-sha256",
+        **({"error": f"{source} webhook signature is invalid"} if not ok else {}),
+    }
+
+
+def parse_workflow_ingress_payload(source: str, raw_body: bytes, content_type: str) -> dict[str, Any]:
+    text = raw_body.decode("utf-8")
+    if source == "slack" and "application/x-www-form-urlencoded" in content_type.lower():
+        form = parse_qs(text, keep_blank_values=True)
+        return {key: values[-1] if values else "" for key, values in form.items()}
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("workflow ingress payload must be an object")
+    return payload
+
+
+def command_after_steel_mission(value: Any) -> str:
+    text = str(value or "").strip()
+    match = re.search(r"(?:^|\s)/?steel-mission(?:\s+|$)(.*)", text, flags=re.I | re.S)
+    if match:
+        return match.group(1).strip()
+    text = re.sub(r"<@[A-Z0-9]+>", "", text, flags=re.I).strip()
+    return text
+
+
+def normalize_github_ingress(headers: dict[str, str], payload: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
+    event_type = headers.get("x-github-event", "unknown")
+    repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
+    issue = payload.get("issue") if isinstance(payload.get("issue"), dict) else {}
+    pull_request = payload.get("pull_request") if isinstance(payload.get("pull_request"), dict) else {}
+    subject = issue or pull_request
+    comment = payload.get("comment") if isinstance(payload.get("comment"), dict) else {}
+    actor = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
+    repo_name = str(repository.get("full_name") or "")
+    number = str(subject.get("number") or payload.get("number") or "")
+    body = str(comment.get("body") or subject.get("body") or "")
+    labels = [
+        str(item.get("name") or "").strip().lower()
+        for item in subject.get("labels", []) if isinstance(item, dict)
+    ] if isinstance(subject.get("labels"), list) else []
+    explicit = bool(re.search(r"(?:^|\s)/?steel-mission(?:\s|$)", body, flags=re.I))
+    accepted = explicit or "steel-mission" in labels
+    command = command_after_steel_mission(body) if explicit else ""
+    objective = command or "\n\n".join(item for item in [str(subject.get("title") or "").strip(), body.strip()] if item)
+    source_type = "pull-request" if pull_request else "issue"
+    return {
+        "schemaVersion": 1,
+        "eventId": headers.get("x-github-delivery") or "github-" + hashlib.sha256(raw_body).hexdigest()[:24],
+        "sourceSystem": "github",
+        "eventType": event_type,
+        "action": str(payload.get("action") or ""),
+        "accepted": accepted and bool(objective),
+        "reason": "explicit command or steel-mission label" if accepted else "event does not request Steel Mission",
+        "objective": objective[:12000],
+        "actor": {"id": str(actor.get("id") or actor.get("login") or ""), "name": str(actor.get("login") or "")},
+        "origin": normalize_workflow_origin({
+            "sourceSystem": "github",
+            "sourceType": source_type,
+            "sourceId": f"{repo_name}#{number}" if repo_name and number else repo_name,
+            "threadId": f"github:{repo_name}:{number}" if repo_name and number else "",
+            "actorId": str(actor.get("login") or actor.get("id") or ""),
+            "returnChannel": "github-comment",
+            "returnTarget": f"{repo_name}#{number}" if repo_name and number else "",
+            "deepLink": str(comment.get("html_url") or subject.get("html_url") or ""),
+            "repository": repo_name,
+            "issueNumber": number,
+        }),
+        "payloadHash": hashlib.sha256(raw_body).hexdigest(),
+        "receivedAt": utc_now(),
+    }
+
+
+def normalize_slack_ingress(headers: dict[str, str], payload: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
+    event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    is_slash = bool(payload.get("command"))
+    text = str(payload.get("text") if is_slash else event.get("text") or "")
+    command = command_after_steel_mission(text)
+    channel = str(payload.get("channel_id") if is_slash else event.get("channel") or "")
+    thread_ts = str(event.get("thread_ts") or event.get("ts") or payload.get("trigger_id") or "")
+    actor_id = str(payload.get("user_id") if is_slash else event.get("user") or "")
+    event_type = str(event.get("type") or "")
+    explicit = bool(re.search(r"(?:^|\s)/?steel-mission(?:\s|$)", text, flags=re.I))
+    from_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")
+    accepted = not from_bot and (is_slash or event_type == "app_mention" or (event_type == "message" and explicit))
+    return {
+        "schemaVersion": 1,
+        "eventId": str(payload.get("event_id") or headers.get("x-slack-request-id") or "slack-" + hashlib.sha256(raw_body).hexdigest()[:24]),
+        "sourceSystem": "slack",
+        "eventType": "slash-command" if is_slash else str(event.get("type") or payload.get("type") or "event"),
+        "action": "request",
+        "accepted": accepted and bool(command),
+        "reason": "signed Slack command or app mention" if accepted else "Slack event does not request Steel Mission",
+        "objective": command[:12000],
+        "actor": {"id": actor_id, "name": str(payload.get("user_name") or actor_id)},
+        "origin": normalize_workflow_origin({
+            "sourceSystem": "slack",
+            "sourceType": "thread",
+            "sourceId": channel,
+            "threadId": f"slack:{channel}:{thread_ts}" if channel and thread_ts else channel,
+            "actorId": actor_id,
+            "returnChannel": "slack-thread",
+            "returnTarget": channel,
+            "channelId": channel,
+            "threadTs": thread_ts,
+        }),
+        "payloadHash": hashlib.sha256(raw_body).hexdigest(),
+        "receivedAt": utc_now(),
+    }
+
+
+def normalize_jira_ingress(headers: dict[str, str], payload: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
+    issue = payload.get("issue") if isinstance(payload.get("issue"), dict) else {}
+    fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else {}
+    comment = payload.get("comment") if isinstance(payload.get("comment"), dict) else {}
+    actor = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+    issue_key = str(issue.get("key") or "")
+    body = str(comment.get("body") or fields.get("description") or "")
+    labels = [str(item).lower() for item in fields.get("labels", [])] if isinstance(fields.get("labels"), list) else []
+    explicit = bool(re.search(r"(?:^|\s)/?steel-mission(?:\s|$)", body, flags=re.I))
+    accepted = explicit or "steel-mission" in labels
+    command = command_after_steel_mission(body) if explicit else ""
+    objective = command or "\n\n".join(item for item in [str(fields.get("summary") or "").strip(), body.strip()] if item)
+    return {
+        "schemaVersion": 1,
+        "eventId": headers.get("x-atlassian-webhook-identifier") or "jira-" + hashlib.sha256(raw_body).hexdigest()[:24],
+        "sourceSystem": "jira",
+        "eventType": str(payload.get("webhookEvent") or "jira:issue_updated"),
+        "action": "request",
+        "accepted": accepted and bool(objective),
+        "reason": "explicit command or steel-mission label" if accepted else "Jira event does not request Steel Mission",
+        "objective": objective[:12000],
+        "actor": {"id": str(actor.get("accountId") or actor.get("key") or ""), "name": str(actor.get("displayName") or "")},
+        "origin": normalize_workflow_origin({
+            "sourceSystem": "jira",
+            "sourceType": "issue",
+            "sourceId": issue_key,
+            "threadId": f"jira:{issue_key}",
+            "actorId": str(actor.get("accountId") or actor.get("key") or ""),
+            "returnChannel": "jira-comment",
+            "returnTarget": issue_key,
+            "deepLink": str(issue.get("self") or ""),
+            "issueKey": issue_key,
+        }),
+        "payloadHash": hashlib.sha256(raw_body).hexdigest(),
+        "receivedAt": utc_now(),
+    }
+
+
+def workflow_ingress_receipt_path(source: str, event_id: str) -> Path:
+    return MISSION_ROOT / "_workflow-ingress" / safe_path_part(source, "source") / f"{safe_path_part(event_id, 'event')}.json"
+
+
+def process_workflow_ingress(source: str, headers: Any, raw_body: bytes, content_type: str = "application/json") -> tuple[int, dict[str, Any]]:
+    if source not in {"github", "slack", "jira"}:
+        return 404, {"ok": False, "error": "workflow ingress source is not supported"}
+    connector = connector_by_id(source, "admin")
+    if not connector or connector.get("enabled") is not True or connector.get("mode") != "native":
+        return 404, {"ok": False, "error": f"native {source} connector is not enabled"}
+    signature = verify_workflow_ingress_signature(source, connector, headers, raw_body)
+    if signature.get("ok") is not True:
+        return 401, {"ok": False, "error": signature.get("error") or "workflow ingress signature is invalid", "signature": signature}
+    try:
+        payload = parse_workflow_ingress_payload(source, raw_body, content_type)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return 400, {"ok": False, "error": str(exc)}
+    if source == "slack" and payload.get("type") == "url_verification":
+        return 200, {"ok": True, "challenge": str(payload.get("challenge") or "")}
+    normalized_headers = normalized_request_headers(headers)
+    event = {
+        "github": normalize_github_ingress,
+        "slack": normalize_slack_ingress,
+        "jira": normalize_jira_ingress,
+    }[source](normalized_headers, payload, raw_body)
+    receipt_path = workflow_ingress_receipt_path(source, str(event.get("eventId") or "event"))
+    with WORKFLOW_INGRESS_LOCK:
+        existing = read_json_file(receipt_path)
+        if existing:
+            return 200, {**existing, "duplicate": True}
+        if event.get("accepted") is not True:
+            receipt = {"schemaVersion": 1, "ok": True, "status": "ignored", "duplicate": False, "event": event}
+            atomic_write_json(receipt_path, receipt)
+            return 202, receipt
+        atomic_write_json(receipt_path, {
+            "schemaVersion": 1,
+            "ok": True,
+            "status": "accepting",
+            "duplicate": False,
+            "event": event,
+        })
+    actor = event.get("actor") if isinstance(event.get("actor"), dict) else {}
+    try:
+        started = start_orchestrated_mission(
+            "investigate",
+            str(event.get("objective") or "")[:12000],
+            mock=False,
+            profile=active_runtime_profile(),
+            operator_role=corporate_role(str(connector.get("ingressRole") or "user")),
+            actor_user_id=f"{source}:{actor.get('id') or actor.get('name') or 'external-user'}",
+            workflow_origin=event.get("origin"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        failed = {"schemaVersion": 1, "ok": False, "status": "failed", "duplicate": False, "event": event, "error": str(exc)}
+        atomic_write_json(receipt_path, failed)
+        return 500, failed
+    receipt = {
+        "schemaVersion": 1,
+        "ok": True,
+        "status": "accepted",
+        "duplicate": False,
+        "event": event,
+        "mission": started,
+        "investigationPath": f"/mission/{started.get('missionId')}",
+    }
+    atomic_write_json(receipt_path, receipt)
+    return 202, receipt
 
 
 def write_connector_outbox(connector: dict[str, Any], event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2784,6 +3268,8 @@ def execute_connector_action(connector_id: str, event_type: str, payload: dict[s
         execution = run_connector_command(str(connector.get("command") or ""), envelope)
     elif connector.get("mode") == "webhook":
         execution = post_connector_webhook(connector, envelope)
+    elif connector.get("mode") == "native":
+        execution = run_native_connector(connector, envelope)
     elif connector.get("mode") == "outbox":
         execution = write_connector_outbox(connector, event_id, {**envelope, "preflight": preflight})
     else:
@@ -2813,9 +3299,17 @@ def execute_connector_action(connector_id: str, event_type: str, payload: dict[s
 
 def execute_configured_connectors(event_type: str, payload: dict[str, Any], *, role: str = "admin") -> list[dict[str, Any]]:
     registry = integration_registry(role)
+    origin = connector_payload_origin(payload)
     results: list[dict[str, Any]] = []
     for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
         if not isinstance(connector, dict) or not connector.get("enabled") or not connector_supports_event(connector, event_type):
+            continue
+        if connector.get("mode") == "native" and (
+            not origin or origin.get("sourceSystem") != connector.get("adapter")
+        ):
+            # Native workflow adapters are return channels, not broadcast
+            # sinks. Do not create empty/skipped delivery evidence for a
+            # mission that did not originate in that provider.
             continue
         results.append(execute_connector_action(str(connector.get("id") or ""), event_type, payload, role=role))
     return results
@@ -2835,10 +3329,20 @@ def write_connector_event_evidence(
     task_id = str(record.get("taskId") or "") or None
     job_id = str(record.get("jobId") or "") or None
     operator = corporate_role(str(record.get("operatorRole") or "user"))
+    workflow_origin = normalize_workflow_origin(record.get("workflowOrigin"))
+    public_base = str(os.environ.get("STEEL_MISSION_PUBLIC_URL") or "").rstrip("/")
+    investigation_path = f"/mission/{mission_id}"
+    connector_payload = {
+        **payload,
+        "investigationPath": investigation_path,
+        "investigationUrl": f"{public_base}{investigation_path}" if public_base else investigation_path,
+        "returnToOrigin": bool(workflow_origin),
+        **({"origin": workflow_origin} if workflow_origin else {}),
+    }
     results = [
-        execute_connector_action(connector_id, event_type, payload, role="admin")
+        execute_connector_action(connector_id, event_type, connector_payload, role="admin")
         for connector_id in connector_ids
-    ] if connector_ids else execute_configured_connectors(event_type, payload, role="admin")
+    ] if connector_ids else execute_configured_connectors(event_type, connector_payload, role="admin")
     refs: list[dict[str, Any]] = []
     for result in results:
         ref = write_mission_evidence(
@@ -4487,6 +4991,13 @@ def read_json(handler: BaseHTTPRequestHandler, max_bytes: int = MAX_REQUEST_BYTE
     return payload
 
 
+def read_request_bytes(handler: BaseHTTPRequestHandler, max_bytes: int = MAX_REQUEST_BYTES) -> bytes:
+    length = int(handler.headers.get("Content-Length", "0") or "0")
+    if length <= 0 or length > max_bytes:
+        raise ValueError(f"request body must be 1..{max_bytes} bytes")
+    return handler.rfile.read(length)
+
+
 def clean_messages(value: Any) -> list[dict[str, str]]:
     if not isinstance(value, list):
         return []
@@ -5206,6 +5717,7 @@ def delivery_action_preflight(
         decision = "block"
         blockers.extend(str(item) for item in risk.get("reasons", []) if item)
     execution_boundary = policy.get("executionBoundary") if isinstance(policy.get("executionBoundary"), dict) else {}
+    runner_health = private_runner_health() if command and execution_boundary.get("privateRunnerRequired") is True else {}
     if (
         command
         and execution_boundary.get("guardedRunnerRequired") is True
@@ -5214,6 +5726,9 @@ def delivery_action_preflight(
     ):
         decision = "block"
         blockers.append("command execution must use the signed guarded control-plane runner")
+    elif command and execution_boundary.get("privateRunnerRequired") is True and runner_health.get("ok") is not True:
+        decision = "block"
+        blockers.append(str(runner_health.get("error") or "private runner is not ready"))
     elif risk.get("requiresApproval") and not approved:
         decision = "require_approval"
         blockers.append("human approval is required before this action can execute")
@@ -5231,6 +5746,8 @@ def delivery_action_preflight(
         "deploymentBoundary": policy.get("customerBoundary", {}).get("deployment", "customer-vpc-or-private-cloud") if isinstance(policy.get("customerBoundary"), dict) else "customer-vpc-or-private-cloud",
         "guardedRunnerRequired": execution_boundary.get("guardedRunnerRequired") is True,
         "controlPlaneExecution": record.get("controlPlaneExecution") is True,
+        "privateRunnerRequired": execution_boundary.get("privateRunnerRequired") is True,
+        "privateRunner": runner_health,
         "phase": phase,
         "commandConfigured": bool(command),
         "workspacePath": workspace.get("path") or "",
@@ -5417,6 +5934,225 @@ def run_delivery_subprocess(command: str, cwd: Path, *, timeout: int = DELIVERY_
     }
 
 
+def private_runner_command(status: bool = False) -> list[str]:
+    boundary = control_policy().get("executionBoundary")
+    boundary = boundary if isinstance(boundary, dict) else {}
+    field = "privateRunnerStatusCommand" if status else "privateRunnerCommand"
+    configured = boundary.get(field)
+    fallback = [str(PRIVATE_RUNNER_BIN), "status" if status else "execute"]
+    raw = configured if isinstance(configured, list) and configured else fallback
+    return [
+        str(item).replace("${WORKER_DIR}", str(WORKER_DIR)).replace("${PRIVATE_RUNNER_BIN}", str(PRIVATE_RUNNER_BIN))
+        for item in raw
+        if isinstance(item, str) and item.strip()
+    ] or fallback
+
+
+def private_runner_process_environment(mode: str, signing_key: bytes | None = None) -> dict[str, str]:
+    selected_mode = os.environ.get(PRIVATE_RUNNER_MODE_ENV) or ("docker" if mode == "container" else "local")
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        PRIVATE_RUNNER_MODE_ENV: selected_mode,
+        PRIVATE_RUNNER_ALLOW_LOCAL_ENV: "1" if selected_mode == "local" and mode == "development-local" else "0",
+        PRIVATE_RUNNER_SIGNER_ID_ENV: "steel-mission-private-runner",
+    }
+    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "XDG_RUNTIME_DIR", "PRESENT_PRIVATE_RUNNER_IMAGE",
+                "PRESENT_PRIVATE_RUNNER_NETWORK", "PRESENT_PRIVATE_RUNNER_USER", "PRESENT_PRIVATE_RUNNER_MEMORY",
+                "PRESENT_PRIVATE_RUNNER_CPUS", "PRESENT_PRIVATE_RUNNER_PIDS"):
+        if os.environ.get(key):
+            env[key] = str(os.environ[key])
+    if signing_key is not None:
+        env[PRIVATE_RUNNER_SIGNING_KEY_ENV] = signing_key.decode("utf-8", errors="surrogateescape")
+    return env
+
+
+def private_runner_health() -> dict[str, Any]:
+    boundary = control_policy().get("executionBoundary")
+    boundary = boundary if isinstance(boundary, dict) else {}
+    mode = str(boundary.get("privateRunnerMode") or "development-local")
+    command = private_runner_command(status=True)
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(WORKER_DIR),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            env=private_runner_process_environment(mode),
+        )
+        raw = completed.stdout or completed.stderr or "{}"
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("private-runner status must be an object")
+        return {
+            **payload,
+            "ok": completed.returncode == 0 and payload.get("ok") is True,
+            "command": command,
+            "configuredMode": mode,
+        }
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        return {
+            "schemaVersion": 1,
+            "ok": False,
+            "status": "blocked",
+            "error": str(exc),
+            "command": command,
+            "configuredMode": mode,
+        }
+
+
+def verify_private_runner_attestation(payload: dict[str, Any], key: bytes) -> dict[str, Any]:
+    attestation = payload.get("attestation") if isinstance(payload.get("attestation"), dict) else {}
+    basis = {field: value for field, value in payload.items() if field != "attestation"}
+    payload_hash = canonical_json_hash(basis)
+    expected = hmac.new(key, payload_hash.encode("ascii"), hashlib.sha256).hexdigest()
+    signature = str(attestation.get("signature") or "")
+    valid = (
+        attestation.get("algorithm") == "hmac-sha256"
+        and attestation.get("signerId") == "steel-mission-private-runner"
+        and hmac.compare_digest(str(attestation.get("payloadHash") or ""), payload_hash)
+        and bool(signature)
+        and hmac.compare_digest(signature, expected)
+    )
+    return {
+        "valid": valid,
+        "algorithm": attestation.get("algorithm") or "",
+        "signerId": attestation.get("signerId") or "",
+        "payloadHash": payload_hash,
+    }
+
+
+def run_delivery_private_runner(
+    command: str,
+    cwd: Path,
+    record: dict[str, Any],
+    phase: str,
+    *,
+    timeout: int = DELIVERY_COMMAND_TIMEOUT_SECONDS,
+    stdin_text: str = "",
+    request_environment: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if not command.strip():
+        return {"ok": False, "status": "planned", "error": "command is not configured"}
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        return {"ok": False, "status": "blocked", "error": f"command could not be parsed: {exc}"}
+    if not argv:
+        return {"ok": False, "status": "planned", "error": "command is not configured"}
+    boundary = control_policy().get("executionBoundary")
+    boundary = boundary if isinstance(boundary, dict) else {}
+    mode = str(boundary.get("privateRunnerMode") or "development-local")
+    allowed_environment = boundary.get("allowedEnvironment") if isinstance(boundary.get("allowedEnvironment"), list) else []
+    scoped_environment = {
+        str(name): str(os.environ[name])
+        for name in allowed_environment
+        if isinstance(name, str) and name in os.environ and os.environ[name]
+    }
+    for name, value in (request_environment or {}).items():
+        if re.fullmatch(r"[A-Z][A-Z0-9_]{0,79}", str(name)) and isinstance(value, str):
+            scoped_environment[str(name)] = value
+    identity_hash = canonical_json_hash({
+        "workspacePath": str(cwd.resolve()),
+        "phase": phase,
+        "argv": argv,
+        "missionId": record.get("missionId") or "",
+        "taskId": record.get("taskId") or "",
+    })
+    mission_id = str(record.get("missionId") or "")
+    if not re.fullmatch(r"ms-[a-f0-9]{24}", mission_id):
+        mission_id = "ms-" + identity_hash[:24]
+    task_id = str(record.get("taskId") or "")
+    if not re.fullmatch(r"DEV-[0-9]{6}", task_id):
+        task_id = f"DEV-{int(identity_hash[24:36], 16) % 1_000_000:06d}"
+    request = {
+        "schemaVersion": 1,
+        "requestId": "pre-" + secrets.token_hex(12),
+        "missionId": mission_id,
+        "taskId": task_id,
+        "phase": phase,
+        "workspacePath": str(cwd.resolve()),
+        "argv": argv,
+        "timeoutSeconds": timeout,
+        "environment": scoped_environment,
+        "stdin": stdin_text,
+    }
+    signing_key = base64.b64encode(auth_signing_key())
+    request_hash = canonical_json_hash(request)
+    request["attestation"] = {
+        "algorithm": "hmac-sha256",
+        "signerId": "steel-mission-control-plane",
+        "payloadHash": request_hash,
+        "signature": hmac.new(signing_key, request_hash.encode("ascii"), hashlib.sha256).hexdigest(),
+    }
+    runner = private_runner_command(status=False)
+    started = time.time()
+    try:
+        completed = subprocess.run(
+            runner,
+            cwd=str(WORKER_DIR),
+            input=json.dumps(request, sort_keys=True),
+            capture_output=True,
+            text=True,
+            timeout=timeout + 30,
+            check=False,
+            env=private_runner_process_environment(mode, signing_key),
+        )
+        raw = completed.stdout or completed.stderr or "{}"
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("private-runner result must be an object")
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "status": "timeout",
+            "runnerCommand": runner,
+            "timeoutSeconds": timeout + 30,
+            "durationSeconds": round(time.time() - started, 1),
+            "stdout": limited_text(exc.stdout or ""),
+            "stderr": limited_text(exc.stderr or ""),
+        }
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "runnerCommand": runner,
+            "error": str(exc),
+            "durationSeconds": round(time.time() - started, 1),
+        }
+    verification = verify_private_runner_attestation(payload, signing_key)
+    expected_request_hash = canonical_json_hash({
+        key: request[key] for key in request if key != "attestation"
+    })
+    binding_valid = (
+        payload.get("requestId") == request["requestId"]
+        and payload.get("missionId") == request["missionId"]
+        and payload.get("taskId") == request["taskId"]
+        and payload.get("phase") == request["phase"]
+        and payload.get("requestHash") == expected_request_hash
+    )
+    verification["requestBindingValid"] = binding_valid
+    verification["expectedRequestHash"] = expected_request_hash
+    if verification.get("valid") is not True or not binding_valid:
+        return {
+            **payload,
+            "ok": False,
+            "status": "blocked",
+            "error": "private-runner result attestation or request binding is missing or invalid",
+            "attestationVerification": verification,
+            "runnerCommand": runner,
+        }
+    return {
+        **payload,
+        "ok": completed.returncode == 0 and payload.get("ok") is True,
+        "attestationVerification": verification,
+        "runnerCommand": runner,
+    }
+
+
 def delivery_git_state(repo: Path | None) -> dict[str, Any]:
     if repo is None:
         return {"ok": False, "error": "repositoryPath is not bound"}
@@ -5580,19 +6316,20 @@ def github_pr_adapter(record: dict[str, Any], workspace: dict[str, Any], change_
     if mock:
         return {**payload, "status": "mocked", "url": "mock://github-pr"}
     if context.get("pushBeforePr"):
-        push = run_git_command(["push", "-u", "origin", "HEAD"], repo, timeout=120)
+        push = run_delivery_private_runner("git push -u origin HEAD", repo, record, "pr", timeout=120)
         payload["pushResult"] = push
         if push.get("ok") is not True:
             return {**payload, "ok": False, "status": "failed", "blockers": [*blockers, "git push failed"]}
-    result = subprocess.run(command, cwd=str(repo), text=True, capture_output=True, timeout=120, check=False)
-    url = (result.stdout or "").strip().splitlines()[-1] if result.stdout.strip() else ""
+    result = run_delivery_private_runner(shlex.join(command), repo, record, "pr", timeout=120)
+    url = str(result.get("stdout") or "").strip().splitlines()[-1] if str(result.get("stdout") or "").strip() else ""
     return {
         **payload,
-        "ok": result.returncode == 0,
-        "status": "succeeded" if result.returncode == 0 else "failed",
-        "exitCode": result.returncode,
-        "stdout": limited_text(result.stdout or ""),
-        "stderr": limited_text(result.stderr or ""),
+        "ok": result.get("ok") is True,
+        "status": result.get("status") or "failed",
+        "exitCode": result.get("exitCode"),
+        "stdout": limited_text(str(result.get("stdout") or "")),
+        "stderr": limited_text(str(result.get("stderr") or "")),
+        "privateRunner": result,
         "url": url,
     }
 
@@ -5605,7 +6342,7 @@ def github_actions_ci_adapter(record: dict[str, Any], workspace: dict[str, Any],
     if provider == "manual":
         return {"provider": "manual", "status": "ready", "ok": not context.get("ciRequired"), "required": bool(context.get("ciRequired"))}
     if provider == "command" and context.get("ciCommand") and repo is not None:
-        result = {"ok": True, "status": "mocked", "command": context.get("ciCommand")} if mock else run_delivery_subprocess(str(context.get("ciCommand") or ""), repo)
+        result = {"ok": True, "status": "mocked", "command": context.get("ciCommand")} if mock else run_delivery_private_runner(str(context.get("ciCommand") or ""), repo, record, "inspect")
         return {"provider": "command", "status": result.get("status"), "ok": result.get("ok") is True, "required": bool(context.get("ciRequired")), "commandResult": result}
     target = context.get("githubRepository") or context.get("prTarget") or github_repo_from_remote(repo)
     branch = workspace.get("branch") or workspace.get("deliveryBranch") or context.get("branch") or ""
@@ -5630,17 +6367,16 @@ def github_actions_ci_adapter(record: dict[str, Any], workspace: dict[str, Any],
         return {**payload, "ok": False, "status": "blocked", "blockers": ["GitHub CLI is not ready"]}
     if mock:
         return {**payload, "ok": True, "status": "mocked", "runs": [{"name": "mock-ci", "status": "completed", "conclusion": "success"}]}
-    result = subprocess.run(
-        ["gh", "run", "list", "--repo", target, "--branch", branch, "--limit", "5", "--json", "databaseId,name,status,conclusion,url,createdAt"],
-        cwd=str(repo) if repo else None,
-        text=True,
-        capture_output=True,
+    result = run_delivery_private_runner(
+        shlex.join(["gh", "run", "list", "--repo", target, "--branch", branch, "--limit", "5", "--json", "databaseId,name,status,conclusion,url,createdAt"]),
+        repo or WORKER_DIR,
+        record,
+        "inspect",
         timeout=60,
-        check=False,
     )
     runs: list[dict[str, Any]] = []
     try:
-        parsed = json.loads(result.stdout or "[]")
+        parsed = json.loads(str(result.get("stdout") or "[]"))
         if isinstance(parsed, list):
             runs = [item for item in parsed if isinstance(item, dict)]
     except json.JSONDecodeError:
@@ -5648,11 +6384,12 @@ def github_actions_ci_adapter(record: dict[str, Any], workspace: dict[str, Any],
     ok = any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in runs)
     return {
         **payload,
-        "ok": ok if context.get("ciRequired") else result.returncode == 0,
+        "ok": ok if context.get("ciRequired") else result.get("ok") is True,
         "status": "succeeded" if ok else "blocked" if context.get("ciRequired") else "observed",
-        "exitCode": result.returncode,
-        "stdout": limited_text(result.stdout or ""),
-        "stderr": limited_text(result.stderr or ""),
+        "exitCode": result.get("exitCode"),
+        "stdout": limited_text(str(result.get("stdout") or "")),
+        "stderr": limited_text(str(result.get("stderr") or "")),
+        "privateRunner": result,
         "runs": runs,
     }
 
@@ -6351,14 +7088,14 @@ def delivery_step_payload(record: dict[str, Any], node: dict[str, Any]) -> dict[
             ok = True
             commandResult = {"ok": True, "status": "mocked", "command": command}
         else:
-            commandResult = run_delivery_subprocess(command, repo)
+            commandResult = run_delivery_private_runner(command, repo, record, phase)
             status = str(commandResult.get("status") or "failed")
             ok = commandResult.get("ok") is True
     elif phase in {"modify", "repair", "pr", "deploy"} and repo_bound and status != "blocked":
         ok = git_state.get("ok") is True
         status = "ready" if ok else "blocked"
     if ok and phase == "deploy" and context.get("deployHealthCommand") and repo_bound and not mock:
-        health = run_delivery_subprocess(str(context.get("deployHealthCommand") or ""), repo)
+        health = run_delivery_private_runner(str(context.get("deployHealthCommand") or ""), repo, record, "deploy")
         commandResult = {**commandResult, "deployHealth": health}
         ok = health.get("ok") is True
         status = "succeeded" if ok else "failed"
@@ -6720,7 +7457,7 @@ def execute_mission_node(record: dict[str, Any], node: dict[str, Any]) -> tuple[
                 repair_result = (
                     {"ok": False, "status": "blocked", "error": "; ".join(repair_preflight.get("blockers", []))}
                     if repair_preflight.get("ok") is not True else
-                    {"ok": True, "status": "mocked", "command": repair_command} if mock else run_delivery_subprocess(repair_command, repo)
+                    {"ok": True, "status": "mocked", "command": repair_command} if mock else run_delivery_private_runner(repair_command, repo, record, "repair")
                 )
                 repair_payload = {
                     "phase": "repair",
@@ -6967,6 +7704,18 @@ def run_mission_orchestrator(mission_id: str) -> None:
             details = {"error": str(exc)}
             artifact_refs = []
         if not ok:
+            failure_connector_refs = write_connector_event_evidence(
+                read_mission_record(mission_id) or record,
+                node_id,
+                "status",
+                {
+                    "missionId": mission_id,
+                    "nodeId": node_id,
+                    "state": "error",
+                    "summary": summary,
+                    "details": details,
+                },
+            )
             update_mission_node(mission_id, node_id, state="error", completedAt=utc_now(), resultSummary=summary)
             update_mission(mission_id, state="error", completedAt=utc_now(), error=summary,
                            lastPhase=f"Mission stopped at {next_node.get('title') or node_id}.")
@@ -6980,10 +7729,24 @@ def run_mission_orchestrator(mission_id: str) -> None:
                 operator_role=operator,
                 summary=summary,
                 details={"nodeId": node_id, **details},
-                artifact_refs=artifact_refs,
+                artifact_refs=artifact_refs + failure_connector_refs,
             )
             return
         update_mission_node(mission_id, node_id, state="done", completedAt=utc_now(), resultSummary=summary)
+        event_type = "control-decision" if next_node.get("kind") == "delivery-step" else "status"
+        status_connector_refs = write_connector_event_evidence(
+            read_mission_record(mission_id) or record,
+            node_id,
+            event_type,
+            {
+                "missionId": mission_id,
+                "nodeId": node_id,
+                "state": "done",
+                "summary": summary,
+                "details": details,
+                "artifactRefs": artifact_refs,
+            },
+        )
         append_mission_audit(
             mission_id,
             "mission-node-completed",
@@ -6993,7 +7756,7 @@ def run_mission_orchestrator(mission_id: str) -> None:
             operator_role=operator,
             summary=summary,
             details={"nodeId": node_id, **details},
-            artifact_refs=artifact_refs,
+            artifact_refs=artifact_refs + status_connector_refs,
         )
 
 
@@ -7008,6 +7771,7 @@ def start_orchestrated_mission(
     domain_capability_keys: Any = None,
     delivery_context: Any = None,
     actor_user_id: str | None = None,
+    workflow_origin: Any = None,
 ) -> dict[str, Any]:
     template = mission_template(template_id)
     if not template:
@@ -7031,6 +7795,7 @@ def start_orchestrated_mission(
     users = mission_user_bindings(user_ids)
     work_set = domain_capability_work_set(domain_capability_keys)
     delivery = normalize_delivery_context(delivery_context)
+    origin = normalize_workflow_origin(workflow_origin)
     nodes = new_mission_nodes(template)
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -7052,6 +7817,7 @@ def start_orchestrated_mission(
             "missionUsers": users,
             "capabilityWorkSet": work_set,
             "deliveryContext": delivery,
+            "workflowOrigin": origin,
             "repairAttemptsUsed": 0,
             "messages": [],
             "followUps": [],
@@ -7083,6 +7849,7 @@ def start_orchestrated_mission(
         capabilityWorkSet=work_set,
         capabilityKeys=[item.get("capabilityKey") or item.get("roleKey") for item in work_set if item.get("capabilityKey") or item.get("roleKey")],
         deliveryContext=delivery,
+        workflowOrigin=origin,
         repairAttemptsUsed=0,
         snapshotCollections=[],
         nodes=nodes,
@@ -7111,10 +7878,22 @@ def start_orchestrated_mission(
             "domainCapabilityKeys": [item.get("roleKey") for item in work_set if item.get("roleKey")],
             "capabilityKeys": [item.get("capabilityKey") or item.get("roleKey") for item in work_set if item.get("capabilityKey") or item.get("roleKey")],
             "deliveryContext": delivery,
+            "workflowOrigin": origin,
             "runtimeProfileId": runtime_profile.get("id"),
             "provider": model_policy.get("provider"),
             "model": model_policy.get("selectedModel"),
             "snapshotPolicyHash": snapshot_policy_summary(snapshot_policy).get("policyHash"),
+        },
+    )
+    write_connector_event_evidence(
+        read_mission_record(mission_id) or {},
+        "mission-start",
+        "status",
+        {
+            "missionId": mission_id,
+            "templateId": template_id,
+            "state": "running",
+            "summary": f"Started {template.get('title')} mission.",
         },
     )
     launch_mission_orchestrator(mission_id)
@@ -7504,6 +8283,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        ingress_source = {
+            "/api/integrations/github/webhook": "github",
+            "/api/integrations/slack/events": "slack",
+            "/api/integrations/jira/webhook": "jira",
+        }.get(path)
+        if ingress_source:
+            try:
+                raw_body = read_request_bytes(self)
+                status, payload = process_workflow_ingress(
+                    ingress_source,
+                    self.headers,
+                    raw_body,
+                    str(self.headers.get("Content-Type") or "application/json"),
+                )
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+                return
+            json_response(self, status, payload)
+            return
         if path in {"/api/owner/assignments", "/api/admin/assignments"}:
             try:
                 body = read_json(self)
@@ -7588,6 +8386,7 @@ class Handler(BaseHTTPRequestHandler):
                     domain_capability_keys=domain_capability_keys,
                     delivery_context=delivery_context,
                     actor_user_id=actor["actorId"],
+                    workflow_origin=body.get("origin"),
                 )
             except PermissionError as exc:
                 json_response(self, 403, {"ok": False, "error": str(exc)})

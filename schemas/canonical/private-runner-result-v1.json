@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/private-runner-result-v1.json",
+  "title": "Private runner result v1",
+  "description": "Attested result returned by a Steel Mission private-worker execution surface.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "requestId", "missionId", "taskId", "phase", "requestHash", "runnerId", "isolation", "startedAt", "finishedAt", "ok", "status", "attestation"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "requestId": {"type": "string", "minLength": 1},
+    "missionId": {"type": "string", "pattern": "^ms-[a-f0-9]{24}$"},
+    "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+    "phase": {"enum": ["modify", "build", "test", "inspect", "repair", "pr", "deploy"]},
+    "requestHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "runnerId": {"type": "string", "minLength": 1},
+    "isolation": {
+      "type": "object",
+      "required": ["mode", "productionEligible", "controls", "workspaceMount", "network"],
+      "properties": {
+        "mode": {"enum": ["container", "development-local"]},
+        "productionEligible": {"type": "boolean"},
+        "controls": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "workspaceMount": {"type": "string", "minLength": 1},
+        "network": {"type": "string", "minLength": 1}
+      }
+    },
+    "startedAt": {"type": "string", "minLength": 1},
+    "finishedAt": {"type": "string", "minLength": 1},
+    "ok": {"type": "boolean"},
+    "status": {"enum": ["planned", "succeeded", "failed", "timeout", "blocked"]},
+    "exitCode": {"type": "integer"},
+    "stdout": {"type": "string"},
+    "stderr": {"type": "string"},
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "signerId", "payloadHash", "signature"],
+      "properties": {
+        "algorithm": {"const": "hmac-sha256"},
+        "signerId": {"type": "string", "minLength": 1},
+        "payloadHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "signature": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  }
+}

@@ -19,7 +19,7 @@ See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICE
 
 - Keeps model choice separate from organizational role. Delivery Coordinator can run on different model providers.
 - Lets owners and admins configure users, capabilities, knowledge, runtime profiles, control policy, auth policy, and integrations.
-- Forces executable agent actions through the guarded runner.
+- Forces executable agent and command-adapter actions through an authenticated private runner; the included production path uses an ephemeral hardened container.
 - Blocks unsafe commands before execution.
 - Requires external evidence signing when production policy is enabled.
 - Creates signed, hash-chained mission evidence.
@@ -84,6 +84,7 @@ Optional provider tools:
 - Codex CLI for the repair-agent path;
 - Ollama and a local coding model for the `dc13.local` profile;
 - GitHub CLI for release and PR flows.
+- Docker for production-eligible private-runner isolation.
 
 See [INSTALL.md](INSTALL.md) for the complete setup guide.
 
@@ -104,6 +105,27 @@ bin/present-control-plane exec --token "$TOKEN" --json '{"phase":"inspect","repo
 
 Direct command execution paths are blocked by default when the control policy requires the guarded runner.
 
+The guarded control plane signs a bounded request to `bin/present-private-runner` and verifies the runner's signed result. For a production-eligible boundary, build the included image and select container mode:
+
+```bash
+make private-runner-image
+PRESENT_PRIVATE_RUNNER_MODE=docker bin/present-private-runner status
+```
+
+Set `executionBoundary.privateRunnerMode` to `container` in `config/control-plane-policy.json`. The container runs as a non-root host-mapped user with a read-only root filesystem, dropped capabilities, no-new-privileges, bounded CPU/memory/processes, a tmpfs scratch directory, and only the mission workspace mounted. Network access defaults to `none`; use a reviewed Docker network when a PR/provider phase needs outbound access. `development-local` mode is explicitly non-production and exists for local evaluation and tests.
+
+The alpha image contains Python, the release-test dependencies, Git, and GitHub CLI. Derive a customer image and set `PRESENT_PRIVATE_RUNNER_IMAGE` when a repository needs another toolchain. HTTPS GitHub pushes can use the allowlisted `GITHUB_TOKEN`/`GH_TOKEN`; token values remain in the process environment rather than Docker argv or image files.
+
+## Native Workflow Adapters
+
+GitHub, Slack, and Jira can start an investigation from signed webhook or command events and receive mission status, approval requests, control decisions, evidence links, and completion in the original issue or thread. Configure the corresponding token and signing-secret variables from `.env.example`, then point the provider at:
+
+- GitHub: `/api/integrations/github/webhook`;
+- Slack: `/api/integrations/slack/events`;
+- Jira or a Jira webhook-signing gateway: `/api/integrations/jira/webhook`.
+
+GitHub accepts an explicit `/steel-mission …` comment or a `steel-mission` label. Slack accepts the slash command or an app mention. Jira accepts the explicit command or label. Duplicate deliveries are idempotent. Jira ingress requires the gateway/provider to attach `X-Steel-Mission-Signature: sha256=<HMAC>` because Jira Cloud webhooks do not provide the same shared-secret signature contract as GitHub and Slack.
+
 ## Evidence Signing
 
 Core uses local HMAC signing by default and can require a customer-controlled KMS, Vault Transit service, HSM, or private signing service for evidence custody.
@@ -122,7 +144,7 @@ Core includes the controls teams need to admit Steel Mission into an enterprise 
 
 - self-managed SSO/OIDC through OIDC issuer and JWKS configuration;
 - audit logging and SIEM/security-monitoring JSONL export;
-- self-managed command, webhook, and outbox connectors;
+- self-managed native GitHub/Slack/Jira, command, webhook, and outbox connectors;
 - customer-controlled external evidence signing.
 
 Enterprise monetizes operational scale rather than access to baseline security: managed deployment and upgrades, multi-organization fleet governance, managed retention and integrations, advanced governance workflows, private-cloud operations, and support. Core trust controls do not require a license key.
@@ -131,7 +153,7 @@ Enterprise monetizes operational scale rather than access to baseline security: 
 
 Steel Mission does not depend on n8n. n8n should be treated as a replaceable orchestration adapter that can request work, receive events, or coordinate external workflows. It is not the source of truth for policy, approval, evidence, or execution authority.
 
-Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
+Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and remote private-runner scheduling. The local/container private-runner contract and native GitHub, Slack, and Jira workflow paths are included now.
 
 The intended interaction model is existing-tools-first: requests originate in repositories, issue trackers, chat, CI, IDEs, or provider-native tools, and Steel Mission returns status, approval requests, control decisions, and evidence links to the originating workflow. The built-in UI is primarily for configuration, investigation, and fallback.
 

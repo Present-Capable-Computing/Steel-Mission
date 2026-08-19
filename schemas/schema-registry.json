@@ -1212,6 +1212,30 @@
       "introducedAt": "2026-08-18"
     },
     {
+      "id": "private-runner-request-v1",
+      "version": 1,
+      "schemaFile": "private-runner-request-v1.json",
+      "owner": "worker",
+      "artifactKind": "private-runner-request",
+      "producer": "steel-mission-chat",
+      "validationPoints": ["private-runner-admission"],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-19"
+    },
+    {
+      "id": "private-runner-result-v1",
+      "version": 1,
+      "schemaFile": "private-runner-result-v1.json",
+      "owner": "worker",
+      "artifactKind": "private-runner-result",
+      "producer": "present-private-runner",
+      "validationPoints": ["private-runner-result", "mission-evidence-write"],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-19"
+    },
+    {
       "id": "workflow-admission-v1",
       "version": 1,
       "schemaFile": "workflow-admission-v1.json",
@@ -1227,6 +1251,18 @@
       "lifecycle": "active",
       "compatibility": "initial",
       "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "workflow-connector-event-v1",
+      "version": 1,
+      "schemaFile": "workflow-connector-event-v1.json",
+      "owner": "worker",
+      "artifactKind": "workflow-connector-event",
+      "producer": "steel-mission-chat",
+      "validationPoints": ["workflow-connector-ingress", "mission-start"],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-19"
     },
     {
       "id": "workflow-dag-v1",

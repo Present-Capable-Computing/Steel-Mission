@@ -1,0 +1,387 @@
+#!/usr/bin/env python3
+"""Execute one Steel Mission action on an isolated private-worker surface."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import hmac
+import json
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+
+MODE_ENV = "PRESENT_PRIVATE_RUNNER_MODE"
+IMAGE_ENV = "PRESENT_PRIVATE_RUNNER_IMAGE"
+ALLOW_LOCAL_ENV = "PRESENT_PRIVATE_RUNNER_ALLOW_LOCAL"
+SIGNING_KEY_ENV = "PRESENT_PRIVATE_RUNNER_SIGNING_KEY"
+SIGNER_ID_ENV = "PRESENT_PRIVATE_RUNNER_SIGNER_ID"
+NETWORK_ENV = "PRESENT_PRIVATE_RUNNER_NETWORK"
+USER_ENV = "PRESENT_PRIVATE_RUNNER_USER"
+MEMORY_ENV = "PRESENT_PRIVATE_RUNNER_MEMORY"
+CPUS_ENV = "PRESENT_PRIVATE_RUNNER_CPUS"
+PIDS_ENV = "PRESENT_PRIVATE_RUNNER_PIDS"
+ALLOWED_PHASES = {"modify", "build", "test", "inspect", "repair", "pr", "deploy"}
+SAFE_ENV_NAMES = re.compile(r"^[A-Z][A-Z0-9_]{0,79}$")
+MAX_STDIN_BYTES = 256 * 1024
+
+
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def sha256_json(value: Any) -> str:
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def utc_now() -> str:
+    import datetime as dt
+
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def emit(payload: dict[str, Any], *, exit_code: int = 0) -> int:
+    print(json.dumps(payload, indent=2, sort_keys=True), file=sys.stdout if exit_code == 0 else sys.stderr)
+    return exit_code
+
+
+def read_request() -> dict[str, Any]:
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"private-runner request is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("private-runner request must be a JSON object")
+    return payload
+
+
+def runner_mode() -> str:
+    mode = str(os.environ.get(MODE_ENV) or "docker").strip().lower()
+    return mode if mode in {"docker", "local", "dry-run"} else "docker"
+
+
+def hardened_controls(mode: str) -> list[str]:
+    controls = [
+        "ephemeral-worker",
+        "minimal-environment",
+        "bounded-time",
+        "workspace-only-mount",
+        "bounded-stdin",
+        "signed-result-attestation",
+    ]
+    if mode in {"docker", "dry-run"}:
+        controls.extend([
+            "non-root-user",
+            "read-only-root-filesystem",
+            "drop-all-capabilities",
+            "no-new-privileges",
+            "bounded-processes",
+            "bounded-memory-and-cpu",
+            "tmpfs-scratch",
+            "restricted-network",
+            "no-container-runtime-socket",
+        ])
+    return controls
+
+
+def docker_status() -> dict[str, Any]:
+    docker = shutil.which("docker")
+    image = str(os.environ.get(IMAGE_ENV) or "steel-mission-private-runner:alpha")
+    available = bool(docker)
+    image_ready = False
+    if docker:
+        try:
+            inspected = subprocess.run(
+                [docker, "image", "inspect", image], capture_output=True, text=True, timeout=15, check=False
+            )
+            image_ready = inspected.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            image_ready = False
+    return {
+        "dockerPath": docker or "",
+        "dockerAvailable": available,
+        "image": image,
+        "imageReady": image_ready,
+    }
+
+
+def status_payload() -> dict[str, Any]:
+    mode = runner_mode()
+    docker = docker_status()
+    local_allowed = os.environ.get(ALLOW_LOCAL_ENV) == "1"
+    ready = (mode == "docker" and docker["dockerAvailable"] and docker["imageReady"]) or mode == "dry-run" or (
+        mode == "local" and local_allowed
+    )
+    return {
+        "schemaVersion": 1,
+        "ok": ready,
+        "status": "ready" if ready else "blocked",
+        "runnerId": str(os.environ.get(SIGNER_ID_ENV) or "steel-mission-private-runner"),
+        "mode": mode,
+        "isolationLevel": "container" if mode in {"docker", "dry-run"} else "development-local",
+        "productionEligible": mode == "docker" and docker["dockerAvailable"] and docker["imageReady"],
+        "localFallbackAllowed": local_allowed,
+        "controls": hardened_controls(mode),
+        "docker": docker,
+        "producedAt": utc_now(),
+    }
+
+
+def validate_request(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_fields = {
+        "schemaVersion", "requestId", "missionId", "taskId", "phase", "workspacePath",
+        "argv", "timeoutSeconds", "environment", "stdin", "attestation",
+    }
+    unexpected = sorted(set(payload) - allowed_fields)
+    if unexpected:
+        raise ValueError(f"private-runner request contains unsupported fields: {', '.join(unexpected)}")
+    if payload.get("schemaVersion") != 1:
+        raise ValueError("private-runner schemaVersion must be 1")
+    if not re.fullmatch(r"pre-[a-f0-9]{24}", str(payload.get("requestId") or "")):
+        raise ValueError("private-runner requestId is invalid")
+    if not re.fullmatch(r"ms-[a-f0-9]{24}", str(payload.get("missionId") or "")):
+        raise ValueError("private-runner missionId is invalid")
+    if not re.fullmatch(r"DEV-[0-9]{6}", str(payload.get("taskId") or "")):
+        raise ValueError("private-runner taskId is invalid")
+    phase = str(payload.get("phase") or "").strip()
+    if phase not in ALLOWED_PHASES:
+        raise ValueError(f"private-runner phase must be one of {sorted(ALLOWED_PHASES)}")
+    argv = payload.get("argv")
+    if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item and "\x00" not in item for item in argv):
+        raise ValueError("private-runner argv must be a non-empty string array")
+    workspace_text = str(payload.get("workspacePath") or "").strip()
+    if not workspace_text:
+        raise ValueError("private-runner workspacePath is required")
+    raw_workspace = Path(workspace_text).expanduser()
+    if raw_workspace.is_symlink():
+        raise ValueError("private-runner workspacePath cannot be a symlink")
+    workspace = raw_workspace.resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        raise ValueError("private-runner workspacePath must be an existing directory")
+    if workspace in {Path("/").resolve(), Path.home().resolve()}:
+        raise ValueError("private-runner workspacePath cannot be a broad system or home directory")
+    forbidden_tools = {"docker", "podman", "nerdctl", "nsenter", "mount", "umount", "sudo"}
+    executable = Path(argv[0]).name.lower()
+    if executable in forbidden_tools:
+        raise ValueError(f"private-runner executable {executable!r} is forbidden inside the workload")
+    if any("docker.sock" in item.lower() or "/run/containerd" in item.lower() for item in argv):
+        raise ValueError("private-runner request cannot address a container-runtime socket")
+    timeout_value = payload.get("timeoutSeconds")
+    if not isinstance(timeout_value, int) or isinstance(timeout_value, bool) or not 1 <= timeout_value <= 1800:
+        raise ValueError("private-runner timeoutSeconds must be an integer from 1 to 1800")
+    timeout = timeout_value
+    environment = payload.get("environment")
+    if not isinstance(environment, dict):
+        raise ValueError("private-runner environment must be an object")
+    if any(not isinstance(key, str) or not SAFE_ENV_NAMES.fullmatch(key) or not isinstance(value, str)
+           for key, value in environment.items()):
+        raise ValueError("private-runner environment must contain only valid uppercase names and string values")
+    clean_environment = dict(environment)
+    stdin_text = payload.get("stdin", "")
+    if not isinstance(stdin_text, str):
+        raise ValueError("private-runner stdin must be a string")
+    if len(stdin_text.encode("utf-8")) > MAX_STDIN_BYTES:
+        raise ValueError(f"private-runner stdin exceeds {MAX_STDIN_BYTES} bytes")
+    return {
+        **payload,
+        "phase": phase,
+        "argv": argv,
+        "workspacePath": str(workspace),
+        "timeoutSeconds": timeout,
+        "environment": clean_environment,
+        "stdin": stdin_text,
+    }
+
+
+def verify_request_attestation(payload: dict[str, Any]) -> None:
+    key = str(os.environ.get(SIGNING_KEY_ENV) or "")
+    if not key:
+        raise RuntimeError("private-runner signing key is unavailable")
+    attestation = payload.get("attestation") if isinstance(payload.get("attestation"), dict) else {}
+    basis = {field: value for field, value in payload.items() if field != "attestation"}
+    payload_hash = sha256_json(basis)
+    expected = hmac.new(key.encode("utf-8"), payload_hash.encode("ascii"), hashlib.sha256).hexdigest()
+    signature = str(attestation.get("signature") or "")
+    if (
+        attestation.get("algorithm") != "hmac-sha256"
+        or attestation.get("signerId") != "steel-mission-control-plane"
+        or not hmac.compare_digest(str(attestation.get("payloadHash") or ""), payload_hash)
+        or not signature
+        or not hmac.compare_digest(signature, expected)
+    ):
+        raise ValueError("private-runner request attestation is missing or invalid")
+
+
+def docker_argv(request: dict[str, Any], *, dry_run: bool = False) -> list[str]:
+    docker = docker_status()
+    if not docker["dockerPath"] and not dry_run:
+        raise RuntimeError("docker executable is not available")
+    if not docker["imageReady"] and not dry_run:
+        raise RuntimeError(f"private-runner image is not available: {docker['image']}")
+    request_id = re.sub(r"[^a-z0-9-]+", "-", str(request.get("requestId") or secrets.token_hex(6)).lower()).strip("-")
+    name = f"steel-mission-{request_id[:36]}"
+    network = str(os.environ.get(NETWORK_ENV) or "none").strip() or "none"
+    host_user = f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") and os.getuid() != 0 else "65532:65532"
+    user = str(os.environ.get(USER_ENV) or host_user).strip() or host_user
+    memory = str(os.environ.get(MEMORY_ENV) or "2g").strip() or "2g"
+    cpus = str(os.environ.get(CPUS_ENV) or "2").strip() or "2"
+    pids = str(os.environ.get(PIDS_ENV) or "256").strip() or "256"
+    argv = [
+        docker["dockerPath"] or "docker", "run", "--rm", "--interactive", "--name", name,
+        "--network", network,
+        "--read-only",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges:true",
+        "--pids-limit", pids,
+        "--memory", memory,
+        "--cpus", cpus,
+        "--user", user,
+        "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=256m",
+        "--mount", f"type=bind,src={request['workspacePath']},dst=/workspace,rw",
+        "--workdir", "/workspace",
+        "--env", "HOME=/tmp",
+        "--env", "TMPDIR=/tmp",
+    ]
+    for key in sorted(request["environment"]):
+        # The Docker client inherits the scoped value from its own minimal
+        # environment. Passing only the name keeps credentials out of argv,
+        # process listings, dry-run output, and execution evidence.
+        argv.extend(["--env", key])
+    argv.append(str(docker["image"]))
+    argv.extend(request["argv"])
+    return argv
+
+
+def local_argv(request: dict[str, Any]) -> list[str]:
+    if os.environ.get(ALLOW_LOCAL_ENV) != "1":
+        raise RuntimeError("local private-runner fallback is disabled; use the Docker runner or explicitly opt in for tests")
+    return list(request["argv"])
+
+
+def signed_result(result: dict[str, Any]) -> dict[str, Any]:
+    key = str(os.environ.get(SIGNING_KEY_ENV) or "")
+    if not key:
+        raise RuntimeError("private-runner signing key is unavailable")
+    payload_hash = sha256_json(result)
+    signature = hmac.new(key.encode("utf-8"), payload_hash.encode("ascii"), hashlib.sha256).hexdigest()
+    return {
+        **result,
+        "attestation": {
+            "algorithm": "hmac-sha256",
+            "signerId": str(os.environ.get(SIGNER_ID_ENV) or "steel-mission-private-runner"),
+            "payloadHash": payload_hash,
+            "signature": signature,
+        },
+    }
+
+
+def execute(payload: dict[str, Any]) -> dict[str, Any]:
+    verify_request_attestation(payload)
+    request = validate_request(payload)
+    mode = runner_mode()
+    started = time.monotonic()
+    started_at = utc_now()
+    command = docker_argv(request, dry_run=mode == "dry-run") if mode in {"docker", "dry-run"} else local_argv(request)
+    base = {
+        "schemaVersion": 1,
+        "requestId": str(request.get("requestId") or ""),
+        "missionId": str(request.get("missionId") or ""),
+        "taskId": str(request.get("taskId") or ""),
+        "phase": request["phase"],
+        "requestHash": sha256_json({key: request[key] for key in request if key != "attestation"}),
+        "runnerId": str(os.environ.get(SIGNER_ID_ENV) or "steel-mission-private-runner"),
+        "isolation": {
+            "mode": "container" if mode in {"docker", "dry-run"} else "development-local",
+            "productionEligible": mode == "docker",
+            "controls": hardened_controls(mode),
+            "workspaceMount": "/workspace" if mode in {"docker", "dry-run"} else request["workspacePath"],
+            "network": str(os.environ.get(NETWORK_ENV) or "none") if mode in {"docker", "dry-run"} else "host-test-only",
+        },
+        "startedAt": started_at,
+    }
+    if mode == "dry-run":
+        return signed_result({
+            **base,
+            "ok": True,
+            "status": "planned",
+            "runnerArgv": command,
+            "durationSeconds": round(time.monotonic() - started, 3),
+            "finishedAt": utc_now(),
+            "stdout": "",
+            "stderr": "",
+        })
+    minimal_env = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "HOME": str(Path(request["workspacePath"]) / ".private-runner-home"),
+        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        **request["environment"],
+    }
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=request["workspacePath"] if mode == "local" else None,
+            capture_output=True,
+            text=True,
+            timeout=request["timeoutSeconds"],
+            check=False,
+            env=minimal_env,
+            input=request["stdin"],
+        )
+        result = {
+            **base,
+            "ok": completed.returncode == 0,
+            "status": "succeeded" if completed.returncode == 0 else "failed",
+            "exitCode": completed.returncode,
+            "runnerArgv": command if mode == "local" else command[:2] + ["<hardened-container-arguments-redacted>"],
+            "durationSeconds": round(time.monotonic() - started, 3),
+            "finishedAt": utc_now(),
+            "stdout": completed.stdout[-12000:],
+            "stderr": completed.stderr[-12000:],
+        }
+    except subprocess.TimeoutExpired as exc:
+        result = {
+            **base,
+            "ok": False,
+            "status": "timeout",
+            "timeoutSeconds": request["timeoutSeconds"],
+            "durationSeconds": round(time.monotonic() - started, 3),
+            "finishedAt": utc_now(),
+            "stdout": str(exc.stdout or "")[-12000:],
+            "stderr": str(exc.stderr or "")[-12000:],
+        }
+    except (OSError, subprocess.SubprocessError) as exc:
+        result = {
+            **base,
+            "ok": False,
+            "status": "failed",
+            "error": str(exc),
+            "durationSeconds": round(time.monotonic() - started, 3),
+            "finishedAt": utc_now(),
+            "stdout": "",
+            "stderr": "",
+        }
+    return signed_result(result)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="present-private-runner")
+    parser.add_argument("command", choices=["status", "execute"])
+    args = parser.parse_args()
+    try:
+        if args.command == "status":
+            payload = status_payload()
+            return emit(payload, exit_code=0 if payload["ok"] else 30)
+        payload = execute(read_request())
+        return emit(payload, exit_code=0 if payload["ok"] else 30)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        return emit({"schemaVersion": 1, "ok": False, "status": "blocked", "error": str(exc)}, exit_code=30)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

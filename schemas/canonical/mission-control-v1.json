@@ -51,6 +51,20 @@
     "profile": {"type": "string", "minLength": 1},
     "runtimeProfile": {"type": "object"},
     "modelPolicy": {"type": "object"},
+    "workflowOrigin": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "sourceSystem": {"enum": ["github", "slack", "jira", "api", "ui"]},
+        "sourceType": {"type": "string"},
+        "sourceId": {"type": "string"},
+        "threadId": {"type": "string"},
+        "actorId": {"type": "string"},
+        "returnChannel": {"type": "string"},
+        "returnTarget": {"type": "string"},
+        "deepLink": {"type": "string"}
+      }
+    },
     "snapshotPolicySummary": {
       "type": "object",
       "additionalProperties": true,

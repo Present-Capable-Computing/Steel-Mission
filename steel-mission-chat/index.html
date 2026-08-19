@@ -1671,6 +1671,11 @@
         const compliance = JSON.parse(document.querySelector("#policyComplianceMappings")?.value || "{}");
         const policy = {
           ...controlPolicy,
+          executionBoundary: {
+            ...(controlPolicy.executionBoundary || {}),
+            privateRunnerMode: document.querySelector("#policyPrivateRunnerMode")?.value || "development-local",
+            allowedEnvironment: csvValues(document.querySelector("#policyPrivateRunnerEnvironment")?.value || "")
+          },
           blockedCommandPatterns: lines(document.querySelector("#policyBlockedPatterns")?.value || ""),
           approvalRequired: {
             phases: csvValues(document.querySelector("#policyApprovalPhases")?.value || ""),
@@ -2681,6 +2686,8 @@
       const oidc = authPolicy.oidc || {};
       const kms = authPolicy.kms || {};
       const signer = controlPlaneReadiness.evidenceSigner || {};
+      const executionBoundary = controlPolicy.executionBoundary || {};
+      const privateRunner = (controlPlaneReadiness.guardedEntrypoints || {}).privateRunner || {};
       const entitlement = controlPlaneReadiness.entitlement || authPolicy.entitlement || integrationRegistry.entitlement || {};
       const editionStatus = entitlement.status || "core";
       const editionBoundaryText = "Core includes OIDC/JWKS identity, SIEM/audit export, and customer-controlled external signing. Enterprise covers managed operation, fleet governance, and support.";
@@ -2714,6 +2721,12 @@
             <span>${escapeHtml(workflowEmbedding.strategy || "existing-tools-first")} · control UI for ${escapeHtml(workflowEmbedding.controlSurfaceRole || "administration and investigation")}</span>
             <span>Inbound: ${escapeHtml((workflowEmbedding.inboundChannels || []).join(", "))}</span>
             <span>Return to source: ${escapeHtml((workflowEmbedding.returnChannels || []).join(", "))}</span>
+          </div>
+          <div class="source-row">
+            <strong>Private Runner</strong>
+            <span>${privateRunner.ok ? "ready" : "blocked"} · ${escapeHtml(privateRunner.isolationLevel || executionBoundary.privateRunnerMode || "development-local")} · production eligible ${privateRunner.productionEligible ? "yes" : "no"}</span>
+            <span>All executable lifecycle and provider commands cross the signed private-runner boundary. Production requires the hardened ephemeral container image.</span>
+            <span>${escapeHtml((privateRunner.controls || []).join(", "))}</span>
           </div>
           <div class="source-row">
             <strong>Pre-Execution Policy</strong>
@@ -2750,6 +2763,11 @@
             <label class="form-field">PR Modes Requiring Approval <input id="policyApprovalPrModes" value="${escapeHtml((approval.prModes || []).join(", "))}"></label>
             <label class="form-field">Deploy Providers Requiring Approval <input id="policyApprovalDeployProviders" value="${escapeHtml((approval.deployProviders || []).join(", "))}"></label>
             <label class="form-field">Deploy Environments Requiring Approval <input id="policyApprovalDeployEnvironments" value="${escapeHtml((approval.deployEnvironments || []).join(", "))}"></label>
+            <label class="form-field">Private Runner Mode <select id="policyPrivateRunnerMode">
+              <option value="development-local" ${executionBoundary.privateRunnerMode !== "container" ? "selected" : ""}>Development local boundary</option>
+              <option value="container" ${executionBoundary.privateRunnerMode === "container" ? "selected" : ""}>Hardened container</option>
+            </select><span class="form-hint">Container mode fails closed unless Docker and the configured private-runner image are ready.</span></label>
+            <label class="form-field">Private Runner Environment Allowlist <input id="policyPrivateRunnerEnvironment" value="${escapeHtml((executionBoundary.allowedEnvironment || []).join(", "))}"><span class="form-hint">Only short-lived, task-scoped credential variables should be allowed into an execution request.</span></label>
             <label class="form-field">Compliance Mappings JSON <textarea id="policyComplianceMappings">${escapeHtml(JSON.stringify(controlPolicy.complianceMappings || {}, null, 2))}</textarea></label>
           </div>
           <button id="saveControlPolicy" class="primary" type="button">Save Policy</button>
@@ -2789,6 +2807,7 @@
             <div class="source-row">
               <strong>${escapeHtml(item.label || item.id || "Connector")}</strong>
               <span>${escapeHtml(item.kind || "integration")} · ${escapeHtml(item.status || "registry-ready")} · ${item.locked ? "locked" : item.enabled ? "enabled" : "disabled"} · ${escapeHtml(item.mode || "registry")}</span>
+              ${item.nativeReadiness ? `<span>native ${escapeHtml(item.nativeReadiness.adapter || item.adapter || "")} · ingress ${item.nativeReadiness.ingressReady ? "ready" : "open"} · egress ${item.nativeReadiness.egressReady ? "ready" : "open"}</span>` : ""}
               ${item.lockReason ? `<span>${escapeHtml(item.lockReason)}</span>` : ""}
               ${Array.isArray(item.events) && item.events.length ? `<span>${escapeHtml(item.events.join(", "))}</span>` : ""}
             </div>

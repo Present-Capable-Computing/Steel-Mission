@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/workflow-connector-event-v1.json",
+  "title": "Workflow connector event v1",
+  "description": "Authenticated GitHub, Slack, or Jira event normalized for workflow-embedded mission ingress.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "sourceSystem", "eventType", "action", "accepted", "reason", "objective", "actor", "origin", "payloadHash", "receivedAt"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "eventId": {"type": "string", "minLength": 1},
+    "sourceSystem": {"enum": ["github", "slack", "jira"]},
+    "eventType": {"type": "string", "minLength": 1},
+    "action": {"type": "string"},
+    "accepted": {"type": "boolean"},
+    "reason": {"type": "string", "minLength": 1},
+    "objective": {"type": "string"},
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {"id": {"type": "string"}, "name": {"type": "string"}}
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["sourceSystem"],
+      "properties": {
+        "sourceSystem": {"enum": ["github", "slack", "jira"]},
+        "sourceType": {"type": "string"},
+        "sourceId": {"type": "string"},
+        "threadId": {"type": "string"},
+        "actorId": {"type": "string"},
+        "returnChannel": {"type": "string"},
+        "returnTarget": {"type": "string"},
+        "deepLink": {"type": "string"}
+      }
+    },
+    "payloadHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "receivedAt": {"type": "string", "minLength": 1}
+  }
+}

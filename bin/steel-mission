@@ -21,6 +21,10 @@ case "$command" in
     shift || true
     exec python3 -m pytest "$ROOT_DIR/tests" "$@"
     ;;
+  private-runner)
+    shift || true
+    exec "$BIN_DIR/present-private-runner" "${1:-status}"
+    ;;
   worker)
     shift || true
     exec "$BIN_DIR/present-worker" "$@"

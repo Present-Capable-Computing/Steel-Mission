@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import hmac
 import os
 import re
 import runpy
@@ -29,6 +30,7 @@ SSH_GUARD = WORKER_DIR / "bin" / "present-worker-ssh-guard"
 BROKER = WORKER_DIR / "bin" / "present-lease-broker"
 FILE_LOCK = WORKER_DIR / "bin" / "present-file-lock"
 DOCKER_PROVISIONER = WORKER_DIR / "bin" / "present-docker-provisioner"
+PRIVATE_RUNNER = WORKER_DIR / "bin" / "present-private-runner"
 
 sys.path.insert(0, str(WORKER_DIR))
 from adapters import claude_adapter, codex_adapter, common, schema_check, verifier  # noqa: E402
@@ -93,6 +95,30 @@ def current_git_branch(repo: Path = WORKER_DIR) -> str:
     result = subprocess.run(["git", "branch", "--show-current"], cwd=repo, capture_output=True, text=True, timeout=10)
     branch = result.stdout.strip()
     return branch or "main"
+
+
+def signed_private_runner_request(workspace: Path, key: str, **overrides: object) -> dict:
+    request = {
+        "schemaVersion": 1,
+        "requestId": "pre-" + "1" * 24,
+        "missionId": "ms-" + "2" * 24,
+        "taskId": "DEV-123456",
+        "phase": "inspect",
+        "workspacePath": str(workspace),
+        "argv": ["python3", "-c", "print('private-runner-ok')"],
+        "timeoutSeconds": 30,
+        "environment": {},
+        "stdin": "",
+        **overrides,
+    }
+    payload_hash = hashlib.sha256(json.dumps(request, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    request["attestation"] = {
+        "algorithm": "hmac-sha256",
+        "signerId": "steel-mission-control-plane",
+        "payloadHash": payload_hash,
+        "signature": hmac.new(key.encode(), payload_hash.encode(), hashlib.sha256).hexdigest(),
+    }
+    return request
 
 
 def test_version():
@@ -8042,11 +8068,22 @@ def test_steel_mission_control_plane_readiness_meets_alpha_and_production_target
     original_auth = globals_["AUTH_POLICY_PATH"]
     original_registry = globals_["INTEGRATION_REGISTRY_PATH"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    original_runner_health = globals_["private_runner_health"]
     globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
     globals_["INTEGRATION_REGISTRY_PATH"] = tmp_path / "integration-registry.json"
     globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
     signer = tmp_path / "readiness-signer.py"
     signer.write_text("import hashlib,json,sys\npayload=json.loads(sys.stdin.read())\nprint(hashlib.sha256(payload['recordHash'].encode()).hexdigest())\n")
+    monkeypatch.setenv("GITHUB_TOKEN", "readiness-token")
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "readiness-webhook-secret")
+    globals_["private_runner_health"] = lambda: {
+        "schemaVersion": 1,
+        "ok": True,
+        "status": "ready",
+        "isolationLevel": "container",
+        "productionEligible": True,
+        "controls": ["ephemeral-worker", "no-container-runtime-socket"],
+    }
     try:
         chat["save_auth_policy"]({
             "acceptedIssuers": ["present-local-alpha", "https://idp.example.invalid"],
@@ -8080,6 +8117,7 @@ def test_steel_mission_control_plane_readiness_meets_alpha_and_production_target
         globals_["AUTH_POLICY_PATH"] = original_auth
         globals_["INTEGRATION_REGISTRY_PATH"] = original_registry
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
+        globals_["private_runner_health"] = original_runner_health
 
 
 def test_present_control_plane_cli_executes_only_with_signed_session(tmp_path):
@@ -8138,6 +8176,135 @@ def test_present_control_plane_cli_executes_only_with_signed_session(tmp_path):
     assert (repo / "built.txt").read_text() == "ok"
 
 
+def test_private_runner_dry_run_is_hardened_attested_and_keeps_secrets_out_of_argv(tmp_path):
+    key = "private-runner-test-key"
+    request = signed_private_runner_request(
+        tmp_path,
+        key,
+        environment={"GITHUB_TOKEN": "must-not-appear-in-argv"},
+        stdin="bounded payload",
+    )
+    result = subprocess.run(
+        [str(PRIVATE_RUNNER), "execute"],
+        input=json.dumps(request),
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+        env={
+            **os.environ,
+            "PRESENT_PRIVATE_RUNNER_MODE": "dry-run",
+            "PRESENT_PRIVATE_RUNNER_SIGNING_KEY": key,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert schema_check.validate(request, "canonical/private-runner-request-v1.json") == []
+    assert schema_check.validate(payload, "canonical/private-runner-result-v1.json") == []
+    argv = payload["runnerArgv"]
+    for expected in (
+        "--interactive", "--read-only", "--cap-drop", "ALL", "no-new-privileges:true",
+        "--pids-limit", "--memory", "--cpus", "--user", "--tmpfs", "--mount", "--network", "none",
+    ):
+        assert expected in argv
+    assert "must-not-appear-in-argv" not in json.dumps(argv)
+    assert "GITHUB_TOKEN" in argv
+    assert all("docker.sock" not in item and "/run/containerd" not in item for item in argv)
+    assert payload["isolation"]["mode"] == "container"
+    basis = {key_name: value for key_name, value in payload.items() if key_name != "attestation"}
+    payload_hash = hashlib.sha256(json.dumps(basis, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    assert payload["attestation"]["payloadHash"] == payload_hash
+    assert hmac.compare_digest(
+        payload["attestation"]["signature"],
+        hmac.new(key.encode(), payload_hash.encode(), hashlib.sha256).hexdigest(),
+    )
+
+
+def test_private_runner_rejects_tampering_broad_mounts_symlinks_and_runtime_escape_tools(tmp_path):
+    key = "private-runner-adversarial-key"
+    env = {
+        **os.environ,
+        "PRESENT_PRIVATE_RUNNER_MODE": "local",
+        "PRESENT_PRIVATE_RUNNER_ALLOW_LOCAL": "1",
+        "PRESENT_PRIVATE_RUNNER_SIGNING_KEY": key,
+    }
+
+    tampered = signed_private_runner_request(tmp_path, key)
+    tampered["argv"] = ["python3", "-c", "print('tampered')"]
+    cases = [(tampered, "attestation")]
+    for workspace, label in ((Path("/"), "broad"), (Path.home(), "home")):
+        cases.append((signed_private_runner_request(workspace, key), label))
+    symlink = tmp_path.parent / f"{tmp_path.name}-workspace-link"
+    symlink.symlink_to(tmp_path, target_is_directory=True)
+    cases.append((signed_private_runner_request(symlink, key), "symlink"))
+    cases.append((signed_private_runner_request(tmp_path, key, argv=["docker", "ps"]), "forbidden"))
+    cases.append((signed_private_runner_request(tmp_path, key, argv=["python3", "/var/run/docker.sock"]), "socket"))
+
+    for request, label in cases:
+        result = subprocess.run(
+            [str(PRIVATE_RUNNER), "execute"],
+            input=json.dumps(request),
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 30, f"{label}: {result.stdout} {result.stderr}"
+        payload = json.loads(result.stderr)
+        assert payload["status"] == "blocked"
+
+
+def test_control_plane_private_runner_filters_host_environment_and_verifies_result(tmp_path, monkeypatch):
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    monkeypatch.setenv("PRESENT_AUTH_SIGNING_KEY", "control-plane-runner-key")
+    monkeypatch.setenv("HOST_ONLY_SECRET", "must-not-cross-boundary")
+    result = chat["run_delivery_private_runner"](
+        "python3 -c \"import os,sys; print(os.environ.get('HOST_ONLY_SECRET','missing') + '|' + sys.stdin.read())\"",
+        tmp_path,
+        {"missionId": "ms-" + "4" * 24, "taskId": "DEV-234567"},
+        "inspect",
+        stdin_text="connector-payload",
+    )
+    assert result["ok"] is True
+    assert result["attestationVerification"]["valid"] is True
+    assert result["isolation"]["mode"] == "development-local"
+    assert result["stdout"].strip() == "missing|connector-payload"
+
+
+def test_control_plane_private_runner_fails_closed_on_unattested_result(tmp_path, monkeypatch):
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["control_policy"].__globals__
+    original_policy = globals_["CONTROL_POLICY_PATH"]
+    fake_runner = tmp_path / "fake-runner.py"
+    fake_runner.write_text("import json\nprint(json.dumps({'schemaVersion':1,'ok':True,'status':'succeeded'}))\n")
+    globals_["CONTROL_POLICY_PATH"] = tmp_path / "control-policy.json"
+    monkeypatch.setenv("PRESENT_AUTH_SIGNING_KEY", "control-plane-runner-key")
+    try:
+        chat["save_control_policy"]({
+            "executionBoundary": {
+                "privateRunnerMode": "development-local",
+                "privateRunnerCommand": ["python3", str(fake_runner)],
+                "privateRunnerStatusCommand": ["python3", str(fake_runner)],
+            },
+        }, "owner")
+        result = chat["run_delivery_private_runner"](
+            "python3 -c \"print('should-not-be-trusted')\"",
+            tmp_path,
+            {"missionId": "ms-" + "5" * 24, "taskId": "DEV-345678"},
+            "inspect",
+        )
+        assert result["ok"] is False
+        assert result["status"] == "blocked"
+        assert "attestation" in result["error"]
+    finally:
+        globals_["CONTROL_POLICY_PATH"] = original_policy
+
+
 def test_steel_mission_connector_runtime_executes_configured_command_and_outbox(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
@@ -8186,6 +8353,196 @@ def test_steel_mission_connector_runtime_executes_configured_command_and_outbox(
         globals_["INTEGRATION_REGISTRY_PATH"] = original_registry
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
         globals_["MISSION_ROOT"] = original_mission_root
+
+
+def test_signed_github_slack_and_jira_ingress_is_idempotent_and_preserves_origin(tmp_path, monkeypatch):
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["integration_registry"].__globals__
+    original_registry = globals_["INTEGRATION_REGISTRY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    original_mission_root = globals_["MISSION_ROOT"]
+    original_start = globals_["start_orchestrated_mission"]
+    globals_["INTEGRATION_REGISTRY_PATH"] = tmp_path / "integration-registry.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    globals_["MISSION_ROOT"] = tmp_path / "missions"
+    starts = []
+
+    def fake_start(template_id, objective, **kwargs):
+        starts.append({"templateId": template_id, "objective": objective, **kwargs})
+        suffix = f"{len(starts):024x}"
+        return {"ok": True, "missionId": f"ms-{suffix}", "taskId": f"DEV-{len(starts):06d}"}
+
+    globals_["start_orchestrated_mission"] = fake_start
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "github-secret")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "slack-secret")
+    monkeypatch.setenv("JIRA_WEBHOOK_SECRET", "jira-secret")
+    try:
+        saved = chat["save_integration_registry"]({
+            "connectors": [
+                {"id": "github", "enabled": True, "mode": "native", "adapter": "github", "secretEnv": "GITHUB_WEBHOOK_SECRET", "tokenEnv": "GITHUB_TOKEN", "ingressRole": "owner", "events": ["status"]},
+                {"id": "slack", "enabled": True, "mode": "native", "adapter": "slack", "secretEnv": "SLACK_SIGNING_SECRET", "tokenEnv": "SLACK_BOT_TOKEN", "events": ["status"]},
+                {"id": "jira", "enabled": True, "mode": "native", "adapter": "jira", "secretEnv": "JIRA_WEBHOOK_SECRET", "tokenEnv": "JIRA_API_TOKEN", "baseUrlEnv": "JIRA_BASE_URL", "events": ["status"]},
+            ],
+        }, "owner")
+        assert next(item for item in saved["connectors"] if item["id"] == "github")["ingressRole"] == "user"
+
+        github_payload = {
+            "action": "created",
+            "repository": {"full_name": "acme/widgets"},
+            "issue": {"number": 42, "title": "CI is flaky", "body": "Investigate failures", "html_url": "https://github.example/acme/widgets/issues/42"},
+            "comment": {"body": "/steel-mission find the flaky test", "html_url": "https://github.example/acme/widgets/issues/42#comment"},
+            "sender": {"id": 17, "login": "octo-user"},
+        }
+        github_body = json.dumps(github_payload, separators=(",", ":")).encode()
+        github_headers = {
+            "X-GitHub-Event": "issue_comment",
+            "X-GitHub-Delivery": "delivery-42",
+            "X-Hub-Signature-256": "sha256=" + hmac.new(b"github-secret", github_body, hashlib.sha256).hexdigest(),
+        }
+        status, github = chat["process_workflow_ingress"]("github", github_headers, github_body)
+        assert status == 202 and github["status"] == "accepted"
+        assert schema_check.validate(github["event"], "canonical/workflow-connector-event-v1.json") == []
+        assert github["event"]["origin"]["repository"] == "acme/widgets"
+        assert github["event"]["origin"]["issueNumber"] == "42"
+        duplicate_status, duplicate = chat["process_workflow_ingress"]("github", github_headers, github_body)
+        assert duplicate_status == 200 and duplicate["duplicate"] is True
+        assert len(starts) == 1
+
+        tampered_body = github_body.replace(b"flaky", b"unsafe", 1)
+        denied_status, denied = chat["process_workflow_ingress"]("github", github_headers, tampered_body)
+        assert denied_status == 401 and denied["ok"] is False
+
+        timestamp = str(int(time.time()))
+        slack_payload = {
+            "type": "event_callback",
+            "event_id": "Ev-42",
+            "event": {"type": "app_mention", "user": "U123", "channel": "C456", "ts": "1720000000.100", "text": "<@BOT> investigate the failed deployment"},
+        }
+        slack_body = json.dumps(slack_payload, separators=(",", ":")).encode()
+        slack_headers = {
+            "X-Slack-Request-Timestamp": timestamp,
+            "X-Slack-Signature": "v0=" + hmac.new(b"slack-secret", b"v0:" + timestamp.encode() + b":" + slack_body, hashlib.sha256).hexdigest(),
+        }
+        status, slack = chat["process_workflow_ingress"]("slack", slack_headers, slack_body)
+        assert status == 202 and slack["status"] == "accepted"
+        assert slack["event"]["origin"]["channelId"] == "C456"
+        assert slack["event"]["origin"]["threadTs"] == "1720000000.100"
+        assert schema_check.validate(slack["event"], "canonical/workflow-connector-event-v1.json") == []
+
+        ordinary_payload = {"type": "event_callback", "event_id": "Ev-ordinary", "event": {"type": "message", "user": "U123", "channel": "C456", "ts": "1720000000.200", "text": "ordinary team chat"}}
+        ordinary_body = json.dumps(ordinary_payload, separators=(",", ":")).encode()
+        ordinary_headers = {
+            "X-Slack-Request-Timestamp": timestamp,
+            "X-Slack-Signature": "v0=" + hmac.new(b"slack-secret", b"v0:" + timestamp.encode() + b":" + ordinary_body, hashlib.sha256).hexdigest(),
+        }
+        status, ordinary = chat["process_workflow_ingress"]("slack", ordinary_headers, ordinary_body)
+        assert status == 202 and ordinary["status"] == "ignored"
+
+        replay_headers = {**slack_headers, "X-Slack-Request-Timestamp": str(int(timestamp) - 301)}
+        replay_status, replay = chat["process_workflow_ingress"]("slack", replay_headers, slack_body)
+        assert replay_status == 401 and replay["signature"]["replaySafe"] is False
+
+        jira_payload = {
+            "webhookEvent": "jira:issue_updated",
+            "issue": {"key": "OPS-42", "self": "https://jira.example/rest/api/2/issue/OPS-42", "fields": {"summary": "Deployment failed", "description": "Run governed investigation", "labels": ["steel-mission"]}},
+            "user": {"accountId": "jira-user-1", "displayName": "Jira User"},
+        }
+        jira_body = json.dumps(jira_payload, separators=(",", ":")).encode()
+        jira_headers = {
+            "X-Atlassian-Webhook-Identifier": "jira-delivery-42",
+            "X-Steel-Mission-Signature": "sha256=" + hmac.new(b"jira-secret", jira_body, hashlib.sha256).hexdigest(),
+        }
+        status, jira = chat["process_workflow_ingress"]("jira", jira_headers, jira_body)
+        assert status == 202 and jira["status"] == "accepted"
+        assert jira["event"]["origin"]["issueKey"] == "OPS-42"
+        assert schema_check.validate(jira["event"], "canonical/workflow-connector-event-v1.json") == []
+        assert len(starts) == 3
+        assert all(item["templateId"] == "investigate" and item["operator_role"] == "user" for item in starts)
+        assert starts[0]["workflow_origin"]["threadId"] == "github:acme/widgets:42"
+    finally:
+        globals_["INTEGRATION_REGISTRY_PATH"] = original_registry
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
+        globals_["MISSION_ROOT"] = original_mission_root
+        globals_["start_orchestrated_mission"] = original_start
+
+
+def test_native_workflow_egress_returns_to_github_slack_and_jira_origin(tmp_path, monkeypatch):
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["integration_registry"].__globals__
+    original_registry = globals_["INTEGRATION_REGISTRY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    original_urlopen = globals_["urlopen"]
+    globals_["INTEGRATION_REGISTRY_PATH"] = tmp_path / "integration-registry.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    calls = []
+
+    class FakeResponse:
+        status = 200
+
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return self.body
+
+    def fake_urlopen(request, timeout=30):
+        calls.append({
+            "url": request.full_url,
+            "headers": {key.lower(): value for key, value in request.header_items()},
+            "body": json.loads(request.data.decode()),
+            "timeout": timeout,
+        })
+        body = b'{"ok":true,"ts":"1720000000.300"}' if request.full_url == "https://slack.com/api/chat.postMessage" else b'{"id":"comment-1"}'
+        return FakeResponse(body)
+
+    globals_["urlopen"] = fake_urlopen
+    monkeypatch.setenv("GITHUB_TOKEN", "github-token")
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "github-secret")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "slack-token")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "slack-secret")
+    monkeypatch.setenv("JIRA_API_TOKEN", "jira-token")
+    monkeypatch.setenv("JIRA_WEBHOOK_SECRET", "jira-secret")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example")
+    try:
+        chat["save_integration_registry"]({
+            "connectors": [
+                {"id": "github", "enabled": True, "mode": "native", "adapter": "github", "secretEnv": "GITHUB_WEBHOOK_SECRET", "tokenEnv": "GITHUB_TOKEN", "events": ["status"]},
+                {"id": "slack", "enabled": True, "mode": "native", "adapter": "slack", "secretEnv": "SLACK_SIGNING_SECRET", "tokenEnv": "SLACK_BOT_TOKEN", "events": ["status"]},
+                {"id": "jira", "enabled": True, "mode": "native", "adapter": "jira", "secretEnv": "JIRA_WEBHOOK_SECRET", "tokenEnv": "JIRA_API_TOKEN", "baseUrlEnv": "JIRA_BASE_URL", "events": ["status"]},
+            ],
+        }, "owner")
+        common_payload = {"missionId": "ms-" + "6" * 24, "summary": "Tests are passing", "investigationPath": "/mission/ms-test"}
+        github = chat["execute_connector_action"]("github", "status", {**common_payload, "origin": {"sourceSystem": "github", "repository": "acme/widgets", "issueNumber": "42", "threadId": "github:acme/widgets:42"}})
+        slack = chat["execute_connector_action"]("slack", "status", {**common_payload, "origin": {"sourceSystem": "slack", "channelId": "C456", "threadTs": "1720000000.100", "threadId": "slack:C456:1720000000.100"}})
+        jira = chat["execute_connector_action"]("jira", "status", {**common_payload, "origin": {"sourceSystem": "jira", "issueKey": "OPS-42", "threadId": "jira:OPS-42"}})
+        assert github["ok"] is True and slack["ok"] is True and jira["ok"] is True
+        assert calls[0]["url"] == "https://api.github.com/repos/acme/widgets/issues/42/comments"
+        assert calls[1]["url"] == "https://slack.com/api/chat.postMessage"
+        assert calls[1]["body"]["channel"] == "C456"
+        assert calls[1]["body"]["thread_ts"] == "1720000000.100"
+        assert calls[2]["url"] == "https://jira.example/rest/api/2/issue/OPS-42/comment"
+        assert all("Tests are passing" in call["body"].get("body", call["body"].get("text", "")) for call in calls)
+        assert calls[0]["headers"]["authorization"] == "Bearer github-token"
+        assert calls[1]["headers"]["authorization"] == "Bearer slack-token"
+        assert calls[2]["headers"]["authorization"] == "Bearer jira-token"
+
+        mismatched = chat["execute_connector_action"]("github", "status", {**common_payload, "origin": {"sourceSystem": "slack", "channelId": "C456"}})
+        assert mismatched["ok"] is True and mismatched["execution"]["status"] == "skipped"
+        assert len(calls) == 3
+    finally:
+        globals_["INTEGRATION_REGISTRY_PATH"] = original_registry
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
+        globals_["urlopen"] = original_urlopen
 
 
 def test_steel_mission_github_pr_adapter_builds_native_readiness_without_creating_pr(tmp_path):

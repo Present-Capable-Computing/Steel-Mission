@@ -9,7 +9,7 @@ Steel Mission is an Agent Delivery Plane for governed software delivery. It give
 - Knowledge Domains: KD01-KD03 starter organizational documents.
 - Domain Capabilities: DC01-DC13 starter domain capabilities.
 - Delivery Coordinator: the DC13 capability that coordinates mission state, evidence, approvals, and closure.
-- Guarded runner: the only production execution boundary for commands and provider actions.
+- Guarded control plane plus private runner: the only production execution boundary for commands and provider actions, with an included hardened ephemeral container implementation.
 - Evidence signer: Core local signing, with optional customer-controlled external signer or KMS-equivalent custody.
 - Knowledge quality: freshness, ownership, provenance, expiration, conflict, and sufficiency signals attached to every mission.
 - Provider capability contracts: a common governance envelope without suppressing provider-native strengths.
@@ -29,6 +29,6 @@ Core includes the enterprise trust surface needed for adoption and pilots: self-
 
 ## Orchestration
 
-Steel Mission does not depend on n8n. n8n is a replaceable adapter. Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
+Steel Mission does not depend on n8n. n8n is a replaceable adapter. Native GitHub, Slack, and Jira adapters and the local/container private runner are included; upcoming adapters include Temporal, GitHub Actions, GitLab, and remote private-runner scheduling.
 
 Steel Mission should not become a second documentation job or a replacement workspace. It binds authoritative sources maintained elsewhere, warns when context is stale or insufficient, and returns governed work to the originating tool. Its durable differentiation is cross-provider policy, evidence, organizational context, and execution governance while native adapters preserve provider-specific capabilities.
