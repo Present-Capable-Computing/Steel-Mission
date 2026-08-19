@@ -44,19 +44,22 @@ services:
   steel-mission:
     environment:
       STEEL_MISSION_ORG_DIR: /data/org
+      STEEL_MISSION_CONFIG_DIR: /data/config
     volumes:
       - ./acme-org:/data/org:ro
-      - ./acme-config:/workspace/config:ro
+      - ./acme-config:/data/config:ro
 ```
 
-Both mounts are needed, and the second is the one that is easy to miss.
+Both variables are needed, and the second is the one that is easy to miss.
 `STEEL_MISSION_ORG_DIR` redirects the organization's documents — canon, knowledge,
-workspace packs. It does **not** redirect `config/`, which is where the organization
-registry, the user list and the capability map live. Point only the first and the
-application serves your canon under the shipped company's identity: the documents
-are yours and `activeOrganization` is still Northstar Forge. Supply a config
-directory as well, with your own `organizations.json`, `users.json` and
-`domain-capabilities.json`.
+workspace packs. `STEEL_MISSION_CONFIG_DIR` redirects the configuration that says
+who the organization is: `organizations.json`, `users.json`,
+`domain-capabilities.json` and the registries beside them. Set only the first and
+the application serves your canon under the shipped company's identity — the
+documents are yours and `activeOrganization` is still Northstar Forge, which reads
+as working and is not.
+
+Start from a copy of the shipped `config/` and change the registries you own.
 
 In your own config, paths use `${ORG_DIR}`. A path written as
 `${WORKER_DIR}/starter-company/...` resolves into the image's shipped company and
