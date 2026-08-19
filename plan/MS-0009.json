@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0009",
+  "projectId": "PRJ-0000",
+  "title": "U2 - A build step, recorded and reversible",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-09-10",
+  "outcome": "The front end builds from typed source with a pinned three-package toolchain. The built page is committed, and continuous integration proves it is byte-identical to a clean rebuild, so a hand-edited bundle cannot enter the tree. The new application is reachable behind a server flag at a non-default route. The contract test from MS-0008 passes against both pages.",
+  "notInScope": "The default page does not change: the root route still serves the page that ships today, and that file is left byte-untouched so the existing implementation-pinning assertions stay green. No container change and no new runtime dependency in the image. No static-asset route in the server - the served page remains the single file the server already reads, and the closed route allow-list is preserved. No feature work in the new application beyond what the contract test requires.",
+  "taskIds": [],
+  "completionEvidence": "A clean checkout runs install, build and a difference check against the committed page with no difference. The existing script-parse test still passes against the built page: exactly one bare script element, and the script parses under a syntax check. The dependency audit is clean at high severity. The decision record, the technical plan and the five reversibility conditions are merged. Reverting the build commit leaves a working product, demonstrated rather than asserted.",
+  "metadata": {
+    "stage": "U2",
+    "focusedDaysBudget": 2.0,
+    "risk": "Two existing tests discriminate between bundlers and their output. The suite matches a bare script element, so a module-typed script matches nothing; and it runs a syntax check on the extracted script as an ordinary script file, where a top-level import is a syntax error. The bundle must therefore be emitted in the immediately-invoked format. Verify against real build output as the first commit of this milestone, before a single component is written - not after, and never quietly at the flip.",
+    "whySingleFile": "Emitting one self-contained committed file avoids adding the product's first static-asset handler, which would be a new route on the trust boundary and the usual place traversal defects appear. It also avoids a container build stage, which would reintroduce the platform-specific package problem the image already works around.",
+    "githubMilestone": 9
+  }
+}

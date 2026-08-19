@@ -1,16 +1,23 @@
 # Steel-Mission delivery workplan
 
-**Status: binding.** This document governs how work lands in this repository for the
-duration of project `PRJ-0001`. It is not a suggestion set. Where it conflicts with
-habit, this document wins; where it conflicts with a schema or a canonical contract,
-the contract wins and this document is corrected.
+**Status: binding.** This document governs how work lands in this repository, across
+every project in it. It is not a suggestion set. Where it conflicts with habit, this
+document wins; where it conflicts with a schema or a canonical contract, the
+contract wins and this document is corrected.
 
 It binds everyone who lands a commit here — employees, contractors, and agents
 running under a person's account. An agent's commit is that person's commit.
 
-- Project record: [`plan/PRJ-0001.json`](../plan/PRJ-0001.json)
-- Milestone records: [`plan/MS-0001.json`](../plan/MS-0001.json) … [`plan/MS-0006.json`](../plan/MS-0006.json)
-- Technical plan: [`docs/durable-core-plan.md`](durable-core-plan.md)
+**Active project: `PRJ-0000`.** `PRJ-0001` is paused and resumes at the close of
+MS-0011. Each project's decisions live in its own record; §2 below carries
+PRJ-0001's, and PRJ-0000's are in `plan/PRJ-0000.json`. The rules in §4, the
+definition of done in §5 and the enforcement in §6 apply to both.
+
+| | Project | Technical plan | Milestones |
+|---|---|---|---|
+| **Active** | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0011](../plan/MS-0011.json) |
+| Paused | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
+
 - How the plan layer maps onto GitHub: [`plan/README.md`](../plan/README.md)
 
 ---
@@ -41,7 +48,7 @@ signed webhook or API call
   -> evidence ledger + transactional connector outbox
 ```
 
-## 2. Decisions that are already made
+## 2. Decisions that are already made — PRJ-0001
 
 These are settled. Reopening one requires new evidence and a written decision record
 that supersedes it — not a preference expressed in a review.
@@ -55,7 +62,7 @@ that supersedes it — not a preference expressed in a review.
 | D5 | The database is the queue. The broker command line, the daemon and the chat server are direct clients of one store, sharing one command module and one state machine. There is no command-line-to-daemon remote call. |
 | D6 | Two network surfaces exist and no more: the runner-facing gRPC gateway on the daemon, and an authenticated HTTP operations API. Anything else that wants to listen argues for itself first. |
 
-## 3. Milestone sequence
+## 3. Milestone sequence — PRJ-0001 (paused)
 
 Milestones run in order. P5 is last because it collides with the file paths of every
 other phase.

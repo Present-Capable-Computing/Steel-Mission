@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0007",
+  "projectId": "PRJ-0000",
+  "title": "U0 - Configuration integrity and the admin write path",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "ACTIVE",
+  "targetDate": "2026-08-27",
+  "outcome": "Every writer of a configuration file refuses input it cannot represent instead of coercing it and answering 200. The domain-capability registry loses its one-way door: a file in the shipped shape stays readable after the first save, and a user identifier absent from the user registry is refused rather than accepted. Capability authorization on mission bindings is enforced in every identity mode, with the development allowance stated in the auth policy rather than implied by a mode branch. Every configuration writer validates against a registered schema before it writes. The only writer of the capability registry has tests.",
+  "notInScope": "No interface change of any kind, no build step, no framework. No renaming of any wire field, configuration key, environment variable or module-level function: snapshotProfile, runtimeProfile, the runtime-profile endpoint, STEEL_MISSION_RUNTIME_PROFILE and resolve_runtime_profile keep their names, because the runtime-profile tests pin them and the harness silently stops patching a renamed function rather than failing. No schema work outside the configuration directory.",
+  "taskIds": [],
+  "completionEvidence": "A test exists for each refusal and was watched to fail without the change: a registry in the shipped shape survives a save round trip with its existing assignment still resolving; an unknown user identifier is refused with the offending list; an empty user registry is refused rather than repopulating four accounts; a suspended status is refused rather than becoming active; an organisation saved with zero capabilities is refused rather than granted all thirteen; an empty assignments post is refused rather than wiping the register; an unrecognised worktree mode is refused rather than mutating the source checkout behind a 202. The capability-registry endpoint has authorization and round-trip tests. Every configuration writer validates against a schema registered in the schema registry. The full suite is green and continuous integration passes on both supported interpreters.",
+  "metadata": {
+    "stage": "U0",
+    "focusedDaysBudget": 2.0,
+    "risk": "Refusing what was previously coerced is a behaviour change on a shipped product. Each refusal ships with the migration that keeps the shipped default files loadable, and every existing test that relies on a coercion is changed deliberately in the same pull request rather than deleted. The order inside this milestone matters more than usual: the loader must accept both registry shapes before anything can call the writer, or building the assignment interface arms a destructive flip that is currently unreachable from a browser.",
+    "githubMilestone": 7
+  }
+}

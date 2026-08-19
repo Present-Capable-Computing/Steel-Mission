@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "projectId": "PRJ-0000",
+  "title": "Usable Surface and Honest Admin Writes",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "ACTIVE",
+  "summary": "Make the Steel Mission surface teach the right model, and stop several admin writes doing something other than what was asked. The product ships a single-file console of 2,580 lines of JavaScript in which the word Profile names three different things in visible text, Role four, and Capability three; the only definition of a Domain Capability sits behind an owner and admin gate, so the people who are assigned capabilities are never told what they have. Underneath, an organisation saved with zero capabilities is granted all thirteen, a user registry posted empty is silently repopulated with four accounts, suspending a user re-enables them, and the only writer of the capability registry is unreachable from the product and untested. The project ends when configuration writers refuse what they cannot represent, capability assignment has one mechanism and a surface that shows it, every concept has exactly one name, and the console is rebuilt from typed source with the vocabulary enforced by a test rather than by discipline.",
+  "milestoneIds": [
+    "MS-0007",
+    "MS-0008",
+    "MS-0009",
+    "MS-0010",
+    "MS-0011"
+  ],
+  "repository": "https://github.com/Present-Capable-Computing/Steel-Mission",
+  "metadata": {
+    "planDocument": "docs/workplan.md",
+    "technicalPlan": "docs/ui-plan.md",
+    "githubProject": "https://github.com/orgs/Present-Capable-Computing/projects/1",
+    "startDate": "2026-08-19",
+    "estimate": {
+      "rule": "Effort estimated per category and divided by an expected acceleration factor, with security-sensitive and novel-integration work held at the cautious end and irreducible empirical time counted at no acceleration.",
+      "focusedDays": 11.0,
+      "contingencyPercent": 25,
+      "focusedDaysWithContingency": 13.75,
+      "note": "A focused-day figure is a planning estimate, never a commitment and never evidence that work is on schedule. Re-defend at every milestone boundary and print the delta."
+    },
+    "precedes": "PRJ-0001",
+    "whyFirst": "Shipping durable execution infrastructure underneath a surface that is unusable and quietly reports success for writes it did not perform is the wrong order. A founder running the first real installation could not determine why the console offered three Delivery Coordinator entries when the organisation defines thirteen Domain Capabilities; the answer is that those three are model backends for one capability, and nothing in the product says so.",
+    "decisions": [
+      {
+        "id": "PRJ-0000-D1",
+        "decision": "The front end is built from typed source with a bundler and a component framework. This supersedes the standard-library-only doctrine for the browser artifact only: the server, the command-line tools and the test harness remain standard-library Python, and the runtime image gains no dependency because the build output is committed and continuous integration proves it is a rebuild of the committed source.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0000-D2",
+        "decision": "PRJ-0000 runs before PRJ-0001. PRJ-0001 moves to PAUSED with its milestone identifiers unchanged, and returns to ACTIVE at the close of MS-0011.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0000-D3",
+        "decision": "The configuration correctness defects are in scope and land before any interface is built on top of them. A surface rebuilt over writes that silently do something else is a better-looking version of the same problem.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0000-D4",
+        "decision": "The bundler is esbuild, the framework is Preact, and the output is one self-contained file carrying no runtime network fetch. Changing any of the three is a new decision record, not a dependency bump. The served page stays the file the server already reads, so no static-asset route is added and the closed route allow-list is preserved.",
+        "status": "BINDING"
+      }
+    ]
+  }
+}

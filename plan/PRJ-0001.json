@@ -8,7 +8,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "ACTIVE",
+  "state": "PAUSED",
   "summary": "Replace the Steel-Mission execution core with a durable, transactional job service and a pull-based runner that executes in customer infrastructure. Today state is one unlocked JSON document with last-writer-wins semantics, execution is a synchronous subprocess call with a fixed cap and silent output truncation, job requests carry host-local paths, and two disjoint orchestration paths exist that never write to each other. Connector delivery has no retry, no backoff and no dead-letter path. The project ends when one storage interface with a SQLite default and a PostgreSQL option backs a single orchestration path, a remote runner claims work over gRPC and returns signed attested results, and connector ingress and egress are transactional.",
   "milestoneIds": [
     "MS-0001",
@@ -58,6 +58,8 @@
         "decision": "The database is the queue. The broker CLI, the daemon and the chat server are all direct clients of one transactional store sharing one command module and one state machine. There is no CLI-to-daemon RPC.",
         "status": "BINDING"
       }
-    ]
+    ],
+    "pausedAt": "2026-08-19",
+    "pauseReason": "Paused for PRJ-0000, which runs first. Shipping durable execution infrastructure underneath a surface that is unusable in a browser and reports success for writes it did not perform is the wrong order. Milestone identifiers and scope are unchanged; the target dates were cleared rather than left to rot, and are re-set from the date this resumes. Resumes at the close of MS-0011, where the estimate is re-defended at the boundary and the delta printed."
   }
 }

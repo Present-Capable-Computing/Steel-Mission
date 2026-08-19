@@ -133,24 +133,34 @@ def sync_milestones(repo: str, milestones: list[dict]) -> dict[str, tuple[int, s
             "description": spec["description"],
             "state": spec.get("state", "open"),
         }
+        # An omitted due date means "no date", and must be sent as one. Leaving it
+        # out of the payload leaves the server's previous value in place, so a
+        # milestone whose date was deliberately cleared keeps showing the old one.
+        typed = {}
         if spec.get("due_on"):
             fields["due_on"] = spec["due_on"]
+        else:
+            typed["due_on"] = "null"
         if current is None:
             say("create milestone", title)
             if DRY_RUN:
                 continue
-            created = api(f"repos/{repo}/milestones", method="POST", fields=fields)
+            created = api(f"repos/{repo}/milestones", method="POST", fields=fields,
+                          typed_fields=typed)
             numbers[spec["recordId"]] = (created["number"], title)
         else:
             number = current["number"]
             numbers[spec["recordId"]] = (number, title)
-            if current.get("description") != spec["description"]:
+            drifted = (current.get("description") != spec["description"]
+                       or (current.get("due_on") or None) != (spec.get("due_on") or None))
+            if drifted:
                 say("update milestone", title)
                 if not DRY_RUN:
                     api(
                         f"repos/{repo}/milestones/{number}",
                         method="PATCH",
                         fields=fields,
+                        typed_fields=typed,
                     )
             else:
                 print(f"  ok: {title} (#{number})")
@@ -190,6 +200,24 @@ def find_issue(repo: str, title: str) -> dict | None:
     return load_issues(repo).get(title)
 
 
+def technical_plan_for(milestone: str) -> str:
+    """The design document of the project that owns this milestone.
+
+    Hardcoding one path sent every issue of a second project at the first
+    project's design -- and on a paused project, at a design nobody should be
+    working from.
+    """
+    record = PLAN_DIR / f"{milestone}.json"
+    if record.exists():
+        project = json.loads(record.read_text()).get("projectId")
+        owner = PLAN_DIR / f"{project}.json"
+        if owner.exists():
+            plan = json.loads(owner.read_text()).get("metadata", {}).get("technicalPlan")
+            if plan:
+                return plan
+    return "docs/workplan.md"
+
+
 def epic_body(spec: dict) -> str:
     # No task list here. The tasks are real sub-issues, so GitHub renders them
     # with their state and a progress count. A checkbox list beside that is a
@@ -200,7 +228,7 @@ def epic_body(spec: dict) -> str:
         f"## How the milestone is judged complete\n\n{spec['done']}\n\n"
         "---\n\n"
         f"Milestone record: `plan/{spec['milestone']}.json` · "
-        "Workplan: `docs/workplan.md` · Design: `docs/durable-core-plan.md`\n\n"
+        "Workplan: `docs/workplan.md` · Design: `" + technical_plan_for(spec["milestone"]) + "`\n\n"
         "_Generated from `tooling/github-plan.json`. Edit the manifest and re-run "
         "`tooling/gh-plan-sync.py`; edits made here are overwritten._"
     )
@@ -219,7 +247,7 @@ def task_body(spec: dict) -> str:
     parts.append(
         "---\n\n"
         f"Milestone record: `plan/{spec['milestone']}.json` · "
-        "Workplan: `docs/workplan.md` · Design: `docs/durable-core-plan.md`\n\n"
+        "Workplan: `docs/workplan.md` · Design: `" + technical_plan_for(spec["milestone"]) + "`\n\n"
         "This task is done when the definition of done in `docs/workplan.md` §5 is "
         "satisfied in full. A `DEV-NNNNNN` id appears here only once the control "
         "plane mints one.\n\n"
