@@ -31,13 +31,13 @@ LEASE_ID_RE = re.compile(r"^wl-[a-f0-9]{24}$")
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 ARTIFACT_KIND_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 MODEL_ROLE_REGISTRY_ENV = "PRESENT_MODEL_ROLE_REGISTRY"
-MODEL_ROLE_REGISTRY_DEFAULT = WORKER_DIR / "config" / "model-role-registry.json"
+MODEL_ROLE_REGISTRY_DEFAULT = common.CONFIG_DIR / "model-role-registry.json"
 RUNTIME_PROFILE_REGISTRY_ENV = "PRESENT_RUNTIME_PROFILE_REGISTRY"
-RUNTIME_PROFILE_REGISTRY_DEFAULT = WORKER_DIR / "config" / "runtime-profiles.json"
+RUNTIME_PROFILE_REGISTRY_DEFAULT = common.CONFIG_DIR / "runtime-profiles.json"
 GENERAL_KNOWLEDGE_ENV = "PRESENT_GENERAL_KNOWLEDGE_REGISTRY"
-GENERAL_KNOWLEDGE_DEFAULT = WORKER_DIR / "config" / "general-knowledge.json"
+GENERAL_KNOWLEDGE_DEFAULT = common.CONFIG_DIR / "general-knowledge.json"
 ORGANIZATION_REGISTRY_ENV = "PRESENT_ORGANIZATION_REGISTRY"
-ORGANIZATION_REGISTRY_DEFAULT = WORKER_DIR / "config" / "organizations.json"
+ORGANIZATION_REGISTRY_DEFAULT = common.CONFIG_DIR / "organizations.json"
 MISSIONS_DIR_ENV = "STEEL_MISSION_MISSIONS_DIR"
 LEGACY_MISSIONS_DIR_ENV = "PRESENT_MISSIONS_DIR"
 MISSIONS_DIR_DEFAULT = WORKER_DIR / "missions"
@@ -1152,7 +1152,7 @@ def cmd_doctor(_args) -> int:
         "schemas": (common.WORKER_DIR / "schemas").exists(),
         "starter_company": common.ORG_DIR.exists(),
         "steel_mission_chat": (common.WORKER_DIR / "steel-mission-chat").exists(),
-        "config": (common.WORKER_DIR / "config").exists(),
+        "config": common.CONFIG_DIR.exists(),
     }
     for name, exists in release_checks.items():
         checks[name] = {"exists": exists}

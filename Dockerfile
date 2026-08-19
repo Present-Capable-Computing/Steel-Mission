@@ -7,11 +7,19 @@ RUN npm install --global \
       "@openai/codex@${CODEX_CLI_VERSION}" \
     && npm cache clean --force
 
-# Codex 0.136.0's Linux ARM64 optional package is present but its package
-# metadata uses the generic package name, so the JS launcher cannot resolve it
-# by name. Its documented local-vendor fallback is stable and explicit.
-RUN ln -s node_modules/@openai/codex-linux-arm64/vendor \
-    /usr/local/lib/node_modules/@openai/codex/vendor
+# Codex's Linux optional package is present but its package metadata uses the
+# generic package name, so the JS launcher cannot resolve it by name. Its
+# documented local-vendor fallback is stable and explicit.
+#
+# The package is discovered rather than named: hardcoding codex-linux-arm64
+# builds only on arm64 and fails on amd64 with a broken symlink rather than an
+# error. Exits non-zero if there is not exactly one, so a packaging change is a
+# build failure and not a container that starts without a working codex.
+RUN set -eu; \
+    cd /usr/local/lib/node_modules/@openai/codex; \
+    vendor_pkg="$(find node_modules/@openai -maxdepth 1 -type d -name 'codex-linux-*' | head -n 2)"; \
+    [ "$(printf '%s\n' "$vendor_pkg" | wc -l)" -eq 1 ] || { echo "expected exactly one codex-linux-* package, found: $vendor_pkg" >&2; exit 1; }; \
+    ln -s "$vendor_pkg/vendor" vendor
 
 FROM python:3.12-slim-bookworm
 
@@ -36,9 +44,12 @@ RUN apt-get update \
 
 # Use the packaged native binary directly. The npm launcher resolves its own
 # global symlink as /usr/local/bin and misses the sibling optional package.
-RUN ln -sf \
-    /usr/local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex \
-    /usr/local/bin/codex
+# The triple directory under vendor/ is architecture-specific, so it is located
+# rather than spelled out, and the build fails if it is not there.
+RUN set -eu; \
+    codex_bin="$(find /usr/local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-*/vendor -type f -path '*/bin/codex' | head -n 1)"; \
+    [ -n "$codex_bin" ] || { echo "no packaged codex binary found under the vendor directory" >&2; exit 1; }; \
+    ln -sf "$codex_bin" /usr/local/bin/codex
 
 WORKDIR /workspace
 COPY --chown=501:501 . /workspace
@@ -60,7 +71,6 @@ ENV HOME=/home/steelmission \
     STEEL_MISSION_MISSIONS_DIR=/var/lib/steel-mission/missions \
     STEEL_MISSION_TEST_RESULTS_DIR=/var/lib/steel-mission/test-results \
     STEEL_MISSION_REPOS_DIR=/var/lib/steel-mission/repos \
-    STEEL_MISSION_CONFIG_DIR=/var/lib/steel-mission/config \
     STEEL_MISSION_ORG_KNOWLEDGE_UPLOAD_DIR=/var/lib/steel-mission/org-knowledge-uploads
 
 USER 501:501

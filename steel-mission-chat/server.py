@@ -62,16 +62,24 @@ CANON_DIR = Path(
 )
 ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.json"
 ROLE_KNOWLEDGE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-knowledge-registry.json"
-DOMAIN_CAPABILITIES_PATH = WORKER_DIR / "config" / "domain-capabilities.json"
-GENERAL_KNOWLEDGE_PATH = WORKER_DIR / "config" / "general-knowledge.json"
-ORGANIZATION_REGISTRY_PATH = Path(os.environ.get("PRESENT_ORGANIZATION_REGISTRY") or WORKER_DIR / "config" / "organizations.json")
-ORG_KNOWLEDGE_UPLOAD_ROOT = Path(os.environ.get("PRESENT_ORG_KNOWLEDGE_UPLOAD_DIR") or WORKER_DIR / "config" / "org-knowledge-uploads")
-USER_REGISTRY_PATH = WORKER_DIR / "config" / "users.json"
-RUNTIME_PROFILE_REGISTRY_PATH = WORKER_DIR / "config" / "runtime-profiles.json"
-MODEL_ROLE_REGISTRY_PATH = WORKER_DIR / "config" / "model-role-registry.json"
-CONTROL_POLICY_PATH = WORKER_DIR / "config" / "control-plane-policy.json"
-INTEGRATION_REGISTRY_PATH = WORKER_DIR / "config" / "integration-registry.json"
-AUTH_POLICY_PATH = WORKER_DIR / "config" / "auth-policy.json"
+# Where the product is configured to read the organisation from. Separate from
+# ORG_DIR, which is where the organisation's documents live: redirecting only
+# ORG_DIR serves your documents under the shipped company's identity.
+CONFIG_DIR = Path(
+    os.environ.get("STEEL_MISSION_CONFIG_DIR")
+    or os.environ.get("PRESENT_CONFIG_DIR")
+    or WORKER_DIR / "config"
+)
+DOMAIN_CAPABILITIES_PATH = CONFIG_DIR / "domain-capabilities.json"
+GENERAL_KNOWLEDGE_PATH = CONFIG_DIR / "general-knowledge.json"
+ORGANIZATION_REGISTRY_PATH = Path(os.environ.get("PRESENT_ORGANIZATION_REGISTRY") or CONFIG_DIR / "organizations.json")
+ORG_KNOWLEDGE_UPLOAD_ROOT = Path(os.environ.get("PRESENT_ORG_KNOWLEDGE_UPLOAD_DIR") or CONFIG_DIR / "org-knowledge-uploads")
+USER_REGISTRY_PATH = CONFIG_DIR / "users.json"
+RUNTIME_PROFILE_REGISTRY_PATH = CONFIG_DIR / "runtime-profiles.json"
+MODEL_ROLE_REGISTRY_PATH = CONFIG_DIR / "model-role-registry.json"
+CONTROL_POLICY_PATH = CONFIG_DIR / "control-plane-policy.json"
+INTEGRATION_REGISTRY_PATH = CONFIG_DIR / "integration-registry.json"
+AUTH_POLICY_PATH = CONFIG_DIR / "auth-policy.json"
 MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
 AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")

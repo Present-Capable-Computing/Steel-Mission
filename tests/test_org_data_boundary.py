@@ -150,6 +150,87 @@ def test_the_application_image_excludes_secrets_and_the_plan_layer():
     )
 
 
+def test_config_dir_defaults_to_the_shipped_config():
+    assert common.CONFIG_DIR == REPO_DIR / "config"
+
+
+def test_config_dir_is_redirectable_without_touching_the_tree():
+    """An installation supplies its own organisation registry, users and
+    capability map. Without this, redirecting only ORG_DIR serves the
+    installation's documents under the shipped company's identity -- which reads
+    as working, and is the failure that is hardest to notice."""
+    probe = (
+        "import sys; sys.path.insert(0, %r);"
+        "from adapters import common; print(common.CONFIG_DIR)" % str(REPO_DIR)
+    )
+    environment = dict(os.environ, STEEL_MISSION_CONFIG_DIR="/tmp/some-config")
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True, text=True, env=environment, cwd=str(REPO_DIR),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "/tmp/some-config"
+
+
+def test_no_module_reads_the_config_directory_around_the_seam():
+    # A path built from the product root ignores an installation's redirect, and
+    # does it silently: the file exists, so nothing errors, and the wrong
+    # organisation's configuration is served.
+    offenders = []
+    for relative in ("steel-mission-chat/server.py", "bin/present-worker", "adapters/common.py"):
+        text = (REPO_DIR / relative).read_text(encoding="utf-8")
+        # One use is legitimate, and only in a file that defines the seam: the
+        # default on the end of its own CONFIG_DIR definition.
+        allowed = 1 if "CONFIG_DIR = Path(" in text else 0
+        if text.count('WORKER_DIR / "config"') > allowed:
+            offenders.append(relative)
+    assert not offenders, (
+        f"{offenders} build a config path from the product root; use common.CONFIG_DIR "
+        "so STEEL_MISSION_CONFIG_DIR is honoured"
+    )
+
+
+@pytest.mark.skipif(
+    not APPLICATION_DOCKERFILE.exists(),
+    reason="no application Dockerfile in this tree yet",
+)
+def test_the_image_does_not_point_its_data_directories_at_empty_state():
+    """The shipped image must read its own bundled config and company.
+
+    This is here because the image did the opposite: it set the config directory
+    to a path under the state volume, which does not exist in the image at all.
+    Nothing failed -- the application came up and reported the shipped company --
+    so the only symptom was a declared location that was never read. An
+    installation overrides these at run time; the image must not.
+    """
+    for line in APPLICATION_DOCKERFILE.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip().rstrip("\\").strip()
+        for variable in ("STEEL_MISSION_CONFIG_DIR", "STEEL_MISSION_ORG_DIR"):
+            if stripped.startswith(f"{variable}="):
+                pytest.fail(
+                    f"the image sets {variable} ({stripped}). Leave it unset so the "
+                    "bundled config and starter company are used; an installation "
+                    "sets it at run time."
+                )
+
+
+@pytest.mark.skipif(
+    not APPLICATION_DOCKERFILE.exists(),
+    reason="no application Dockerfile in this tree yet",
+)
+def test_the_image_does_not_hardcode_one_cpu_architecture():
+    # A hardcoded vendor path builds on the maintainer's laptop and fails on
+    # every other architecture -- and fails by creating a broken symlink rather
+    # than by stopping the build, so the container starts without the tool.
+    for line in APPLICATION_DOCKERFILE.read_text(encoding="utf-8").splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        assert "arm64" not in line and "aarch64" not in line and "x86_64" not in line, (
+            f"Dockerfile names a CPU architecture: {line.strip()}; discover the "
+            "packaged path instead, and fail the build when it is not found"
+        )
+
+
 def test_no_config_file_hardcodes_a_path_into_the_shipped_directory():
     # Config refers to ${ORG_DIR}. A literal path under the product tree would
     # silently ignore an installation's redirect, which is what made overwriting

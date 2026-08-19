@@ -42,6 +42,20 @@ ORG_DIR = Path(
     or WORKER_DIR / "starter-company"
 )
 
+# The registries that say who the organisation is: its identity, its people and
+# which capability each of them publishes.
+#
+# This is separate from ORG_DIR because the two answer different questions --
+# ORG_DIR is where the organisation's documents live, CONFIG_DIR is how the
+# product is configured to read them. An installation almost always redirects
+# both: pointing only ORG_DIR loads your documents under the shipped company's
+# identity, which looks like it worked and is not.
+CONFIG_DIR = Path(
+    os.environ.get("STEEL_MISSION_CONFIG_DIR")
+    or os.environ.get("PRESENT_CONFIG_DIR")
+    or WORKER_DIR / "config"
+)
+
 DEFAULT_REPO = Path(os.environ.get("STEEL_MISSION_DEFAULT_REPO", WORKER_DIR))
 
 SCHEMA_AUTHORITY = "present-control"
