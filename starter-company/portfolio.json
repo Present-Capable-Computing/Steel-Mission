@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "organizationId": "steel-mission",
+  "portfolioState": "expanding",
+  "description": "Steel Mission begins with Durable Core. Additional projects are added as separate stable PRJ records when their outcomes and boundaries are ready.",
+  "projects": [
+    {
+      "projectId": "PRJ-0001",
+      "title": "Durable Core",
+      "state": "ACTIVE",
+      "projectRecord": "plan/PRJ-0001.json",
+      "milestoneRecords": [
+        "plan/MS-0001.json",
+        "plan/MS-0002.json",
+        "plan/MS-0003.json",
+        "plan/MS-0004.json",
+        "plan/MS-0005.json",
+        "plan/MS-0006.json"
+      ],
+      "issueCatalog": "tooling/github-plan.json",
+      "epicIssueCount": 6,
+      "childIssueCount": 52,
+      "totalIssueCount": 58
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # DC07 - Intelligence
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC07 develops intelligence that is capable, bounded, replaceable, and subordinate to organizational authority. It governs model/provider use, evaluation, uncertainty, memory, retrieval, and expert routing.
 
@@ -33,4 +33,4 @@ DC07 never grants approval authority to a model. It treats model substitution as
 
 ## Starter Scenario
 
-Northstar Forge uses DC07 to switch DC13 from Claude to Glimmer while rate limits clear. DC07 confirms that the role remains Delivery Coordinator and only the model binding changes.
+Steel Mission uses DC07 to switch DC13 from Claude to Glimmer while rate limits clear. DC07 confirms that the role remains Delivery Coordinator and only the model binding changes.

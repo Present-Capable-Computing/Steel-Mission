@@ -1,6 +1,6 @@
 # DC12 - Synthesis
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC12 reviews consequential packages across domains and across decision history. It catches interactions that only appear when individual domain returns are combined.
 
@@ -33,4 +33,4 @@ DC12 is advisory. It does not silently reverse, supersede, reinterpret, or re-ad
 
 ## Starter Scenario
 
-Northstar Forge asks DC12 to review a release package that changes model routing, guarded runner policy, and evidence signing. DC12 identifies which findings belong to Intelligence, Security, Governance, Platform, and Operations.
+Steel Mission asks DC12 to review a release package that changes model routing, guarded runner policy, and evidence signing. DC12 identifies which findings belong to Intelligence, Security, Governance, Platform, and Operations.

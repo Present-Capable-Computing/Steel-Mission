@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://steel-mission.dev/schemas/enterprise-knowledge-first-start-v1.json",
+  "title": "Enterprise knowledge first-start manifest v1",
+  "description": "The one-time, fail-closed contract that registers an organization's source-owned operating knowledge and domain capabilities without copying that knowledge into Steel Mission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "importId",
+    "organization",
+    "sourceLocations",
+    "sources",
+    "coreKnowledge",
+    "capabilities"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "importId": {"$ref": "#/$defs/stableId"},
+    "description": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1, "maxLength": 200},
+    "provenance": {"type": "object"},
+    "organization": {"$ref": "#/$defs/organization"},
+    "sourceLocations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/sourceLocation"}
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 1000,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "coreKnowledge": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/coreKnowledge"}
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {"$ref": "#/$defs/capability"}
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_-]{1,63}$"
+    },
+    "nonEmptyStringArray": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 256}
+    },
+    "organization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "dataClassification"],
+      "properties": {
+        "id": {"$ref": "#/$defs/stableId"},
+        "displayName": {"type": "string", "minLength": 1, "maxLength": 200},
+        "dataClassification": {"type": "string", "minLength": 1, "maxLength": 100},
+        "legalName": {"type": "string", "minLength": 1, "maxLength": 300},
+        "slug": {"$ref": "#/$defs/stableId"},
+        "primaryDomain": {"type": "string", "minLength": 1, "maxLength": 253},
+        "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+        "industry": {"type": "string", "minLength": 1, "maxLength": 200},
+        "environment": {"type": "string", "minLength": 1, "maxLength": 100},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "tags": {"$ref": "#/$defs/nonEmptyStringArray"}
+      }
+    },
+    "sourceLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locationId", "kind", "sourceUri", "accessMode"],
+      "properties": {
+        "locationId": {"$ref": "#/$defs/stableId"},
+        "kind": {"enum": ["filesystem", "connector"]},
+        "sourceUri": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "runtimePath": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "accessMode": {"const": "read-only"},
+        "displayName": {"type": "string", "minLength": 1, "maxLength": 200},
+        "mountId": {"$ref": "#/$defs/stableId"},
+        "connectorRef": {"$ref": "#/$defs/stableId"},
+        "credentialRef": {"$ref": "#/$defs/stableId"},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "filesystem"}}, "required": ["kind"]},
+          "then": {"required": ["runtimePath"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "connector"}}, "required": ["kind"]},
+          "then": {"required": ["connectorRef"]}
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "label",
+        "nodeType",
+        "locationId",
+        "relativePath",
+        "ownerId",
+        "authoritative",
+        "lastReviewedAt",
+        "maxAgeDays"
+      ],
+      "properties": {
+        "sourceId": {"$ref": "#/$defs/stableId"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 300},
+        "nodeType": {"enum": ["file", "folder"]},
+        "locationId": {"$ref": "#/$defs/stableId"},
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$"
+        },
+        "ownerId": {"$ref": "#/$defs/stableId"},
+        "authoritative": {"type": "boolean"},
+        "lastReviewedAt": {"type": "string", "format": "date-time"},
+        "maxAgeDays": {"type": "integer", "minimum": 1, "maximum": 3650},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "kind": {"type": "string", "minLength": 1, "maxLength": 100},
+        "format": {"type": "string", "minLength": 1, "maxLength": 100},
+        "language": {"type": "string", "minLength": 1, "maxLength": 35},
+        "tags": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "expiresAt": {"type": "string", "format": "date-time"},
+        "expectedSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "sensitivity": {"type": "string", "minLength": 1, "maxLength": 100},
+        "jurisdiction": {"type": "string", "minLength": 1, "maxLength": 100},
+        "include": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "exclude": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "followSymlinks": {"type": "boolean"},
+        "provenance": {"type": "object"},
+        "supersedes": {"$ref": "#/$defs/stableId"},
+        "supersededBy": {"$ref": "#/$defs/stableId"}
+      }
+    },
+    "coreKnowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "category", "displayName", "sourceIds"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"},
+        "category": {"enum": ["operating-context", "operating-doctrine", "organization-workflow"]},
+        "displayName": {"type": "string", "minLength": 1, "maxLength": 200},
+        "sourceIds": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "aliases": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "ownerIds": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "tags": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "dependencies": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "provenance": {"type": "object"}
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "displayName", "ownerIds", "sources"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"},
+        "displayName": {"type": "string", "minLength": 1, "maxLength": 200},
+        "ownerIds": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "authority", "knowledge"],
+          "properties": {
+            "role": {"$ref": "#/$defs/nonEmptyStringArray"},
+            "authority": {"$ref": "#/$defs/nonEmptyStringArray"},
+            "knowledge": {"$ref": "#/$defs/nonEmptyStringArray"}
+          }
+        },
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "aliases": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "parentKey": {"$ref": "#/$defs/key"},
+        "publisherIds": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "userIds": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "tags": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "dependencies": {"$ref": "#/$defs/nonEmptyStringArray"},
+        "provenance": {"type": "object"}
+      }
+    }
+  }
+}

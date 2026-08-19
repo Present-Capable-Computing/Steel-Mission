@@ -1,6 +1,6 @@
 # DC01 - Counterweight
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC01 protects decision quality when a delivery choice is high impact, hard to reverse, or not clearly owned by a single domain. It exists to challenge premature certainty, expose weak assumptions, and decide whether deeper review is useful or unnecessary.
 
@@ -33,4 +33,4 @@ DC01 does not own product, architecture, security, legal, delivery, or commercia
 
 ## Starter Scenario
 
-Northstar Forge uses DC01 before merging a risky automation path that could alter customer deployment state. DC01 asks what would make the change wrong, which team must review it, and what evidence would justify proceeding.
+Steel Mission uses DC01 before merging a risky automation path that could alter customer deployment state. DC01 asks what would make the change wrong, which team must review it, and what evidence would justify proceeding.

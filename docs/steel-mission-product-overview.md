@@ -17,11 +17,11 @@ Steel Mission is an Agent Delivery Plane for governed software delivery. It give
 
 ## Starter Company
 
-Northstar Forge is synthetic demonstration data. It exists so a team can launch the product, see a complete company skeleton, run missions, inspect evidence, and then replace the starter material with its own users, knowledge, profiles, missions, and policies.
+Steel Mission's own founder-led launch company gives a new installation an operating context, doctrine, team, complete capability map, and the active PRJ-0001 Durable Core portfolio. It exists so the product opens on meaningful company and delivery data rather than an empty demonstration shell.
 
 ## Open-Core Boundary
 
-Steel Mission Core is open source under Apache-2.0. Teams can download, inspect, run, modify, and evaluate the core with the included synthetic starter company.
+Steel Mission Core is open source under Apache-2.0. Teams can download, inspect, run, modify, and evaluate the core with the included Steel Mission starter company.
 
 Steel Mission Enterprise Edition is proprietary, commercially licensed software and service capability for operational scale. Enterprise scope includes multi-organization fleet governance, managed deployment and upgrades, managed KMS/HSM operations, advanced governance and compliance workflows, managed retention and integrations, private-cloud operations, and support.
 

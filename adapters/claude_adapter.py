@@ -99,11 +99,12 @@ SESSION_ENV_KEEP = {TOKEN_ENV}
 OUTPUT_TOKEN_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 MODEL_OUTPUT_TOKEN_BUDGET = "64000"
 DEFAULT_TOKEN_FILE = Path.home() / ".claude" / "present-worker-token"
-TOKEN_FILE_OVERRIDE_ENV = "PRESENT_WORKER_CLAUDE_TOKEN_FILE"
+TOKEN_FILE_OVERRIDE_ENV = "STEEL_MISSION_WORKER_CLAUDE_TOKEN_FILE"
+LEGACY_TOKEN_FILE_OVERRIDE_ENV = "PRESENT_WORKER_CLAUDE_TOKEN_FILE"
 
 
 def token_file() -> Path:
-    override = os.environ.get(TOKEN_FILE_OVERRIDE_ENV)
+    override = os.environ.get(TOKEN_FILE_OVERRIDE_ENV) or os.environ.get(LEGACY_TOKEN_FILE_OVERRIDE_ENV)
     return Path(override) if override else DEFAULT_TOKEN_FILE
 
 
@@ -584,7 +585,7 @@ def _invoke_once(prompt: str, schema: dict[str, Any], *, timeout: int,
 
 def plan(task_id: str, mode: str, requirement: str) -> dict[str, Any]:
     mocked = mode == "mock"
-    envelope = common.canonical_envelope(task_id, "present-worker plan (claude)", mocked=mocked)
+    envelope = common.canonical_envelope(task_id, "steel-mission plan (claude)", mocked=mocked)
     if mocked:
         return {**envelope, "summary": "synthetic plan; no model was invoked", "steps": [
             {"id": "s1", "description": "synthetic mock step", "dependsOn": []}
@@ -604,7 +605,7 @@ def plan(task_id: str, mode: str, requirement: str) -> dict[str, Any]:
 def review(task_id: str, mode: str, requirement: str, plan: str, commit: str, diff: str, test_output: str,
            *, input_context: str = "") -> dict[str, Any]:
     mocked = mode == "mock"
-    envelope = common.canonical_envelope(task_id, "present-worker review (claude)", mocked=mocked, commit=commit)
+    envelope = common.canonical_envelope(task_id, "steel-mission review (claude)", mocked=mocked, commit=commit)
     if mocked:
         return {**envelope, "verdict": "ACCEPTED", "findings": [
             {"severity": "note", "summary": "mock review; no model was invoked"}
@@ -665,7 +666,7 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
     not requested from the model.
     """
     mocked = mode == "mock"
-    envelope = common.canonical_envelope(task_id, "present-worker coordination-report (claude)", mocked=mocked)
+    envelope = common.canonical_envelope(task_id, "steel-mission coordination-report (claude)", mocked=mocked)
     envelope["packIdentity"] = pack_identity
     if mocked:
         return {**envelope, "summary": "mock chief-of-staff report; no model was invoked and no state was retrieved",
@@ -784,7 +785,7 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
 def adversarial(task_id: str, mode: str, requirement: str, plan: str, commit: str, diff: str,
                 *, input_context: str = "") -> dict[str, Any]:
     mocked = mode == "mock"
-    envelope = common.canonical_envelope(task_id, "present-worker adversarial (claude)", mocked=mocked, commit=commit)
+    envelope = common.canonical_envelope(task_id, "steel-mission acceptance (claude)", mocked=mocked, commit=commit)
     if mocked:
         return {**envelope, "attacksAttempted": 1, "breaches": [],
                 "coverageNote": "mock adversarial analysis; absence of breaches is not evidence of correctness"}

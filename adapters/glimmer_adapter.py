@@ -31,7 +31,10 @@ BINARY = "ollama"
 LOCAL_OLLAMA = Path.home() / "codebase" / "ollama" / "ollama"
 HOST = "127.0.0.1"
 PORT = 11434
-BASE_URL = f"http://{HOST}:{PORT}"
+# A container reaches the host's loopback-only Ollama service through Docker
+# Desktop's host gateway. Keep the native localhost default, but allow the
+# launch contract to provide that local-machine bridge explicitly.
+BASE_URL = os.environ.get("STEEL_MISSION_OLLAMA_BASE_URL", f"http://{HOST}:{PORT}").rstrip("/")
 DEFAULT_MODEL = "qwen2.5-coder:14b"
 KEEP_ALIVE = "30m"
 PID_FILE = common.LOGS_DIR / "glimmer.pid"
@@ -53,7 +56,9 @@ def _ollama_path() -> str | None:
 
 
 def installed() -> bool:
-    return _ollama_path() is not None
+    # A client container does not need the Ollama executable when it can reach
+    # the host-owned service. Treat that service as the installed transport.
+    return _ollama_path() is not None or server_running()
 
 
 def _http_get(path: str, timeout: float = 3.0) -> dict[str, Any] | None:

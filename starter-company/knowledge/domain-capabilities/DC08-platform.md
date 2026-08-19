@@ -1,6 +1,6 @@
 # DC08 - Platform
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC08 translates product trust and delivery needs into feasible infrastructure, runtime, device, and platform choices. It focuses on local operation, deployment surfaces, hardware assumptions, and operational constraints.
 
@@ -33,4 +33,4 @@ DC08 does not own program sequencing or commercial packaging. It identifies plat
 
 ## Starter Scenario
 
-Northstar Forge asks DC08 to make Steel Mission run as a self-contained repo rather than depending on a developer workstation layout. DC08 verifies local paths, command availability, and runtime folders.
+Steel Mission asks DC08 to make Steel Mission run as a self-contained repo rather than depending on a developer workstation layout. DC08 verifies local paths, command availability, and runtime folders.

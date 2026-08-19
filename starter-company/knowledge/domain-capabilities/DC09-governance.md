@@ -1,6 +1,6 @@
 # DC09 - Governance
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC09 identifies policy, compliance, legal, and institutional requirements that make agentic delivery defensible. It focuses on records, approvals, licensing, claims, jurisdiction, and accountability.
 
@@ -33,4 +33,4 @@ DC09 provides governance analysis and flags required professional review. It doe
 
 ## Starter Scenario
 
-Northstar Forge asks DC09 whether the core can be Apache-2.0 open source while Enterprise controls remain proprietary and commercially licensed. DC09 separates core open-source rights from paid Enterprise capabilities.
+Steel Mission asks DC09 whether the core can be Apache-2.0 open source while Enterprise controls remain proprietary and commercially licensed. DC09 separates core open-source rights from paid Enterprise capabilities.

@@ -1,6 +1,6 @@
 # DC02 - Creative
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC02 expands the option space before the organization converges. It creates alternative framings, naming candidates, storylines, demonstration concepts, and product-language options that reveal possibilities the delivery team might miss.
 
@@ -34,4 +34,4 @@ DC02 proposes candidates only. It does not adopt terminology, override Product p
 
 ## Starter Scenario
 
-Northstar Forge asks DC02 for three ways to explain guarded AI delivery to a non-technical buyer. DC02 returns language options that keep risk control visible while avoiding fear-driven messaging.
+Steel Mission asks DC02 for three ways to explain guarded AI delivery to a non-technical buyer. DC02 returns language options that keep risk control visible while avoiding fear-driven messaging.

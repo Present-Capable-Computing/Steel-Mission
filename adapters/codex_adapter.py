@@ -10,6 +10,28 @@ from . import common
 
 BINARY = "codex"
 LIVE_IMPLEMENTED = True
+REVIEW_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["verdict", "findings"],
+    "properties": {
+        "verdict": {"enum": ["ACCEPTED", "REVIEW_REJECTED", "CHANGES_REQUESTED"]},
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["severity", "summary", "file", "line"],
+                "properties": {
+                    "severity": {"enum": ["blocking", "major", "minor", "note"]},
+                    "summary": {"type": "string"},
+                    "file": {"type": ["string", "null"]},
+                    "line": {"type": ["integer", "null"]},
+                },
+            },
+        },
+    },
+}
 FIX_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -91,6 +113,79 @@ def _diff_stat(worktree: Path) -> dict[str, int]:
     return {"filesChanged": files, "insertions": insertions, "deletions": deletions}
 
 
+def review(
+    task_id: str,
+    mode: str,
+    requirement: str,
+    plan: str,
+    commit: str,
+    diff: str,
+    test_output: str,
+    *,
+    input_context: str = "",
+) -> dict[str, Any]:
+    """Review a candidate through Codex without granting write authority."""
+    mocked = mode == "mock"
+    envelope = common.canonical_envelope(
+        task_id, "steel-mission review (codex)", mocked=mocked, commit=commit)
+    if mocked:
+        return {
+            **envelope,
+            "verdict": "ACCEPTED",
+            "findings": [{"severity": "note", "summary": "mock review; no model was invoked"}],
+        }
+
+    auth, auth_meta = authenticated()
+    if not auth:
+        return credential_refusal(auth_meta)
+
+    prompt = (
+        "Review the candidate diff against the requirement and plan. Work read-only. "
+        "Return concrete, prioritized findings; do not edit files, claim verification, or declare PASS.\n\n"
+        f"REQUIREMENT\n{requirement}\n\nPLAN\n{plan}\n\nCOMMIT\n{commit}\n\n"
+        f"WORKFLOW INPUT CONTEXT\n{input_context}\n\nDIFF\n{diff}\n\nTEST OUTPUT\n{test_output}"
+    )
+    tmp_root = common.WORKER_DIR / "tmp"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"{task_id}-codex-review-", dir=tmp_root) as temporary:
+        schema_path = Path(temporary) / "review-output.schema.json"
+        output_path = Path(temporary) / "last-message.json"
+        schema_path.write_text(json.dumps(REVIEW_SCHEMA))
+        command = [
+            BINARY,
+            "--ask-for-approval", "never",
+            "exec",
+            "--ephemeral",
+            "--sandbox", "read-only",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--skip-git-repo-check",
+            "--output-schema", str(schema_path),
+            "--output-last-message", str(output_path),
+            "--cd", str(common.WORKER_DIR),
+            "-",
+        ]
+        try:
+            result = common.run(command, timeout=1800, input=prompt, cwd=common.WORKER_DIR)
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": str(exc), "retryable": True}
+        if result.returncode != 0 or not output_path.exists():
+            reason = (result.stderr or result.stdout).strip()[-1000:] or "Codex produced no final message"
+            return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": reason, "retryable": True}
+        try:
+            model_output = json.loads(output_path.read_text())
+        except json.JSONDecodeError as exc:
+            return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": str(exc), "retryable": True}
+    findings = model_output.get("findings", [])
+    if isinstance(findings, list):
+        model_output["findings"] = [
+            {key: value for key, value in finding.items() if value is not None}
+            if isinstance(finding, dict) else finding
+            for finding in findings
+        ]
+    return {**envelope, **model_output}
+
+
 def fix(
     task_id: str,
     mode: str,
@@ -106,7 +201,7 @@ def fix(
     mocked = mode == "mock"
     if mocked:
         return {
-            **common.canonical_envelope(task_id, "present-worker fix (codex)", mocked=True, commit=commit),
+            **common.canonical_envelope(task_id, "steel-mission fix (codex)", mocked=True, commit=commit),
             "outcome": "UNCHANGED",
             "addressedFindings": [],
             "diffStat": {"filesChanged": 0, "insertions": 0, "deletions": 0},
@@ -161,7 +256,7 @@ def fix(
         outcome = "FIXED"
 
     return {
-        **common.canonical_envelope(task_id, "present-worker fix (codex)", mocked=False, commit=output_commit),
+        **common.canonical_envelope(task_id, "steel-mission fix (codex)", mocked=False, commit=output_commit),
         "outcome": outcome,
         "addressedFindings": model_output.get("addressedFindings", []),
         "diffStat": stat,

@@ -4609,7 +4609,13 @@ def test_model_binding_registry_validates_and_resolves_local_dc13_instance():
     code, registry = run_worker("model-roles")
     assert code == 0
     assert schema_check.validate(registry, "canonical/model-role-registry-v1.json") == []
-    assert {role["id"] for role in registry["roles"]} == {"dc13.coordination-report"}
+    assert {role["id"] for role in registry["roles"]} == {
+        "dc13.coordination-report",
+        "delivery.planner",
+        "delivery.coder",
+        "delivery.reviewer",
+        "delivery.acceptance",
+    }
 
     code, policy = run_worker("model-role-resolve", "dc13.coordination-report", "--provider", "glimmer", "--ignore-readiness")
 
@@ -5014,7 +5020,7 @@ def test_mock_coordinator_report_is_canonical_advisory_and_claims_no_authority()
         assert code == 0
         assert payload["mock"] is True
         assert payload["taskId"] == task_id
-        assert payload["producer"] == "present-worker coordination-report (claude)"
+        assert payload["producer"] == "steel-mission coordination-report (claude)"
         # The invariant is worker-authored, never model prose: no authority,
         # no PASS, advisory only.
         assert "no authority" in payload["advisoryNote"]
@@ -6259,7 +6265,7 @@ def test_steel_mission_knowledge_registry_loads_foundations_and_project_roles():
     assert roles["DC13"]["displayName"] == "Delivery Coordinator"
     assert capabilities["DC13"]["fNumber"] == "DC13"
     assert capabilities["DC13"]["displayName"] == "Delivery Coordinator"
-    assert payload["activeOrganization"]["id"] == "northstar-forge"
+    assert payload["activeOrganization"]["id"] == "steel-mission"
     assert set(payload["activeOrganization"]["knowledgeDomainKeys"]) >= {"KD01", "KD02", "KD03"}
     assert set(payload["activeOrganization"]["domainCapabilityKeys"]) >= expected_capabilities
 
@@ -7513,7 +7519,7 @@ def test_steel_mission_delivery_execution_mission_records_lifecycle_evidence(tmp
                 "buildCommand": "python3 -m py_compile steel-mission-chat/server.py",
                 "testCommand": "pytest -q tests/test_worker.py",
                 "inspectCommand": "curl -fsS http://127.0.0.1:8765/api/health",
-                "prTarget": "northstar-forge/steel-mission-demo",
+                "prTarget": "steel-mission/steel-mission-demo",
                 "deployTarget": "local alpha",
                 "repairBudget": 3,
             },
@@ -8020,7 +8026,7 @@ def test_steel_mission_oidc_required_maps_server_owned_identity_and_revokes_sess
                 "role": "admin",
                 "status": "active",
                 "assignedCapabilities": ["DC13"],
-                "organizationIds": ["northstar-forge"],
+                "organizationIds": ["steel-mission"],
                 "identitySubjects": ["https://idp.example.invalid|provider-subject"],
             }],
         }))
@@ -8092,12 +8098,12 @@ def test_steel_mission_actor_scope_and_separation_of_duties_are_server_enforced(
             state="waiting_for_approval",
             operatorRole="publisher",
             actorUserId="initiator",
-            organizationId="northstar-forge",
+            organizationId="steel-mission",
             nodes=[{"nodeId": "approval", "title": "Approval", "state": "waiting_for_approval"}],
             approvals=[],
         )
-        initiator = {"actorId": "initiator", "role": "publisher", "organizationId": "northstar-forge", "organizationIds": ["northstar-forge"]}
-        approver = {"actorId": "separate-approver", "role": "admin", "organizationId": "northstar-forge", "organizationIds": ["northstar-forge"]}
+        initiator = {"actorId": "initiator", "role": "publisher", "organizationId": "steel-mission", "organizationIds": ["steel-mission"]}
+        approver = {"actorId": "separate-approver", "role": "admin", "organizationId": "steel-mission", "organizationIds": ["steel-mission"]}
         outsider = {"actorId": "outsider", "role": "owner", "organizationId": "other-org", "organizationIds": ["other-org"]}
         assert chat["mission_detail"](mission_id, "publisher", actor=initiator)["ok"] is True
         assert chat["mission_detail"](mission_id, "owner", actor=outsider)["ok"] is False
@@ -8132,9 +8138,9 @@ def test_steel_mission_http_identity_boundary_is_fail_closed_and_loopback_only(t
         remote = SimpleNamespace(headers={"X-Present-Role": "owner"}, client_address=("192.0.2.10", 12345))
         with pytest.raises(PermissionError, match="loopback"):
             chat["authenticate_http_request"](remote, "/api/owner/users", "GET")
-        local = SimpleNamespace(headers={"X-Present-Role": "admin", "X-Present-Actor": "riley-chen"}, client_address=("127.0.0.1", 12345))
+        local = SimpleNamespace(headers={"X-Present-Role": "admin", "X-Present-Actor": "emma-h"}, client_address=("127.0.0.1", 12345))
         actor = chat["authenticate_http_request"](local, "/api/admin/users", "GET")
-        assert actor["actorId"] == "riley-chen"
+        assert actor["actorId"] == "emma-h"
         assert actor["role"] == "admin"
         assert actor["identitySource"] == "user-registry"
     finally:
@@ -8747,7 +8753,7 @@ def test_steel_mission_github_pr_adapter_builds_native_readiness_without_creatin
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
-    subprocess.run(["git", "remote", "add", "origin", "git@github.com:northstar-forge/steel-mission-demo.git"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:steel-mission/steel-mission-demo.git"], cwd=repo, check=True)
     (repo / "README.md").write_text("native pr adapter\n")
     subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
@@ -8778,7 +8784,7 @@ def test_steel_mission_github_pr_adapter_builds_native_readiness_without_creatin
     assert payload["ok"] is True
     assert payload["adapter"]["kind"] == "github.pr"
     assert payload["prReadiness"]["provider"] == "github"
-    assert payload["prReadiness"]["githubRepository"] == "northstar-forge/steel-mission-demo"
+    assert payload["prReadiness"]["githubRepository"] == "steel-mission/steel-mission-demo"
     assert payload["prReadiness"]["github"]["mode"] == "readiness"
     assert payload["prReadiness"]["github"]["commandPreview"][:3] == ["gh", "pr", "create"]
     assert payload["ciReadiness"]["provider"] == "github-actions"
@@ -8828,7 +8834,7 @@ def test_steel_mission_delivery_execution_uses_isolated_worktree_and_proof_pack(
                 "inspectCommand": "python3 -c \"print('inspect ok')\"",
                 "prProvider": "github",
                 "prMode": "readiness",
-                "prTarget": "northstar-forge/steel-mission-demo",
+                "prTarget": "steel-mission/steel-mission-demo",
                 "prTitle": "Isolated delivery proof",
                 "ciProvider": "github-actions",
                 "ciRequired": False,
@@ -8949,7 +8955,7 @@ def test_steel_mission_delivery_closure_proofs_work_in_two_consecutive_runs(tmp_
                 "buildCommand": f"python3 -c \"from pathlib import Path; Path('{build_file}').write_text('ok')\"",
                 "testCommand": f"python3 -c \"from pathlib import Path; assert Path('{build_file}').read_text() == 'ok'\"",
                 "inspectCommand": "python3 -c \"print('inspect ok')\"",
-                "prTarget": "northstar-forge/steel-mission-demo",
+                "prTarget": "steel-mission/steel-mission-demo",
                 "deployTarget": "local alpha",
                 "repairBudget": 1,
             },
@@ -8981,7 +8987,7 @@ def test_steel_mission_delivery_closure_proofs_work_in_two_consecutive_runs(tmp_
         assert proof["proof"]["payload"]["closureGate"]["status"] == "ready_for_deploy"
         assert proof["proof"]["payload"]["missionId"] == mission_id
         assert proof["proof"]["payload"]["adapterManifest"]
-        assert proof["proof"]["payload"]["prReadiness"]["target"] == "northstar-forge/steel-mission-demo"
+        assert proof["proof"]["payload"]["prReadiness"]["target"] == "steel-mission/steel-mission-demo"
         report = chat["mission_report_markdown"](mission_id, "publisher")
         assert report["ok"] is True
         assert "Agentic Software Delivery Proof" in report["markdown"]
@@ -9050,7 +9056,7 @@ def test_steel_mission_delivery_repair_budget_reruns_failed_build(tmp_path):
                 "testCommand": "python3 -c \"from pathlib import Path; assert Path('fixed.txt').read_text() == 'yes'\"",
                 "inspectCommand": "python3 -c \"print('inspect ok')\"",
                 "repairCommand": "python3 -c \"from pathlib import Path; Path('fixed.txt').write_text('yes')\"",
-                "prTarget": "northstar-forge/steel-mission-demo",
+                "prTarget": "steel-mission/steel-mission-demo",
                 "deployTarget": "local alpha",
                 "repairBudget": 1,
             },

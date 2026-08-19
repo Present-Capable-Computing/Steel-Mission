@@ -1,6 +1,6 @@
 # DC06 - Security and Trust
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC06 protects authority, system integrity, privacy, recoverability, and verifiable trust. It asks what asset is protected, how authority could broaden, and how keys, permissions, approvals, and evidence can be revoked or verified.
 
@@ -33,4 +33,4 @@ DC06 is not a ritual veto. Lower-assurance prototypes may proceed when the risk 
 
 ## Starter Scenario
 
-Northstar Forge uses DC06 before enabling guarded runner commands that can modify repositories. DC06 requires policy checks before execution, signed evidence after execution, and human approval for high-risk actions.
+Steel Mission uses DC06 before enabling guarded runner commands that can modify repositories. DC06 requires policy checks before execution, signed evidence after execution, and human approval for high-risk actions.

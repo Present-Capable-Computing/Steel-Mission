@@ -6,7 +6,7 @@
     {
       "name": "steel-mission-product",
       "path": "${WORKER_DIR}",
-      "owner": "platform-owner",
+      "owner": "andrew-hermann",
       "lastReviewedAt": "2026-08-19T00:00:00Z",
       "expiresAt": "2026-11-17T00:00:00Z",
       "maxAgeDays": 90,
@@ -16,9 +16,9 @@
   ],
   "documents": [
     {
-      "title": "Starter Organization Operating Context",
+      "title": "Steel Mission Operating Context",
       "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md",
-      "owner": "organization-owner",
+      "owner": "andrew-hermann",
       "lastReviewedAt": "2026-08-19T00:00:00Z",
       "expiresAt": "2026-11-17T00:00:00Z",
       "maxAgeDays": 90,
@@ -26,9 +26,9 @@
       "authoritative": true
     },
     {
-      "title": "Starter Organization Team Doctrine",
+      "title": "Steel Mission Team Doctrine",
       "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md",
-      "owner": "organization-owner",
+      "owner": "andrew-hermann",
       "lastReviewedAt": "2026-08-19T00:00:00Z",
       "expiresAt": "2026-11-17T00:00:00Z",
       "maxAgeDays": 90,
@@ -36,9 +36,9 @@
       "authoritative": true
     },
     {
-      "title": "Starter Organization Team Roster and Workflow",
+      "title": "Steel Mission Team Roster and Workflow",
       "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md",
-      "owner": "organization-owner",
+      "owner": "andrew-hermann",
       "lastReviewedAt": "2026-08-19T00:00:00Z",
       "expiresAt": "2026-11-17T00:00:00Z",
       "maxAgeDays": 90,
@@ -46,12 +46,42 @@
       "authoritative": true
     },
     {
-      "title": "Starter Organization Capability Map",
+      "title": "Steel Mission Domain Capability Map",
       "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md",
-      "owner": "organization-owner",
+      "owner": "andrew-hermann",
       "lastReviewedAt": "2026-08-19T00:00:00Z",
       "expiresAt": "2026-11-17T00:00:00Z",
       "maxAgeDays": 90,
+      "required": true,
+      "authoritative": true
+    },
+    {
+      "title": "Steel Mission Portfolio",
+      "path": "${WORKER_DIR}/starter-company/knowledge/portfolio.md",
+      "owner": "andrew-hermann",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-09-18T00:00:00Z",
+      "maxAgeDays": 30,
+      "required": true,
+      "authoritative": true
+    },
+    {
+      "title": "PRJ-0001 Durable Core Project Record",
+      "path": "${WORKER_DIR}/plan/PRJ-0001.json",
+      "owner": "al-ops",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-09-18T00:00:00Z",
+      "maxAgeDays": 30,
+      "required": true,
+      "authoritative": true
+    },
+    {
+      "title": "PRJ-0001 Durable Core Work-Item Catalog",
+      "path": "${WORKER_DIR}/tooling/github-plan.json",
+      "owner": "al-ops",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-09-18T00:00:00Z",
+      "maxAgeDays": 30,
       "required": true,
       "authoritative": true
     }

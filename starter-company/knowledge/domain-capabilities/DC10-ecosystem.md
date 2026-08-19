@@ -1,6 +1,6 @@
 # DC10 - Ecosystem
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC10 determines how the product acquires users, earns trust, builds partnerships, and participates in an ecosystem without compromising authority or safety.
 
@@ -33,4 +33,4 @@ DC10 is not communications-only. It rejects revenue models that depend on hidden
 
 ## Starter Scenario
 
-Northstar Forge asks DC10 how to position GitHub, GitLab, Jira, Linear, Slack, CI/CD, and SIEM connectors. DC10 frames them as configurable enterprise integration surfaces, not mandatory dependencies.
+Steel Mission asks DC10 how to position GitHub, GitLab, Jira, Linear, Slack, CI/CD, and SIEM connectors. DC10 frames them as configurable enterprise integration surfaces, not mandatory dependencies.

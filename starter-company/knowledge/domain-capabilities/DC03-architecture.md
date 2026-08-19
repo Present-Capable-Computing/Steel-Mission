@@ -1,6 +1,6 @@
 # DC03 - Architecture
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC03 protects technical coherence, system boundaries, and feasibility. It asks what each component owns, what it trusts, what state it carries, and whether the claimed boundary is enforceable or only described.
 
@@ -34,4 +34,4 @@ DC03 does not approve product scope or security posture. It rejects designs that
 
 ## Starter Scenario
 
-Northstar Forge uses DC03 to evaluate whether n8n is a required dependency or one replaceable runner adapter. DC03 records the runner contract and the future adapter boundary for Temporal, GitHub Actions, GitLab, or a private job runner.
+Steel Mission uses DC03 to evaluate whether n8n is a required dependency or one replaceable runner adapter. DC03 records the runner contract and the future adapter boundary for Temporal, GitHub Actions, GitLab, or a private job runner.

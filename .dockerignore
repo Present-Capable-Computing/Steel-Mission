@@ -1,0 +1,13 @@
+.DS_Store
+.git
+.pytest_cache
+**/__pycache__
+**/*.pyc
+broker-artifacts
+jobs
+logs
+missions
+tasks
+test-results
+tmp
+worktrees

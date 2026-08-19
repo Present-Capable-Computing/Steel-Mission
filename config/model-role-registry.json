@@ -7,7 +7,7 @@
       "id": "claude-sonnet-5",
       "provider": "claude",
       "transport": "claude-code",
-      "roles": ["dc13.coordination-report"],
+      "roles": ["dc13.coordination-report", "delivery.planner", "delivery.acceptance"],
       "nativeCapabilities": ["provider-native-cli", "structured-output", "streaming-progress", "model-effort-controls"],
       "requiresNetwork": true,
       "local": false
@@ -16,10 +16,19 @@
       "id": "qwen2.5-coder:14b",
       "provider": "glimmer",
       "transport": "ollama",
-      "roles": ["dc13.coordination-report"],
+      "roles": ["dc13.coordination-report", "delivery.coder"],
       "nativeCapabilities": ["local-inference", "structured-json-output", "persistent-model-residency", "offline-operation"],
       "requiresNetwork": false,
       "local": true
+    },
+    {
+      "id": "codex-cli-default",
+      "provider": "codex",
+      "transport": "codex-cli",
+      "roles": ["delivery.reviewer"],
+      "nativeCapabilities": ["provider-native-cli", "structured-output", "read-only-review", "non-interactive-execution"],
+      "requiresNetwork": true,
+      "local": false
     }
   ],
   "roles": [
@@ -30,6 +39,38 @@
       "fallbackModels": ["qwen2.5-coder:14b"],
       "governanceCapabilities": ["role-binding", "bounded-snapshot", "guarded-execution", "audit-evidence"],
       "snapshotProfile": "steel-mission-starter"
+    },
+    {
+      "id": "delivery.planner",
+      "title": "Delivery Planner",
+      "primaryModel": "claude-sonnet-5",
+      "fallbackModels": [],
+      "governanceCapabilities": ["advisory-planning", "structured-output", "audit-evidence"],
+      "snapshotProfile": "steel-mission-delivery"
+    },
+    {
+      "id": "delivery.coder",
+      "title": "Local Coding Model",
+      "primaryModel": "qwen2.5-coder:14b",
+      "fallbackModels": [],
+      "governanceCapabilities": ["local-inference", "bounded-context", "audit-evidence"],
+      "snapshotProfile": "steel-mission-delivery"
+    },
+    {
+      "id": "delivery.reviewer",
+      "title": "Code Reviewer",
+      "primaryModel": "codex-cli-default",
+      "fallbackModels": [],
+      "governanceCapabilities": ["read-only-review", "structured-output", "audit-evidence"],
+      "snapshotProfile": "steel-mission-delivery"
+    },
+    {
+      "id": "delivery.acceptance",
+      "title": "Acceptance Assessor",
+      "primaryModel": "claude-sonnet-5",
+      "fallbackModels": [],
+      "governanceCapabilities": ["adversarial-acceptance-assessment", "structured-output", "deterministic-gate-separation", "audit-evidence"],
+      "snapshotProfile": "steel-mission-delivery"
     }
   ]
 }

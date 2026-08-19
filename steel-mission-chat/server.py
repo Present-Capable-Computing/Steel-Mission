@@ -37,28 +37,28 @@ except Exception:  # noqa: BLE001
 
 APP_DIR = Path(__file__).resolve().parent
 WORKER_DIR = APP_DIR.parent
-TASKS_DIR = Path(os.environ.get("PRESENT_TASKS_DIR") or WORKER_DIR / "tasks")
-TEST_RESULTS_DIR = Path(os.environ.get("PRESENT_TEST_RESULTS_DIR") or WORKER_DIR / "test-results")
-REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR") or WORKER_DIR / "repos")
+TASKS_DIR = Path(os.environ.get("STEEL_MISSION_TASKS_DIR") or os.environ.get("PRESENT_TASKS_DIR") or WORKER_DIR / "tasks")
+TEST_RESULTS_DIR = Path(os.environ.get("STEEL_MISSION_TEST_RESULTS_DIR") or os.environ.get("PRESENT_TEST_RESULTS_DIR") or WORKER_DIR / "test-results")
+REPOS_DIR = Path(os.environ.get("STEEL_MISSION_REPOS_DIR") or os.environ.get("PRESENT_REPOS_DIR") or WORKER_DIR / "repos")
 PRESENT_DEV_DIR = Path(os.environ.get("PRESENT_DEV") or WORKER_DIR.parent)
 WORKER_BIN = WORKER_DIR / "bin" / "steel-mission"
 BROKER_BIN = WORKER_DIR / "bin" / "present-lease-broker"
 PRIVATE_RUNNER_BIN = WORKER_DIR / "bin" / "present-private-runner"
 INDEX = APP_DIR / "index.html"
-CANON_DIR = Path(os.environ.get("PRESENT_CANON_DIR") or WORKER_DIR / "starter-company" / "canon")
+CANON_DIR = Path(os.environ.get("STEEL_MISSION_CANON_DIR") or os.environ.get("PRESENT_CANON_DIR") or WORKER_DIR / "starter-company" / "canon")
 ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.json"
 ROLE_KNOWLEDGE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-knowledge-registry.json"
 DOMAIN_CAPABILITIES_PATH = WORKER_DIR / "config" / "domain-capabilities.json"
 GENERAL_KNOWLEDGE_PATH = WORKER_DIR / "config" / "general-knowledge.json"
 ORGANIZATION_REGISTRY_PATH = Path(os.environ.get("PRESENT_ORGANIZATION_REGISTRY") or WORKER_DIR / "config" / "organizations.json")
-ORG_KNOWLEDGE_UPLOAD_ROOT = Path(os.environ.get("PRESENT_ORG_KNOWLEDGE_UPLOAD_DIR") or WORKER_DIR / "config" / "org-knowledge-uploads")
+ORG_KNOWLEDGE_UPLOAD_ROOT = Path(os.environ.get("STEEL_MISSION_ORG_KNOWLEDGE_UPLOAD_DIR") or os.environ.get("PRESENT_ORG_KNOWLEDGE_UPLOAD_DIR") or WORKER_DIR / "config" / "org-knowledge-uploads")
 USER_REGISTRY_PATH = WORKER_DIR / "config" / "users.json"
 RUNTIME_PROFILE_REGISTRY_PATH = WORKER_DIR / "config" / "runtime-profiles.json"
 MODEL_ROLE_REGISTRY_PATH = WORKER_DIR / "config" / "model-role-registry.json"
 CONTROL_POLICY_PATH = WORKER_DIR / "config" / "control-plane-policy.json"
 INTEGRATION_REGISTRY_PATH = WORKER_DIR / "config" / "integration-registry.json"
 AUTH_POLICY_PATH = WORKER_DIR / "config" / "auth-policy.json"
-MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
+MISSION_ROOT = Path(os.environ.get("STEEL_MISSION_MISSIONS_DIR") or os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
 AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")
 AUTH_AUDIT_LEDGER_PATH = Path(os.environ.get("PRESENT_AUTH_AUDIT_LEDGER") or MISSION_ROOT / "_auth-audit.jsonl")
@@ -562,18 +562,16 @@ def default_organization_registry() -> dict[str, Any]:
         "schemaVersion": 1,
         "producedAt": utc_now(),
         "producer": "steel-mission-chat",
-        "activeOrganizationId": "northstar-forge",
+        "activeOrganizationId": "steel-mission",
         "organizations": [
             {
-                "id": "northstar-forge",
-                "name": "Northstar Forge",
-                "slug": "northstar-forge",
+                "id": "steel-mission",
+                "name": "Steel Mission",
+                "slug": "steel-mission",
                 "identifiers": {
-                    "legalName": "Northstar Forge Ltd.",
-                    "domain": "northstar.example",
-                    "country": "CH",
+                    "legalName": "Steel Mission",
                     "environment": "starter",
-                    "dataClassification": "synthetic-starter",
+                    "dataClassification": "public-product-starter",
                 },
                 "knowledgeDomainKeys": [
                     item["domainKey"] for item in catalog["knowledgeDomains"] if item.get("domainKey")
@@ -583,17 +581,20 @@ def default_organization_registry() -> dict[str, Any]:
                 ] or [f"DC{i:02d}" for i in range(1, 14)],
                 "knowledgeSources": {
                     "repositories": [
-                        {"name": "steel-mission-product", "path": "${WORKER_DIR}", "owner": "platform-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"name": "starter-company", "path": "${WORKER_DIR}/starter-company", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"name": "steel-mission-product", "path": "${WORKER_DIR}", "owner": "andrew-hermann", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"name": "steel-mission-starter-company", "path": "${WORKER_DIR}/starter-company", "owner": "andrew-hermann", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
                     ],
                     "documents": [
-                        {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Steel Mission Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md", "owner": "andrew-hermann", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Steel Mission Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md", "owner": "andrew-hermann", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Steel Mission Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md", "owner": "andrew-hermann", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Steel Mission Domain Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md", "owner": "andrew-hermann", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Steel Mission Portfolio", "path": "${WORKER_DIR}/starter-company/knowledge/portfolio.md", "owner": "andrew-hermann", "lastReviewedAt": utc_now(), "maxAgeDays": 30, "required": True, "authoritative": True},
+                        {"title": "PRJ-0001 Durable Core Project Record", "path": "${WORKER_DIR}/plan/PRJ-0001.json", "owner": "al-ops", "lastReviewedAt": utc_now(), "maxAgeDays": 30, "required": True, "authoritative": True},
+                        {"title": "PRJ-0001 Durable Core Work-Item Catalog", "path": "${WORKER_DIR}/tooling/github-plan.json", "owner": "al-ops", "lastReviewedAt": utc_now(), "maxAgeDays": 30, "required": True, "authoritative": True},
                     ],
                 },
-                "notes": "Synthetic starter organization for first-run demonstrations. Owners and admins can rename it or create additional organizations.",
+                "notes": "Steel Mission's founder-led launch organization with its own mission, knowledge, capabilities, and delivery portfolio.",
             }
         ],
     }
@@ -1523,7 +1524,8 @@ def cos_provider_summary() -> dict[str, Any]:
 
 
 def configured_path(name: str) -> Path | None:
-    value = os.environ.get(name)
+    steel_name = f"STEEL_MISSION_{name.removeprefix('PRESENT_')}" if name.startswith("PRESENT_") else name
+    value = os.environ.get(steel_name) or os.environ.get(name)
     return Path(value) if value else None
 
 

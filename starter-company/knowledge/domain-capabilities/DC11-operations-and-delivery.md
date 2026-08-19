@@ -1,6 +1,6 @@
 # DC11 - Operations and Delivery
 
-Company: Northstar Forge
+Company: Steel Mission
 
 DC11 turns decisions into a coherent, staffed, measurable execution system. It owns the practical delivery path: workstreams, dependencies, stage gates, evidence, budgets, risks, and release readiness.
 
@@ -33,4 +33,4 @@ DC11 does not treat schedule compliance as product success. It also does not let
 
 ## Starter Scenario
 
-Northstar Forge uses DC11 to run two consecutive delivery missions through understand, plan, modify, build, test, inspect, repair, PR, deploy, and close.
+Steel Mission uses DC11 to run two consecutive delivery missions through understand, plan, modify, build, test, inspect, repair, PR, deploy, and close.

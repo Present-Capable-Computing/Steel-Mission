@@ -61,10 +61,13 @@
           {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
         ],
         "documentPaths": [
-          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Steel Mission Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Steel Mission Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Steel Mission Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Steel Mission Domain Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"},
+          {"title": "Steel Mission Portfolio", "path": "${WORKER_DIR}/starter-company/knowledge/portfolio.md"},
+          {"title": "PRJ-0001 Durable Core", "path": "${WORKER_DIR}/starter-company/knowledge/projects/PRJ-0001-durable-core.md"},
+          {"title": "PRJ-0001 Work-Item Catalog", "path": "${WORKER_DIR}/tooling/github-plan.json"}
         ]
       }
     },
@@ -124,10 +127,13 @@
           {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
         ],
         "documentPaths": [
-          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Steel Mission Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Steel Mission Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Steel Mission Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Steel Mission Domain Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"},
+          {"title": "Steel Mission Portfolio", "path": "${WORKER_DIR}/starter-company/knowledge/portfolio.md"},
+          {"title": "PRJ-0001 Durable Core", "path": "${WORKER_DIR}/starter-company/knowledge/projects/PRJ-0001-durable-core.md"},
+          {"title": "PRJ-0001 Work-Item Catalog", "path": "${WORKER_DIR}/tooling/github-plan.json"}
         ]
       }
     },
@@ -189,10 +195,13 @@
           {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
         ],
         "documentPaths": [
-          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Steel Mission Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Steel Mission Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Steel Mission Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Steel Mission Domain Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"},
+          {"title": "Steel Mission Portfolio", "path": "${WORKER_DIR}/starter-company/knowledge/portfolio.md"},
+          {"title": "PRJ-0001 Durable Core", "path": "${WORKER_DIR}/starter-company/knowledge/projects/PRJ-0001-durable-core.md"},
+          {"title": "PRJ-0001 Work-Item Catalog", "path": "${WORKER_DIR}/tooling/github-plan.json"}
         ]
       }
     }

@@ -2,41 +2,28 @@
   "schemaVersion": 1,
   "producedAt": "2026-08-19T00:00:00Z",
   "producer": "steel-mission",
-  "activeOrganizationId": "northstar-forge",
+  "activeOrganizationId": "steel-mission",
   "organizations": [
     {
-      "id": "northstar-forge",
-      "name": "Northstar Forge",
-      "slug": "northstar-forge",
+      "id": "steel-mission",
+      "name": "Steel Mission",
+      "slug": "steel-mission",
       "identifiers": {
-        "legalName": "Northstar Forge Ltd.",
-        "domain": "northstar.example",
-        "country": "CH",
+        "legalName": "Steel Mission",
         "environment": "starter",
-        "dataClassification": "synthetic-starter"
+        "dataClassification": "public-product-starter"
       },
       "knowledgeDomainKeys": ["KD01", "KD02", "KD03"],
       "domainCapabilityKeys": [
-        "DC01",
-        "DC02",
-        "DC03",
-        "DC04",
-        "DC05",
-        "DC06",
-        "DC07",
-        "DC08",
-        "DC09",
-        "DC10",
-        "DC11",
-        "DC12",
-        "DC13"
+        "DC01", "DC02", "DC03", "DC04", "DC05", "DC06", "DC07",
+        "DC08", "DC09", "DC10", "DC11", "DC12", "DC13"
       ],
       "knowledgeSources": {
         "repositories": [
           {
             "name": "steel-mission-product",
             "path": "${WORKER_DIR}",
-            "owner": "platform-owner",
+            "owner": "andrew-hermann",
             "lastReviewedAt": "2026-08-19T00:00:00Z",
             "expiresAt": "2026-11-17T00:00:00Z",
             "maxAgeDays": 90,
@@ -44,9 +31,9 @@
             "authoritative": true
           },
           {
-            "name": "starter-company",
+            "name": "steel-mission-starter-company",
             "path": "${WORKER_DIR}/starter-company",
-            "owner": "organization-owner",
+            "owner": "andrew-hermann",
             "lastReviewedAt": "2026-08-19T00:00:00Z",
             "expiresAt": "2026-11-17T00:00:00Z",
             "maxAgeDays": 90,
@@ -56,9 +43,9 @@
         ],
         "documents": [
           {
-            "title": "Starter Organization Operating Context",
+            "title": "Steel Mission Operating Context",
             "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md",
-            "owner": "organization-owner",
+            "owner": "andrew-hermann",
             "lastReviewedAt": "2026-08-19T00:00:00Z",
             "expiresAt": "2026-11-17T00:00:00Z",
             "maxAgeDays": 90,
@@ -66,9 +53,9 @@
             "authoritative": true
           },
           {
-            "title": "Starter Organization Team Doctrine",
+            "title": "Steel Mission Team Doctrine",
             "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md",
-            "owner": "organization-owner",
+            "owner": "andrew-hermann",
             "lastReviewedAt": "2026-08-19T00:00:00Z",
             "expiresAt": "2026-11-17T00:00:00Z",
             "maxAgeDays": 90,
@@ -76,9 +63,9 @@
             "authoritative": true
           },
           {
-            "title": "Starter Organization Team Roster and Workflow",
+            "title": "Steel Mission Team Roster and Workflow",
             "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md",
-            "owner": "organization-owner",
+            "owner": "andrew-hermann",
             "lastReviewedAt": "2026-08-19T00:00:00Z",
             "expiresAt": "2026-11-17T00:00:00Z",
             "maxAgeDays": 90,
@@ -86,18 +73,48 @@
             "authoritative": true
           },
           {
-            "title": "Starter Organization Capability Map",
+            "title": "Steel Mission Domain Capability Map",
             "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md",
-            "owner": "organization-owner",
+            "owner": "andrew-hermann",
             "lastReviewedAt": "2026-08-19T00:00:00Z",
             "expiresAt": "2026-11-17T00:00:00Z",
             "maxAgeDays": 90,
+            "required": true,
+            "authoritative": true
+          },
+          {
+            "title": "Steel Mission Portfolio",
+            "path": "${WORKER_DIR}/starter-company/knowledge/portfolio.md",
+            "owner": "andrew-hermann",
+            "lastReviewedAt": "2026-08-19T00:00:00Z",
+            "expiresAt": "2026-09-18T00:00:00Z",
+            "maxAgeDays": 30,
+            "required": true,
+            "authoritative": true
+          },
+          {
+            "title": "PRJ-0001 Durable Core Project Record",
+            "path": "${WORKER_DIR}/plan/PRJ-0001.json",
+            "owner": "al-ops",
+            "lastReviewedAt": "2026-08-19T00:00:00Z",
+            "expiresAt": "2026-09-18T00:00:00Z",
+            "maxAgeDays": 30,
+            "required": true,
+            "authoritative": true
+          },
+          {
+            "title": "PRJ-0001 Durable Core Work-Item Catalog",
+            "path": "${WORKER_DIR}/tooling/github-plan.json",
+            "owner": "al-ops",
+            "lastReviewedAt": "2026-08-19T00:00:00Z",
+            "expiresAt": "2026-09-18T00:00:00Z",
+            "maxAgeDays": 30,
             "required": true,
             "authoritative": true
           }
         ]
       },
-      "notes": "Synthetic starter organization for first-run demonstrations. Owners and admins can rename it or create additional organizations."
+      "notes": "Steel Mission's founder-led launch organization with its own mission, goals, knowledge, portfolio, capability identities, and decisions."
     }
   ]
 }

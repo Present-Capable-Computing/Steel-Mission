@@ -1,0 +1,470 @@
+{
+  "schemaVersion": 1,
+  "importId": "steel-mission-first-start",
+  "description": "Register the Steel Mission company, its founder-led operating foundations, its domain team, and the source records for its first project without relocating any source material.",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "steel-mission",
+  "provenance": {
+    "designSource": "Steel-Mission-First-Start-Enterprise-Knowledge-Import-Plan.md",
+    "teamModel": "steel-mission-founder-led-cross-functional",
+    "boundary": "Only Steel Mission identities and sources are registered."
+  },
+  "organization": {
+    "id": "steel-mission",
+    "displayName": "Steel Mission",
+    "legalName": "Steel Mission",
+    "slug": "steel-mission",
+    "dataClassification": "public-product-starter",
+    "industry": "software delivery infrastructure",
+    "environment": "starter",
+    "description": "A software company building a governed software delivery plane for widely adopted, dependable AI-assisted delivery.",
+    "tags": ["software-delivery", "agentic-delivery", "open-core", "founder-led"]
+  },
+  "sourceLocations": [
+    {
+      "locationId": "steel-mission-starter-company",
+      "kind": "filesystem",
+      "sourceUri": "file:///workspace/starter-company",
+      "runtimePath": "/workspace/starter-company",
+      "accessMode": "read-only",
+      "displayName": "Steel Mission starter company",
+      "mountId": "starter-company",
+      "description": "Company-owned operating knowledge packaged with the launch image."
+    },
+    {
+      "locationId": "steel-mission-repository",
+      "kind": "filesystem",
+      "sourceUri": "file:///workspace",
+      "runtimePath": "/workspace",
+      "accessMode": "read-only",
+      "displayName": "Steel Mission product repository",
+      "mountId": "steel-mission-repository",
+      "description": "Repository-owned project, milestone, work-item, and technical-plan sources."
+    }
+  ],
+  "sources": [
+    {
+      "sourceId": "steel-mission-operating-context",
+      "label": "Steel Mission Operating Context",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "canon/KD01 Operating Context.md",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "operating-context",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-team-doctrine",
+      "label": "Steel Mission Team Doctrine",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "canon/KD02 Team Doctrine.md",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "operating-doctrine",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-team-workflow",
+      "label": "Steel Mission Team Roster and Workflow",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "canon/KD03 Team Roster and Workflow.md",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "organization-workflow",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-capability-map",
+      "label": "Steel Mission Domain Capability Map",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "canon/Domain Capabilities.md",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-map",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc01",
+      "label": "DC01 Counterweight Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC01-counterweight.md",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc02",
+      "label": "DC02 Creative Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC02-creative.md",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc03",
+      "label": "DC03 Architecture Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC03-architecture.md",
+      "ownerId": "al-architect",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc04",
+      "label": "DC04 Product Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC04-product.md",
+      "ownerId": "al-product",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc05",
+      "label": "DC05 Design Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC05-design.md",
+      "ownerId": "al-designer",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc06",
+      "label": "DC06 Security and Trust Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC06-security-and-trust.md",
+      "ownerId": "al-trust",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc07",
+      "label": "DC07 Intelligence Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC07-intelligence.md",
+      "ownerId": "al-intelligence",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc08",
+      "label": "DC08 Platform Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC08-platform.md",
+      "ownerId": "emma-h",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc09",
+      "label": "DC09 Governance Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC09-governance.md",
+      "ownerId": "al-legal",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc10",
+      "label": "DC10 Ecosystem Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC10-ecosystem.md",
+      "ownerId": "al-comm",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc11",
+      "label": "DC11 Operations and Delivery Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC11-operations-and-delivery.md",
+      "ownerId": "al-ops",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc12",
+      "label": "DC12 Synthesis Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC12-synthesis.md",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-dc13",
+      "label": "DC13 Delivery Coordinator Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/domain-capabilities/DC13-delivery-coordinator.md",
+      "ownerId": "al-ops",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "capability-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-knowledge-library",
+      "label": "Steel Mission Product Knowledge Library",
+      "nodeType": "folder",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 90,
+      "kind": "knowledge-library",
+      "format": "markdown",
+      "include": ["**/*.md"],
+      "followSymlinks": false
+    },
+    {
+      "sourceId": "steel-mission-portfolio",
+      "label": "Steel Mission Portfolio Registry",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "portfolio.json",
+      "ownerId": "andrew-hermann",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 30,
+      "kind": "portfolio-registry",
+      "format": "json"
+    },
+    {
+      "sourceId": "steel-mission-prj-0001-dossier",
+      "label": "PRJ-0001 Durable Core Dossier",
+      "nodeType": "file",
+      "locationId": "steel-mission-starter-company",
+      "relativePath": "knowledge/projects/PRJ-0001-durable-core.md",
+      "ownerId": "al-ops",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 30,
+      "kind": "project-dossier",
+      "format": "markdown"
+    },
+    {
+      "sourceId": "steel-mission-prj-0001-record",
+      "label": "PRJ-0001 Durable Core Project Record",
+      "nodeType": "file",
+      "locationId": "steel-mission-repository",
+      "relativePath": "plan/PRJ-0001.json",
+      "ownerId": "al-ops",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 30,
+      "kind": "project-record",
+      "format": "json"
+    },
+    {
+      "sourceId": "steel-mission-prj-0001-work-items",
+      "label": "PRJ-0001 Durable Core Work-Item Catalog",
+      "nodeType": "file",
+      "locationId": "steel-mission-repository",
+      "relativePath": "tooling/github-plan.json",
+      "ownerId": "al-ops",
+      "authoritative": true,
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "maxAgeDays": 30,
+      "kind": "project-work-items",
+      "format": "json"
+    }
+  ],
+  "coreKnowledge": [
+    {
+      "key": "KD01",
+      "category": "operating-context",
+      "displayName": "Steel Mission Operating Context",
+      "sourceIds": [
+        "steel-mission-operating-context",
+        "steel-mission-knowledge-library",
+        "steel-mission-portfolio",
+        "steel-mission-prj-0001-dossier",
+        "steel-mission-prj-0001-record",
+        "steel-mission-prj-0001-work-items"
+      ],
+      "ownerIds": ["andrew-hermann"],
+      "tags": ["mission", "goals", "portfolio", "durable-core"]
+    },
+    {
+      "key": "KD02",
+      "category": "operating-doctrine",
+      "displayName": "Steel Mission Team Doctrine",
+      "sourceIds": ["steel-mission-team-doctrine"],
+      "ownerIds": ["andrew-hermann"],
+      "tags": ["authority", "decisions", "evidence", "delivery"]
+    },
+    {
+      "key": "KD03",
+      "category": "organization-workflow",
+      "displayName": "Steel Mission Team Roster and Workflow",
+      "sourceIds": ["steel-mission-team-workflow", "steel-mission-capability-map"],
+      "ownerIds": ["andrew-hermann"],
+      "tags": ["team", "ownership", "routing", "handoffs"]
+    }
+  ],
+  "capabilities": [
+    {
+      "key": "DC01",
+      "displayName": "Counterweight",
+      "ownerIds": ["andrew-hermann"],
+      "sources": {"role": ["steel-mission-dc01"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc01"], "knowledge": ["steel-mission-dc01", "steel-mission-knowledge-library"]},
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC01"}
+    },
+    {
+      "key": "DC02",
+      "displayName": "Creative",
+      "ownerIds": ["andrew-hermann"],
+      "sources": {"role": ["steel-mission-dc02"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc02"], "knowledge": ["steel-mission-dc02", "steel-mission-knowledge-library"]},
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC02"}
+    },
+    {
+      "key": "DC03",
+      "displayName": "Architecture",
+      "ownerIds": ["al-architect"],
+      "sources": {"role": ["steel-mission-dc03"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc03"], "knowledge": ["steel-mission-dc03", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-architect"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC03"}
+    },
+    {
+      "key": "DC04",
+      "displayName": "Product",
+      "ownerIds": ["al-product"],
+      "sources": {"role": ["steel-mission-dc04"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc04"], "knowledge": ["steel-mission-dc04", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-product"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC04"}
+    },
+    {
+      "key": "DC05",
+      "displayName": "Design",
+      "ownerIds": ["al-designer"],
+      "sources": {"role": ["steel-mission-dc05"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc05"], "knowledge": ["steel-mission-dc05", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-designer"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC05"}
+    },
+    {
+      "key": "DC06",
+      "displayName": "Security and Trust",
+      "ownerIds": ["al-trust"],
+      "sources": {"role": ["steel-mission-dc06"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc06"], "knowledge": ["steel-mission-dc06", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-trust"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC06"}
+    },
+    {
+      "key": "DC07",
+      "displayName": "Intelligence",
+      "ownerIds": ["al-intelligence"],
+      "sources": {"role": ["steel-mission-dc07"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc07"], "knowledge": ["steel-mission-dc07", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-intelligence"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC07"}
+    },
+    {
+      "key": "DC08",
+      "displayName": "Platform",
+      "ownerIds": ["emma-h"],
+      "sources": {"role": ["steel-mission-dc08"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc08"], "knowledge": ["steel-mission-dc08", "steel-mission-knowledge-library"]},
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC08"}
+    },
+    {
+      "key": "DC09",
+      "displayName": "Governance",
+      "ownerIds": ["al-legal"],
+      "sources": {"role": ["steel-mission-dc09"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc09"], "knowledge": ["steel-mission-dc09", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-legal"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC09"}
+    },
+    {
+      "key": "DC10",
+      "displayName": "Ecosystem",
+      "ownerIds": ["al-comm"],
+      "sources": {"role": ["steel-mission-dc10"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc10"], "knowledge": ["steel-mission-dc10", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-comm"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC10"}
+    },
+    {
+      "key": "DC11",
+      "displayName": "Operations and Delivery",
+      "ownerIds": ["al-ops"],
+      "sources": {"role": ["steel-mission-dc11"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc11"], "knowledge": ["steel-mission-dc11", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-ops"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC11"}
+    },
+    {
+      "key": "DC12",
+      "displayName": "Synthesis",
+      "ownerIds": ["andrew-hermann"],
+      "sources": {"role": ["steel-mission-dc12"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc12"], "knowledge": ["steel-mission-dc12", "steel-mission-knowledge-library"]},
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC12"}
+    },
+    {
+      "key": "DC13",
+      "displayName": "Delivery Coordinator",
+      "ownerIds": ["al-ops"],
+      "sources": {"role": ["steel-mission-dc13"], "authority": ["steel-mission-team-doctrine", "steel-mission-dc13"], "knowledge": ["steel-mission-dc13", "steel-mission-knowledge-library"]},
+      "publisherIds": ["al-ops"],
+      "provenance": {"originSystem": "steel-mission", "originStableId": "DC13"}
+    }
+  ]
+}
