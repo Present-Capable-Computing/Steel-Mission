@@ -10038,3 +10038,71 @@ def test_the_development_sign_in_page_actually_renders():
     assert 'action="/auth/login"' in page and 'name="token"' in page
     assert "present-control-plane session" in page
     page.encode("utf-8")
+
+
+def test_stale_session_cookie_does_not_lock_out_a_loopback_developer(tmp_path, monkeypatch):
+    """Cookies are not scoped by port, so a container's session reaches a dev server.
+
+    A session issued by the container on one port is sent by the browser to a
+    development server on another. It fails verification, the console follows the
+    login path it is handed, and a developer is asked to sign in to a server that
+    would have admitted them with no credential at all. The cookie is ambient --
+    the browser attached it, the caller never offered it -- so it is discarded and
+    cleared rather than treated as a failed assertion.
+    """
+    import runpy
+    from types import SimpleNamespace
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["auth_policy"].__globals__
+    original_auth = globals_["AUTH_POLICY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutations.jsonl"
+    monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+    try:
+        chat["save_auth_policy"]({
+            "identityBoundary": {"mode": "development-local", "allowLoopbackDevelopmentIdentity": True},
+        }, "owner")
+
+        stale = SimpleNamespace(
+            headers={"Cookie": "present_session=not.a.valid.token", "X-Present-Role": "owner"},
+            client_address=("127.0.0.1", 51000),
+        )
+        actor = chat["authenticate_http_request"](stale, "/api/knowledge", "GET")
+        assert actor["sessionVerified"] is False
+        assert actor["cookieAuthenticated"] is False
+
+        # And it is cleared on the way out, so the next request is clean without
+        # anyone having to open developer tools.
+        expiring = [v for n, v in getattr(stale, "response_headers", []) if n == "Set-Cookie"]
+        assert any(v.startswith("present_session=;") and "Max-Age=0" in v for v in expiring)
+
+        # A token the caller deliberately asserted is still an error. The
+        # distinction is the whole point: a header is a claim, a cookie is ambient.
+        asserted = SimpleNamespace(
+            headers={"Authorization": "Bearer not.a.valid.token"},
+            client_address=("127.0.0.1", 51000),
+        )
+        with pytest.raises(PermissionError):
+            chat["authenticate_http_request"](asserted, "/api/knowledge", "GET")
+
+        # Off loopback there is no development identity to fall back to, so a bad
+        # cookie is still a refusal rather than a way in.
+        remote = SimpleNamespace(
+            headers={"Cookie": "present_session=not.a.valid.token", "X-Present-Role": "owner"},
+            client_address=("172.18.0.1", 51000),
+        )
+        with pytest.raises(PermissionError):
+            chat["authenticate_http_request"](remote, "/api/knowledge", "GET")
+
+        # A valid session is unaffected.
+        issued = chat["issue_control_plane_session"]("riley-chen", "admin")
+        good = SimpleNamespace(
+            headers={"Cookie": f"present_session={issued['accessToken']}"},
+            client_address=("127.0.0.1", 51000),
+        )
+        assert chat["authenticate_http_request"](good, "/api/knowledge", "GET")["sessionVerified"] is True
+    finally:
+        globals_["AUTH_POLICY_PATH"] = original_auth
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
