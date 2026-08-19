@@ -17,6 +17,9 @@ For now, report security issues through a private GitHub security advisory on th
 Steel Mission is designed around these boundaries:
 
 - executable actions enter through the guarded control plane;
+- production HTTP APIs fail closed without OIDC; verified identities are mapped to server-owned user, role, capability, and organization records;
+- browser sessions use Authorization Code with PKCE, state, nonce, HttpOnly cookies, CSRF protection, expiration, audit, and revocation;
+- mission visibility is actor- and organization-scoped, and mission initiators cannot approve their own governed work;
 - the control plane authenticates private-runner requests and verifies signed results;
 - the production runner uses an ephemeral non-root container without a runtime socket, with a read-only root filesystem, dropped capabilities, resource limits, a workspace-only bind mount, and default-deny network access;
 - policy is evaluated before execution;
@@ -33,7 +36,7 @@ Before production use:
 
 - run inside customer infrastructure or a private cloud environment;
 - build `Dockerfile.private-runner`, set the policy runner mode to `container`, and confirm `bin/present-private-runner status` reports `productionEligible: true`;
-- configure OIDC/JWKS or an equivalent identity boundary;
+- set `identityBoundary.mode` to `oidc-required`, configure the complete OIDC authorization/token/JWKS boundary, and map active users and external workflow identities in `config/users.json`;
 - use a customer-controlled external signer;
 - keep secrets out of repository files and starter data;
 - configure SIEM export and evidence retention;

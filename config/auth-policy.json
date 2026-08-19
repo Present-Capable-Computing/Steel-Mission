@@ -6,6 +6,13 @@
     "present-local-alpha"
   ],
   "enforcementMode": "signed-session-required-for-control-plane",
+  "identityBoundary": {
+    "allowLoopbackDevelopmentIdentity": true,
+    "mode": "development-local"
+  },
+  "authorization": {
+    "preventSelfApproval": true
+  },
   "kms": {
     "enabled": false,
     "keyId": "",
@@ -14,10 +21,21 @@
     "signCommand": ""
   },
   "oidc": {
+    "authorizationEndpoint": "",
     "audience": "present-control-plane",
+    "clientId": "",
+    "clientSecretEnv": "PRESENT_OIDC_CLIENT_SECRET",
     "enabled": false,
     "issuer": "",
-    "jwksUrl": ""
+    "jwksCacheSeconds": 300,
+    "jwksUrl": "",
+    "redirectUri": "",
+    "scopes": [
+      "openid",
+      "profile",
+      "email"
+    ],
+    "tokenEndpoint": ""
   },
   "policyId": "present.control-plane-auth.ga-boundary",
   "producer": "steel-mission-chat auth-control",

@@ -1331,6 +1331,19 @@
   </div>
 
   <script>
+    const nativeFetch = window.fetch.bind(window);
+    function browserCookie(name) {
+      return document.cookie.split(";").map(item => item.trim()).find(item => item.startsWith(`${name}=`))?.slice(name.length + 1) || "";
+    }
+    window.fetch = (input, init = {}) => {
+      const options = {...init, credentials: init.credentials || "same-origin"};
+      const method = String(options.method || "GET").toUpperCase();
+      const headers = new Headers(options.headers || {});
+      const csrf = browserCookie("present_csrf");
+      if (csrf && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) headers.set("X-Present-CSRF", decodeURIComponent(csrf));
+      options.headers = headers;
+      return nativeFetch(input, options);
+    };
     const feed = document.querySelector("#feed");
     const form = document.querySelector("#form");
     const question = document.querySelector("#question");
@@ -1394,6 +1407,28 @@
     let selectedManagerProfile = "";
     let selectedManagedUser = "";
     let selectedOrganizationId = "";
+
+    async function loadIdentity() {
+      const response = await fetch(new URL("/api/auth/whoami", window.location.href), {headers: actorHeaders(), cache: "no-store"});
+      const payload = await response.json();
+      if (response.status === 401 && payload.loginPath) {
+        window.location.assign(payload.loginPath);
+        return false;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "identity check failed");
+      const identity = payload.actor || {};
+      activeOperatorRole = organizationRole(identity.role || activeOperatorRole);
+      activeActorUserId = identity.actorId || activeActorUserId;
+      if (operatorRole) {
+        operatorRole.value = activeOperatorRole;
+        operatorRole.disabled = Boolean(identity.sessionVerified);
+      }
+      if (actorUserId) {
+        actorUserId.value = activeActorUserId;
+        actorUserId.disabled = Boolean(identity.sessionVerified);
+      }
+      return true;
+    }
 
     const starterPrompts = {
       normal: [
@@ -1711,16 +1746,31 @@
         const policy = {
           ...authPolicy,
           enforcementMode: formValue("#authEnforcementMode"),
+          identityBoundary: {
+            mode: formValue("#authIdentityMode") || "development-local",
+            allowLoopbackDevelopmentIdentity: Boolean(document.querySelector("#authLoopbackIdentity")?.checked)
+          },
+          authorization: {
+            preventSelfApproval: Boolean(document.querySelector("#authPreventSelfApproval")?.checked)
+          },
           sessionTtlSeconds: Number(formValue("#authSessionTtl") || authPolicy.sessionTtlSeconds || 3600),
           acceptedIssuers: csvValues(document.querySelector("#authAcceptedIssuers")?.value || ""),
           acceptedAudiences: csvValues(document.querySelector("#authAcceptedAudiences")?.value || ""),
           oidc: {
+            ...(authPolicy.oidc || {}),
             enabled: Boolean(document.querySelector("#authOidcEnabled") && document.querySelector("#authOidcEnabled").checked),
             issuer: formValue("#authOidcIssuer"),
             audience: formValue("#authOidcAudience"),
-            jwksUrl: formValue("#authOidcJwks")
+            jwksUrl: formValue("#authOidcJwks"),
+            authorizationEndpoint: formValue("#authOidcAuthorizationEndpoint"),
+            tokenEndpoint: formValue("#authOidcTokenEndpoint"),
+            clientId: formValue("#authOidcClientId"),
+            clientSecretEnv: formValue("#authOidcClientSecretEnv"),
+            redirectUri: formValue("#authOidcRedirectUri"),
+            scopes: csvValues(document.querySelector("#authOidcScopes")?.value || "")
           },
           kms: {
+            ...(authPolicy.kms || {}),
             enabled: Boolean(document.querySelector("#authKmsEnabled") && document.querySelector("#authKmsEnabled").checked),
             provider: formValue("#authKmsProvider"),
             keyId: formValue("#authKmsKeyId"),
@@ -2351,7 +2401,11 @@
     }
 
     function managedUserTemplate() {
-      return {id: "new-user", name: "New User", email: "", role: "user", status: "active", assignedCapabilities: [], assignedCapabilities: []};
+      return {
+        id: "new-user", name: "New User", email: "", role: "user", status: "active",
+        assignedCapabilities: [], organizationIds: organizationRegistry.activeOrganizationId ? [organizationRegistry.activeOrganizationId] : [],
+        identitySubjects: [], externalIdentities: {github: [], slack: [], jira: []}
+      };
     }
 
     function renderUserManager() {
@@ -2393,6 +2447,13 @@
                 <option value="active" ${current.status !== "disabled" ? "selected" : ""}>active</option>
                 <option value="disabled" ${current.status === "disabled" ? "selected" : ""}>disabled</option>
               </select></label>
+              <label class="form-field">Organization IDs <input id="managedUserOrganizations" value="${escapeHtml((current.organizationIds || []).join(", "))}" placeholder="northstar-forge"></label>
+            </div>
+            <label class="form-field">OIDC issuer/subject mappings <textarea id="managedUserIdentitySubjects" rows="3" placeholder="https://idp.example|provider-subject">${escapeHtml((current.identitySubjects || []).join("\n"))}</textarea></label>
+            <div class="manager-grid">
+              <label class="form-field">GitHub identities <input id="managedUserGithub" value="${escapeHtml(((current.externalIdentities || {}).github || []).join(", "))}" placeholder="octo-user"></label>
+              <label class="form-field">Slack identities <input id="managedUserSlack" value="${escapeHtml(((current.externalIdentities || {}).slack || []).join(", "))}" placeholder="U012345"></label>
+              <label class="form-field">Jira identities <input id="managedUserJira" value="${escapeHtml(((current.externalIdentities || {}).jira || []).join(", "))}" placeholder="account-id"></label>
             </div>
             <label class="form-field">Capability Access ${renderCapabilityChecks("managedUserCapabilities", capabilities, [...assigned])}</label>
             <div class="manager-actions"><button id="saveUser" class="primary" type="button">Save User</button></div>
@@ -2419,7 +2480,13 @@
         role: organizationRole(document.querySelector("#managedUserRole").value),
         status: document.querySelector("#managedUserStatus").value === "disabled" ? "disabled" : "active",
         assignedCapabilities: checkedValues("managedUserCapabilities"),
-        assignedCapabilities: checkedValues("managedUserCapabilities")
+        organizationIds: csvValues(document.querySelector("#managedUserOrganizations").value),
+        identitySubjects: lines(document.querySelector("#managedUserIdentitySubjects").value),
+        externalIdentities: {
+          github: csvValues(document.querySelector("#managedUserGithub").value),
+          slack: csvValues(document.querySelector("#managedUserSlack").value),
+          jira: csvValues(document.querySelector("#managedUserJira").value)
+        }
       };
     }
 
@@ -2777,6 +2844,12 @@
               <option value="signed-session-required-for-control-plane" ${authPolicy.enforcementMode === "signed-session-required-for-control-plane" ? "selected" : ""}>Signed sessions for guarded actions</option>
               <option value="local-development" ${authPolicy.enforcementMode === "local-development" ? "selected" : ""}>Local development</option>
             </select></label>
+            <label class="form-field">Identity Boundary <select id="authIdentityMode">
+              <option value="development-local" ${(authPolicy.identityBoundary || {}).mode !== "oidc-required" ? "selected" : ""}>Loopback development</option>
+              <option value="oidc-required" ${(authPolicy.identityBoundary || {}).mode === "oidc-required" ? "selected" : ""}>OIDC required (fail closed)</option>
+            </select></label>
+            <label class="form-field check-line"><input id="authLoopbackIdentity" type="checkbox" ${(authPolicy.identityBoundary || {}).allowLoopbackDevelopmentIdentity !== false ? "checked" : ""}> Allow development identity on loopback</label>
+            <label class="form-field check-line"><input id="authPreventSelfApproval" type="checkbox" ${(authPolicy.authorization || {}).preventSelfApproval !== false ? "checked" : ""}> Prevent mission initiators from approving their own work</label>
             <label class="form-field">Session TTL Seconds <input id="authSessionTtl" type="number" min="60" max="86400" value="${escapeHtml(authPolicy.sessionTtlSeconds || 3600)}"></label>
             <label class="form-field">Accepted Issuers <input id="authAcceptedIssuers" value="${escapeHtml((authPolicy.acceptedIssuers || []).join(", "))}"></label>
             <label class="form-field">Accepted Audiences <input id="authAcceptedAudiences" value="${escapeHtml((authPolicy.acceptedAudiences || []).join(", "))}"></label>
@@ -2784,6 +2857,12 @@
             <label class="form-field">OIDC Issuer <input id="authOidcIssuer" value="${escapeHtml(oidc.issuer || "")}"></label>
             <label class="form-field">OIDC Audience <input id="authOidcAudience" value="${escapeHtml(oidc.audience || "present-control-plane")}"></label>
             <label class="form-field">OIDC JWKS URL <input id="authOidcJwks" value="${escapeHtml(oidc.jwksUrl || "")}"></label>
+            <label class="form-field">OIDC Authorization Endpoint <input id="authOidcAuthorizationEndpoint" value="${escapeHtml(oidc.authorizationEndpoint || "")}"></label>
+            <label class="form-field">OIDC Token Endpoint <input id="authOidcTokenEndpoint" value="${escapeHtml(oidc.tokenEndpoint || "")}"></label>
+            <label class="form-field">OIDC Client ID <input id="authOidcClientId" value="${escapeHtml(oidc.clientId || "")}"></label>
+            <label class="form-field">OIDC Client Secret Environment <input id="authOidcClientSecretEnv" value="${escapeHtml(oidc.clientSecretEnv || "PRESENT_OIDC_CLIENT_SECRET")}"></label>
+            <label class="form-field">OIDC Redirect URI <input id="authOidcRedirectUri" value="${escapeHtml(oidc.redirectUri || "")}" placeholder="https://steel-mission.example/auth/callback"></label>
+            <label class="form-field">OIDC Scopes <input id="authOidcScopes" value="${escapeHtml((oidc.scopes || ["openid", "profile", "email"]).join(", "))}"></label>
             <label class="form-field check-line"><input id="authKmsEnabled" type="checkbox" ${kms.enabled ? "checked" : ""}> Enable customer KMS metadata</label>
             <label class="form-field">KMS Provider <input id="authKmsProvider" value="${escapeHtml(kms.provider || "customer-managed")}"></label>
             <label class="form-field">KMS Key ID <input id="authKmsKeyId" value="${escapeHtml(kms.keyId || "")}"></label>
@@ -3814,23 +3893,22 @@
     if (profileDialog) {
       profileDialog.addEventListener("cancel", () => setManagerMessage(""));
     }
-    loadRuntimeProfiles();
-    loadKnowledgeRegistry();
-    loadOrganizationWorkspace();
-    loadOrganizations();
-    loadIntegrations();
-    loadControlPolicy();
-    loadAuthPolicy();
-    loadControlPlaneReadiness();
-    loadMissionTemplates();
-    setWorkMode(activeWorkMode);
-    checkServer();
-    checkBroker();
-    checkMissions();
-    render();
-    setInterval(checkServer, 5000);
-    setInterval(checkBroker, 5000);
-    setInterval(checkMissions, 5000);
+    async function bootstrap() {
+      if (!await loadIdentity()) return;
+      await Promise.all([
+        loadRuntimeProfiles(), loadKnowledgeRegistry(), loadOrganizationWorkspace(), loadOrganizations(),
+        loadIntegrations(), loadControlPolicy(), loadAuthPolicy(), loadControlPlaneReadiness(), loadMissionTemplates()
+      ]);
+      setWorkMode(activeWorkMode);
+      checkServer();
+      checkBroker();
+      checkMissions();
+      render();
+      setInterval(checkServer, 5000);
+      setInterval(checkBroker, 5000);
+      setInterval(checkMissions, 5000);
+    }
+    bootstrap().catch(error => setManagerMessage(error.message, "bad"));
   </script>
 </body>
 </html>

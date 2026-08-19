@@ -116,6 +116,20 @@ Set `executionBoundary.privateRunnerMode` to `container` in `config/control-plan
 
 The alpha image contains Python, the release-test dependencies, Git, and GitHub CLI. Derive a customer image and set `PRESENT_PRIVATE_RUNNER_IMAGE` when a repository needs another toolchain. HTTPS GitHub pushes can use the allowlisted `GITHUB_TOKEN`/`GH_TOKEN`; token values remain in the process environment rather than Docker argv or image files.
 
+## Identity Boundary
+
+Local evaluation uses `identityBoundary.mode: development-local`. In that mode only loopback requests may use the role/actor development headers, and locally issued CLI sessions remain available.
+
+Before exposing the service, set `identityBoundary.mode` to `oidc-required` in `config/auth-policy.json` and configure the OIDC issuer, audience, JWKS source, authorization endpoint, token endpoint, client ID, redirect URI, and scopes. Set the client secret only through the environment named by `oidc.clientSecretEnv` (default `PRESENT_OIDC_CLIENT_SECRET`). The browser uses Authorization Code with PKCE, state, and nonce, then receives a short-lived HttpOnly session cookie with CSRF protection. CLI callers exchange an ID token with:
+
+```bash
+bin/present-control-plane session --oidc-token "$OIDC_ID_TOKEN"
+```
+
+OIDC claims prove identity but never grant a Steel Mission role. `config/users.json` maps the verified issuer/subject or email to a server-owned role, capabilities, and `organizationIds`; disabled or unknown identities fail closed. The same registry can map `externalIdentities.github`, `.slack`, and `.jira` identifiers (or a connector `serviceUserId`) so signed workflow ingress preserves the registered actor. Mission reads and actions are scoped to organization membership and actor assignment, and `authorization.preventSelfApproval` enforces separation of duties.
+
+Auth sessions use a signing key independent from evidence and private-runner keys, have bounded `iat`/`nbf`/`exp` claims, and can be revoked through `POST /api/auth/logout`. Authentication events and revocations are written to dedicated audit ledgers under the mission root.
+
 ## Native Workflow Adapters
 
 GitHub, Slack, and Jira can start an investigation from signed webhook or command events and receive mission status, approval requests, control decisions, evidence links, and completion in the original issue or thread. Configure the corresponding token and signing-secret variables from `.env.example`, then point the provider at:

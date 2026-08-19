@@ -7958,6 +7958,155 @@ def test_steel_mission_oidc_rs256_session_verification_uses_configured_jwks(tmp_
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
+def test_steel_mission_oidc_required_maps_server_owned_identity_and_revokes_sessions(tmp_path, monkeypatch):
+    import runpy
+    from cryptography.hazmat.primitives import hashes as crypto_hashes
+    from cryptography.hazmat.primitives.asymmetric import padding as crypto_padding
+    from cryptography.hazmat.primitives.asymmetric import rsa as crypto_rsa
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["auth_policy"].__globals__
+    original = {name: globals_[name] for name in (
+        "AUTH_POLICY_PATH", "USER_REGISTRY_PATH", "MUTATION_LEDGER_PATH",
+        "AUTH_REVOCATION_LEDGER_PATH", "AUTH_AUDIT_LEDGER_PATH",
+    )}
+    globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
+    globals_["USER_REGISTRY_PATH"] = tmp_path / "users.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutations.jsonl"
+    globals_["AUTH_REVOCATION_LEDGER_PATH"] = tmp_path / "revocations.jsonl"
+    globals_["AUTH_AUDIT_LEDGER_PATH"] = tmp_path / "auth-audit.jsonl"
+    monkeypatch.setenv("PRESENT_AUTH_SIGNING_KEY", "identity-test-signing-key")
+    try:
+        globals_["USER_REGISTRY_PATH"].write_text(json.dumps({
+            "users": [{
+                "id": "registry-admin",
+                "name": "Registry Admin",
+                "email": "admin@example.invalid",
+                "role": "admin",
+                "status": "active",
+                "assignedCapabilities": ["DC13"],
+                "organizationIds": ["northstar-forge"],
+                "identitySubjects": ["https://idp.example.invalid|provider-subject"],
+            }],
+        }))
+        private_key = crypto_rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        numbers = private_key.public_key().public_numbers()
+        jwks_path = tmp_path / "jwks.json"
+        jwks_path.write_text(json.dumps({"keys": [{
+            "kty": "RSA", "kid": "prod-key", "alg": "RS256", "use": "sig",
+            "n": chat["b64url_encode"](numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")),
+            "e": chat["b64url_encode"](numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")),
+        }]}))
+        chat["save_auth_policy"]({
+            "identityBoundary": {"mode": "oidc-required", "allowLoopbackDevelopmentIdentity": False},
+            "acceptedIssuers": ["https://idp.example.invalid", "present-local-alpha"],
+            "acceptedAudiences": ["present-control-plane"],
+            "oidc": {
+                "enabled": True,
+                "issuer": "https://idp.example.invalid",
+                "audience": "present-control-plane",
+                "jwksPath": str(jwks_path),
+                "authorizationEndpoint": "https://idp.example.invalid/authorize",
+                "tokenEndpoint": "https://idp.example.invalid/token",
+                "clientId": "steel-mission",
+            },
+        }, "owner")
+        header = {"alg": "RS256", "typ": "JWT", "kid": "prod-key"}
+        claims = {
+            "iss": "https://idp.example.invalid",
+            "aud": "present-control-plane",
+            "sub": "provider-subject",
+            "email": "admin@example.invalid",
+            "present_role": "owner",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 600,
+        }
+        encoded_header = chat["b64url_encode"](json.dumps(header, sort_keys=True, separators=(",", ":")).encode())
+        encoded_claims = chat["b64url_encode"](json.dumps(claims, sort_keys=True, separators=(",", ":")).encode())
+        signature = private_key.sign(f"{encoded_header}.{encoded_claims}".encode(), crypto_padding.PKCS1v15(), crypto_hashes.SHA256())
+        oidc_token = f"{encoded_header}.{encoded_claims}.{chat['b64url_encode'](signature)}"
+
+        verified_oidc = chat["verify_control_plane_session"](oidc_token)
+        assert verified_oidc["ok"] is True
+        assert verified_oidc["actorId"] == "registry-admin"
+        assert verified_oidc["role"] == "admin"  # token's forged owner role is ignored
+        session = chat["issue_oidc_exchange_session"](oidc_token)
+        assert session["claims"]["authn_method"] == "oidc-exchange"
+        assert session["claims"]["present_role"] == "admin"
+        assert chat["verify_control_plane_session"](session["accessToken"])["ok"] is True
+        with pytest.raises(PermissionError, match="local self-issued"):
+            chat["issue_control_plane_session"]("attacker", "owner")
+        chat["revoke_control_plane_session"](session["accessToken"], "registry-admin")
+        assert chat["verify_control_plane_session"](session["accessToken"])["error"] == "session is revoked"
+    finally:
+        for name, value in original.items():
+            globals_[name] = value
+
+
+def test_steel_mission_actor_scope_and_separation_of_duties_are_server_enforced(tmp_path):
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["mission_detail"].__globals__
+    original_root = globals_["MISSION_ROOT"]
+    globals_["MISSION_ROOT"] = tmp_path / "missions"
+    try:
+        mission_id = "ms-" + "8" * 24
+        chat["update_mission"](
+            mission_id,
+            state="waiting_for_approval",
+            operatorRole="publisher",
+            actorUserId="initiator",
+            organizationId="northstar-forge",
+            nodes=[{"nodeId": "approval", "title": "Approval", "state": "waiting_for_approval"}],
+            approvals=[],
+        )
+        initiator = {"actorId": "initiator", "role": "publisher", "organizationId": "northstar-forge", "organizationIds": ["northstar-forge"]}
+        approver = {"actorId": "separate-approver", "role": "admin", "organizationId": "northstar-forge", "organizationIds": ["northstar-forge"]}
+        outsider = {"actorId": "outsider", "role": "owner", "organizationId": "other-org", "organizationIds": ["other-org"]}
+        assert chat["mission_detail"](mission_id, "publisher", actor=initiator)["ok"] is True
+        assert chat["mission_detail"](mission_id, "owner", actor=outsider)["ok"] is False
+        with pytest.raises(PermissionError, match="separation of duties"):
+            chat["approve_mission"](mission_id, "publisher", actor_user_id="initiator", actor_context=initiator)
+        approved = chat["approve_mission"](mission_id, "admin", actor_user_id="separate-approver", actor_context=approver)
+        assert approved["approval"]["actorId"] == "separate-approver"
+    finally:
+        globals_["MISSION_ROOT"] = original_root
+
+
+def test_steel_mission_http_identity_boundary_is_fail_closed_and_loopback_only(tmp_path, monkeypatch):
+    import runpy
+    from types import SimpleNamespace
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["auth_policy"].__globals__
+    original_auth = globals_["AUTH_POLICY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutations.jsonl"
+    monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+    try:
+        chat["save_auth_policy"]({"identityBoundary": {"mode": "oidc-required"}}, "owner")
+        request = SimpleNamespace(headers={}, client_address=("127.0.0.1", 12345))
+        with pytest.raises(PermissionError, match="OIDC-authenticated"):
+            chat["authenticate_http_request"](request, "/api/knowledge", "GET")
+
+        chat["save_auth_policy"]({
+            "identityBoundary": {"mode": "development-local", "allowLoopbackDevelopmentIdentity": True},
+        }, "owner")
+        remote = SimpleNamespace(headers={"X-Present-Role": "owner"}, client_address=("192.0.2.10", 12345))
+        with pytest.raises(PermissionError, match="loopback"):
+            chat["authenticate_http_request"](remote, "/api/owner/users", "GET")
+        local = SimpleNamespace(headers={"X-Present-Role": "admin", "X-Present-Actor": "riley-chen"}, client_address=("127.0.0.1", 12345))
+        actor = chat["authenticate_http_request"](local, "/api/admin/users", "GET")
+        assert actor["actorId"] == "riley-chen"
+        assert actor["role"] == "admin"
+        assert actor["identitySource"] == "user-registry"
+    finally:
+        globals_["AUTH_POLICY_PATH"] = original_auth
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
+
+
 def test_steel_mission_external_kms_signer_is_used_for_mission_integrity(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
@@ -8088,7 +8237,17 @@ def test_steel_mission_control_plane_readiness_meets_alpha_and_production_target
         chat["save_auth_policy"]({
             "acceptedIssuers": ["present-local-alpha", "https://idp.example.invalid"],
             "acceptedAudiences": ["present-control-plane"],
-            "oidc": {"enabled": True, "issuer": "https://idp.example.invalid", "audience": "present-control-plane", "jwksUrl": "https://idp.example.invalid/jwks.json"},
+            "identityBoundary": {"mode": "oidc-required", "allowLoopbackDevelopmentIdentity": False},
+            "authorization": {"preventSelfApproval": True},
+            "oidc": {
+                "enabled": True,
+                "issuer": "https://idp.example.invalid",
+                "audience": "present-control-plane",
+                "jwksUrl": "https://idp.example.invalid/jwks.json",
+                "authorizationEndpoint": "https://idp.example.invalid/authorize",
+                "tokenEndpoint": "https://idp.example.invalid/token",
+                "clientId": "steel-mission",
+            },
             "kms": {"enabled": True, "provider": "local-kms-test", "keyId": "readiness-key", "signCommand": f"python3 {signer}", "requireExternalSigning": True},
         }, "admin")
         chat["save_integration_registry"]({

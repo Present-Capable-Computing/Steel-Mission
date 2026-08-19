@@ -32,7 +32,10 @@ def read_payload(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_session(args: argparse.Namespace) -> int:
     server = load_server()
-    session = server["issue_control_plane_session"](args.actor, args.role)
+    if args.oidc_token:
+        session = server["issue_oidc_exchange_session"](args.oidc_token)
+    else:
+        session = server["issue_control_plane_session"](args.actor, args.role)
     print(json.dumps({"ok": True, "session": session}, indent=2, sort_keys=True))
     return 0
 
@@ -63,9 +66,10 @@ def command_exec(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="present-control-plane")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    session = subparsers.add_parser("session", help="Issue a local signed control-plane session token.")
+    session = subparsers.add_parser("session", help="Exchange an OIDC token, or issue a loopback development session.")
     session.add_argument("--actor", default="local-user")
     session.add_argument("--role", default="user")
+    session.add_argument("--oidc-token", default="", help="Verified provider ID token to exchange in OIDC-required mode.")
     session.set_defaults(func=command_session)
     exec_parser = subparsers.add_parser("exec", help="Run one guarded action through the control plane.")
     exec_parser.add_argument("--token", default="")

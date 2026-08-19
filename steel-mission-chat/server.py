@@ -19,10 +19,11 @@ import sys
 import threading
 import time
 import zipfile
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 try:
@@ -59,10 +60,17 @@ INTEGRATION_REGISTRY_PATH = WORKER_DIR / "config" / "integration-registry.json"
 AUTH_POLICY_PATH = WORKER_DIR / "config" / "auth-policy.json"
 MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
+AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")
+AUTH_AUDIT_LEDGER_PATH = Path(os.environ.get("PRESENT_AUTH_AUDIT_LEDGER") or MISSION_ROOT / "_auth-audit.jsonl")
+AUTH_REVOCATION_LEDGER_PATH = Path(os.environ.get("PRESENT_AUTH_REVOCATION_LEDGER") or MISSION_ROOT / "_auth-revocations.jsonl")
+PRIVATE_RUNNER_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_PRIVATE_RUNNER_SIGNING_KEY_FILE") or MISSION_ROOT / "_private-runner-signing-key")
 EVIDENCE_SIGNING_KEY_ENV = "PRESENT_EVIDENCE_SIGNING_KEY"
 EVIDENCE_SIGNER_ID_ENV = "PRESENT_EVIDENCE_SIGNER_ID"
 EVIDENCE_SIGNER_COMMAND_ENV = "PRESENT_EVIDENCE_SIGNER_COMMAND"
 AUTH_SIGNING_KEY_ENV = "PRESENT_AUTH_SIGNING_KEY"
+AUTH_SIGNER_ID_ENV = "PRESENT_AUTH_SIGNER_ID"
+AUTH_IDENTITY_MODE_ENV = "PRESENT_IDENTITY_MODE"
+OIDC_CLIENT_SECRET_ENV = "PRESENT_OIDC_CLIENT_SECRET"
 CONNECTOR_WEBHOOK_SECRET_ENV = "PRESENT_CONNECTOR_WEBHOOK_SECRET"
 PRIVATE_RUNNER_MODE_ENV = "PRESENT_PRIVATE_RUNNER_MODE"
 PRIVATE_RUNNER_ALLOW_LOCAL_ENV = "PRESENT_PRIVATE_RUNNER_ALLOW_LOCAL"
@@ -95,6 +103,10 @@ MISSION_LOCK = threading.Lock()
 MISSION_ORCHESTRATORS: set[str] = set()
 MISSION_ORCHESTRATORS_LOCK = threading.Lock()
 WORKFLOW_INGRESS_LOCK = threading.Lock()
+AUTH_LOCK = threading.Lock()
+OIDC_CACHE_LOCK = threading.Lock()
+OIDC_JWKS_CACHE: dict[str, Any] = {}
+OIDC_LOGIN_STATES: dict[str, dict[str, Any]] = {}
 
 MISSION_TEMPLATES: list[dict[str, Any]] = [
     {
@@ -286,6 +298,25 @@ def actor_from_request(handler: BaseHTTPRequestHandler, fallback_role: str = "us
 def require_actor_role(actor: dict[str, str], allowed: set[str]) -> None:
     if actor.get("role") not in allowed:
         raise PermissionError("actor is not allowed to perform this action")
+
+
+def authorize_mission_bindings(actor: dict[str, Any], user_ids: list[str], capability_keys: list[str]) -> None:
+    role = corporate_role(str(actor.get("role") or "user"))
+    actor_capabilities = set(clean_string_list(actor.get("capabilities"), limit=200))
+    if role not in {"owner", "admin"} and identity_mode() == "oidc-required":
+        unauthorized = sorted(set(capability_keys) - actor_capabilities)
+        if unauthorized:
+            raise PermissionError("actor is not assigned requested capabilities: " + ", ".join(unauthorized))
+    actor_orgs = set(clean_string_list(actor.get("organizationIds"), limit=50))
+    if actor.get("organizationId"):
+        actor_orgs.add(str(actor.get("organizationId")))
+    for user_id in user_ids:
+        user = registered_user(user_id)
+        if not user or user.get("status") != "active":
+            raise PermissionError(f"mission user {user_id} is not active")
+        user_orgs = set(clean_string_list(user.get("organizationIds"), limit=50))
+        if actor_orgs and user_orgs and not actor_orgs.intersection(user_orgs):
+            raise PermissionError(f"mission user {user_id} is outside the actor organization scope")
 
 
 def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
@@ -1087,6 +1118,12 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
         for role in knowledge_registry().get("roles", [])
         if isinstance(role, dict) and role.get("roleKey")
     }
+    organizations = organization_registry()
+    valid_organization_ids = {
+        str(item.get("id")) for item in organizations.get("organizations", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    default_organization_id = str(organizations.get("activeOrganizationId") or "")
     users = []
     for index, item in enumerate(payload.get("users", [])):
         if not isinstance(item, dict):
@@ -1102,6 +1139,18 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
             if str(value).strip() and (not valid_domain_capabilities or str(value).strip() in valid_domain_capabilities)
         ]
         assigned = sorted(set(assigned))
+        organization_ids = [
+            value for value in clean_string_list(item.get("organizationIds"), limit=50)
+            if not valid_organization_ids or value in valid_organization_ids
+        ]
+        if not organization_ids and default_organization_id:
+            organization_ids = [default_organization_id]
+        identity_subjects = sorted(set(clean_string_list(item.get("identitySubjects"), limit=50)))
+        external = item.get("externalIdentities") if isinstance(item.get("externalIdentities"), dict) else {}
+        external_identities = {
+            source: sorted(set(clean_string_list(external.get(source), limit=50)))
+            for source in ("github", "slack", "jira")
+        }
         users.append({
             "id": principal_id,
             "name": str(item.get("name") or principal_id).strip(),
@@ -1109,13 +1158,16 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
             "role": role,
             "status": "disabled" if str(item.get("status") or "").strip() == "disabled" else "active",
             "assignedCapabilities": assigned,
+            "organizationIds": organization_ids,
+            "identitySubjects": identity_subjects,
+            "externalIdentities": external_identities,
         })
     if not users:
         users = [
-            {"id": "owner", "name": "Owner", "email": "", "role": "owner", "status": "active", "assignedCapabilities": []},
-            {"id": "admin", "name": "Admin", "email": "", "role": "admin", "status": "active", "assignedCapabilities": []},
-            {"id": "publisher", "name": "Publisher", "email": "", "role": "publisher", "status": "active", "assignedCapabilities": ["DC13"]},
-            {"id": "user", "name": "User", "email": "", "role": "user", "status": "active", "assignedCapabilities": ["DC13"]},
+            {"id": "owner", "name": "Owner", "email": "", "role": "owner", "status": "active", "assignedCapabilities": [], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
+            {"id": "admin", "name": "Admin", "email": "", "role": "admin", "status": "active", "assignedCapabilities": [], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
+            {"id": "publisher", "name": "Publisher", "email": "", "role": "publisher", "status": "active", "assignedCapabilities": ["DC13"], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
+            {"id": "user", "name": "User", "email": "", "role": "user", "status": "active", "assignedCapabilities": ["DC13"], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
         ]
     return {
         "schemaVersion": 1,
@@ -1128,6 +1180,63 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
 def user_registry() -> dict[str, Any]:
     payload = read_json_file(USER_REGISTRY_PATH) or {}
     return normalize_user_registry(payload)
+
+
+def registered_user(user_id: str) -> dict[str, Any] | None:
+    selected = clean_optional_string(user_id, limit=200)
+    return next((dict(item) for item in user_registry().get("users", [])
+                 if isinstance(item, dict) and item.get("id") == selected), None)
+
+
+def resolve_registered_identity(claims: dict[str, Any], policy: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    selected_policy = policy or auth_policy()
+    issuer = clean_optional_string(claims.get("iss"), limit=500)
+    subject = clean_optional_string(claims.get("sub"), limit=500)
+    email = clean_optional_string(claims.get("email"), limit=320).lower()
+    subject_keys = {value for value in (subject, f"{issuer}|{subject}" if issuer and subject else "") if value}
+    for item in user_registry().get("users", []):
+        if not isinstance(item, dict) or item.get("status") != "active":
+            continue
+        configured_subjects = set(clean_string_list(item.get("identitySubjects"), limit=50))
+        configured_email = clean_optional_string(item.get("email"), limit=320).lower()
+        if subject_keys.intersection(configured_subjects) or (email and configured_email and hmac.compare_digest(email, configured_email)):
+            return actor_from_registered_user(item, selected_policy)
+    return None
+
+
+def actor_from_registered_user(user: dict[str, Any], policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    organizations = clean_string_list(user.get("organizationIds"), limit=50)
+    active_id = str(organization_registry().get("activeOrganizationId") or "")
+    organization_id = active_id if active_id in organizations else (organizations[0] if organizations else "")
+    return {
+        "actorId": str(user.get("id") or "registered-user"),
+        "role": corporate_role(str(user.get("role") or "user")),
+        "capabilities": clean_string_list(user.get("assignedCapabilities"), limit=200),
+        "organizationIds": organizations,
+        "organizationId": organization_id,
+        "identitySource": "user-registry",
+        "authPolicyHash": canonical_json_hash(policy or auth_policy()),
+    }
+
+
+def resolve_external_identity(source: str, external_actor: dict[str, Any], connector: dict[str, Any]) -> dict[str, Any] | None:
+    service_user_id = clean_optional_string(connector.get("serviceUserId"), limit=200)
+    if service_user_id:
+        service_user = registered_user(service_user_id)
+        if service_user and service_user.get("status") == "active":
+            return actor_from_registered_user(service_user)
+    candidates = {
+        str(value).strip().lower() for value in (external_actor.get("id"), external_actor.get("name"), external_actor.get("login"))
+        if str(value or "").strip()
+    }
+    for user in user_registry().get("users", []):
+        if not isinstance(user, dict) or user.get("status") != "active":
+            continue
+        external = user.get("externalIdentities") if isinstance(user.get("externalIdentities"), dict) else {}
+        configured = {value.lower() for value in clean_string_list(external.get(source), limit=50)}
+        if candidates.intersection(configured):
+            return actor_from_registered_user(user)
+    return None
 
 
 def save_user_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -1707,7 +1816,47 @@ def auth_signing_key() -> bytes:
     configured = os.environ.get(AUTH_SIGNING_KEY_ENV)
     if configured:
         return configured.encode("utf-8")
-    return evidence_signing_key()
+    try:
+        if AUTH_SIGNING_KEY_PATH.exists():
+            return AUTH_SIGNING_KEY_PATH.read_bytes()
+        AUTH_SIGNING_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        key = secrets.token_bytes(32)
+        descriptor = os.open(AUTH_SIGNING_KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(key)
+        return key
+    except FileExistsError:
+        return AUTH_SIGNING_KEY_PATH.read_bytes()
+    except OSError:
+        return f"local-alpha-auth-fallback:{MISSION_ROOT}".encode("utf-8")
+
+
+def identity_mode(policy: dict[str, Any] | None = None) -> str:
+    configured = str(os.environ.get(AUTH_IDENTITY_MODE_ENV) or "").strip().lower()
+    if configured in {"development-local", "oidc-required"}:
+        return configured
+    selected = policy or auth_policy()
+    boundary = selected.get("identityBoundary") if isinstance(selected.get("identityBoundary"), dict) else {}
+    return "oidc-required" if boundary.get("mode") == "oidc-required" else "development-local"
+
+
+def private_runner_signing_key() -> bytes:
+    configured = os.environ.get(PRIVATE_RUNNER_SIGNING_KEY_ENV)
+    if configured:
+        return configured.encode("utf-8")
+    try:
+        if PRIVATE_RUNNER_SIGNING_KEY_PATH.exists():
+            return PRIVATE_RUNNER_SIGNING_KEY_PATH.read_bytes()
+        PRIVATE_RUNNER_SIGNING_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        key = secrets.token_bytes(32)
+        descriptor = os.open(PRIVATE_RUNNER_SIGNING_KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(key)
+        return key
+    except FileExistsError:
+        return PRIVATE_RUNNER_SIGNING_KEY_PATH.read_bytes()
+    except OSError:
+        return f"local-alpha-private-runner-fallback:{MISSION_ROOT}".encode("utf-8")
 
 
 def license_entitlement() -> dict[str, Any]:
@@ -1857,7 +2006,7 @@ def decode_jwt_parts(token: str) -> tuple[dict[str, Any], dict[str, Any], bytes,
     return header, claims, signature, f"{parts[0]}.{parts[1]}".encode("utf-8")
 
 
-def load_oidc_jwks(policy: dict[str, Any]) -> dict[str, Any]:
+def load_oidc_jwks(policy: dict[str, Any], *, force_refresh: bool = False) -> dict[str, Any]:
     oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
     if isinstance(oidc.get("jwks"), dict):
         return oidc["jwks"]
@@ -1870,10 +2019,19 @@ def load_oidc_jwks(policy: dict[str, Any]) -> dict[str, Any]:
             return {}
     jwks_url = str(oidc.get("jwksUrl") or "").strip()
     if jwks_url:
+        ttl = max(30, min(int(oidc.get("jwksCacheSeconds") or 300), 86400))
+        with OIDC_CACHE_LOCK:
+            cached = OIDC_JWKS_CACHE.get(jwks_url)
+            if not force_refresh and isinstance(cached, dict) and float(cached.get("expiresEpoch") or 0) > time.time():
+                return cached.get("payload") if isinstance(cached.get("payload"), dict) else {}
         try:
             with urlopen(jwks_url, timeout=10) as response:
                 payload = json.loads(response.read(1024 * 1024).decode("utf-8"))
-                return payload if isinstance(payload, dict) else {}
+                if isinstance(payload, dict):
+                    with OIDC_CACHE_LOCK:
+                        OIDC_JWKS_CACHE[jwks_url] = {"payload": payload, "expiresEpoch": time.time() + ttl}
+                    return payload
+                return {}
         except Exception:  # noqa: BLE001
             return {}
     return {}
@@ -1904,6 +2062,10 @@ def verify_oidc_rs256_session(token: str, header: dict[str, Any], claims: dict[s
         key for key in keys
         if isinstance(key, dict) and key.get("kty") == "RSA" and (not kid or key.get("kid") == kid)
     ]
+    if not candidates and kid and str(oidc.get("jwksUrl") or "").strip():
+        jwks = load_oidc_jwks(policy, force_refresh=True)
+        keys = jwks.get("keys") if isinstance(jwks.get("keys"), list) else []
+        candidates = [key for key in keys if isinstance(key, dict) and key.get("kty") == "RSA" and key.get("kid") == kid]
     if not candidates:
         return {"ok": False, "error": "OIDC signing key is unavailable"}
     errors: list[str] = []
@@ -1928,11 +2090,25 @@ def default_auth_policy() -> dict[str, Any]:
         "acceptedAudiences": ["present-control-plane"],
         "roleClaims": ["present_role", "role"],
         "subjectClaims": ["sub", "email", "preferred_username"],
+        "identityBoundary": {
+            "mode": "development-local",
+            "allowLoopbackDevelopmentIdentity": True,
+        },
+        "authorization": {
+            "preventSelfApproval": True,
+        },
         "oidc": {
             "enabled": False,
             "issuer": "",
             "audience": "present-control-plane",
             "jwksUrl": "",
+            "authorizationEndpoint": "",
+            "tokenEndpoint": "",
+            "clientId": "",
+            "clientSecretEnv": OIDC_CLIENT_SECRET_ENV,
+            "redirectUri": "",
+            "scopes": ["openid", "profile", "email"],
+            "jwksCacheSeconds": 300,
         },
         "kms": {
             "enabled": False,
@@ -1950,7 +2126,7 @@ def auth_policy() -> dict[str, Any]:
     if not configured:
         return attach_auth_edition_metadata({**policy, "configuredPath": str(AUTH_POLICY_PATH), "configured": False})
     merged = {**policy, **configured}
-    for key in ["oidc", "kms"]:
+    for key in ["identityBoundary", "authorization", "oidc", "kms"]:
         if isinstance(policy.get(key), dict) and isinstance(configured.get(key), dict):
             merged[key] = {**policy[key], **configured[key]}
     return attach_auth_edition_metadata({**merged, "configuredPath": str(AUTH_POLICY_PATH), "configured": True})
@@ -1968,11 +2144,17 @@ def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
     base = default_auth_policy()
     oidc = source.get("oidc") if isinstance(source.get("oidc"), dict) else {}
     kms = source.get("kms") if isinstance(source.get("kms"), dict) else {}
+    boundary = source.get("identityBoundary") if isinstance(source.get("identityBoundary"), dict) else {}
+    authorization = source.get("authorization") if isinstance(source.get("authorization"), dict) else {}
     ttl = source.get("sessionTtlSeconds")
     try:
         ttl_int = int(ttl)
     except (TypeError, ValueError):
         ttl_int = int(base["sessionTtlSeconds"])
+    try:
+        jwks_cache_seconds = int(oidc.get("jwksCacheSeconds") or 300)
+    except (TypeError, ValueError):
+        jwks_cache_seconds = 300
     return {
         "schemaVersion": 1,
         "policyId": clean_optional_string(source.get("policyId"), limit=160) or base["policyId"],
@@ -1988,12 +2170,26 @@ def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
         "acceptedAudiences": clean_string_list(source.get("acceptedAudiences"), limit=20) or base["acceptedAudiences"],
         "roleClaims": clean_string_list(source.get("roleClaims"), limit=20) or base["roleClaims"],
         "subjectClaims": clean_string_list(source.get("subjectClaims"), limit=20) or base["subjectClaims"],
+        "identityBoundary": {
+            "mode": clean_choice(boundary.get("mode"), {"development-local", "oidc-required"}, "development-local"),
+            "allowLoopbackDevelopmentIdentity": bool_from_payload(boundary.get("allowLoopbackDevelopmentIdentity"), True),
+        },
+        "authorization": {
+            "preventSelfApproval": bool_from_payload(authorization.get("preventSelfApproval"), True),
+        },
         "oidc": {
             "enabled": bool_from_payload(oidc.get("enabled"), False),
             "issuer": clean_optional_string(oidc.get("issuer"), limit=500),
             "audience": clean_optional_string(oidc.get("audience"), limit=300) or "present-control-plane",
             "jwksUrl": clean_optional_string(oidc.get("jwksUrl"), limit=1000),
             "jwksPath": clean_optional_string(oidc.get("jwksPath"), limit=1000),
+            "authorizationEndpoint": clean_optional_string(oidc.get("authorizationEndpoint"), limit=1000),
+            "tokenEndpoint": clean_optional_string(oidc.get("tokenEndpoint"), limit=1000),
+            "clientId": clean_optional_string(oidc.get("clientId"), limit=500),
+            "clientSecretEnv": clean_optional_string(oidc.get("clientSecretEnv"), limit=200) or OIDC_CLIENT_SECRET_ENV,
+            "redirectUri": clean_optional_string(oidc.get("redirectUri"), limit=1000),
+            "scopes": clean_string_list(oidc.get("scopes"), limit=20) or ["openid", "profile", "email"],
+            "jwksCacheSeconds": max(30, min(jwks_cache_seconds, 86400)),
             **({"jwks": oidc.get("jwks")} if isinstance(oidc.get("jwks"), dict) else {}),
         },
         "kms": {
@@ -2030,24 +2226,77 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
 
 
 def sign_control_plane_session(claims: dict[str, Any]) -> str:
-    header = {"alg": "HS256", "typ": "JWT", "kid": os.environ.get(EVIDENCE_SIGNER_ID_ENV, "present-local-alpha")}
+    header = {"alg": "HS256", "typ": "JWT", "kid": os.environ.get(AUTH_SIGNER_ID_ENV, "present-auth-session")}
     encoded_header = b64url_encode(json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     encoded_payload = b64url_encode(json.dumps(claims, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(auth_signing_key(), f"{encoded_header}.{encoded_payload}".encode("utf-8"), hashlib.sha256).digest()
     return f"{encoded_header}.{encoded_payload}.{b64url_encode(signature)}"
 
 
-def issue_control_plane_session(actor_id: str, role: str, *, ttl_seconds: int | None = None) -> dict[str, Any]:
+def append_auth_audit(action: str, actor_id: str = "", *, ok: bool = True, details: dict[str, Any] | None = None) -> None:
+    event = {
+        "schemaVersion": 1,
+        "producedAt": utc_now(),
+        "action": action,
+        "actorId": clean_optional_string(actor_id, limit=200),
+        "ok": ok,
+        "details": details or {},
+    }
+    with AUTH_LOCK:
+        append_jsonl(AUTH_AUDIT_LEDGER_PATH, event)
+
+
+def revoked_session_ids() -> set[str]:
+    revoked: set[str] = set()
+    try:
+        for line in AUTH_REVOCATION_LEDGER_PATH.read_text().splitlines():
+            item = json.loads(line)
+            if isinstance(item, dict) and item.get("jti"):
+                revoked.add(str(item["jti"]))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return revoked
+
+
+def revoke_control_plane_session(token: str, actor_id: str = "") -> dict[str, Any]:
+    verification = verify_control_plane_session(token, allow_revoked=True)
+    claims = verification.get("claims") if isinstance(verification.get("claims"), dict) else {}
+    jti = clean_optional_string(claims.get("jti"), limit=200)
+    if not jti:
+        raise ValueError("session token is invalid")
+    event = {"schemaVersion": 1, "jti": jti, "revokedAt": utc_now(), "actorId": actor_id or verification.get("actorId") or ""}
+    with AUTH_LOCK:
+        append_jsonl(AUTH_REVOCATION_LEDGER_PATH, event)
+    append_auth_audit("session-revoked", str(event["actorId"]), details={"jti": jti})
+    return {"ok": True, "revoked": True, "jti": jti}
+
+
+def issue_control_plane_session(
+    actor_id: str,
+    role: str,
+    *,
+    ttl_seconds: int | None = None,
+    authn_method: str = "local-development",
+    actor: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     policy = auth_policy()
+    if identity_mode(policy) == "oidc-required" and authn_method != "oidc-exchange":
+        raise PermissionError("local self-issued sessions are disabled by the OIDC identity boundary")
     ttl = ttl_seconds or int(policy.get("sessionTtlSeconds") or 3600)
     now = int(time.time())
-    actor = clean_optional_string(actor_id, limit=200) or corporate_role(role)
+    actor_details = actor if isinstance(actor, dict) else {}
+    actor_subject = clean_optional_string(actor_id, limit=200) or corporate_role(role)
     claims = {
         "iss": "present-local-alpha",
         "aud": "present-control-plane",
-        "sub": actor,
+        "sub": actor_subject,
         "present_role": corporate_role(role),
+        "authn_method": authn_method,
+        "organization_ids": clean_string_list(actor_details.get("organizationIds"), limit=50),
+        "organization_id": clean_optional_string(actor_details.get("organizationId"), limit=120),
+        "capabilities": clean_string_list(actor_details.get("capabilities"), limit=200),
         "iat": now,
+        "nbf": now - 5,
         "exp": now + max(60, min(int(ttl), 86400)),
         "jti": "ps-" + secrets.token_hex(12),
     }
@@ -2061,7 +2310,31 @@ def issue_control_plane_session(actor_id: str, role: str, *, ttl_seconds: int | 
     }
 
 
-def verify_control_plane_session(token: str) -> dict[str, Any]:
+def issue_oidc_exchange_session(token: str, *, expected_nonce: str = "") -> dict[str, Any]:
+    policy = auth_policy()
+    verified = verify_control_plane_session(token, expected_nonce=expected_nonce, oidc_only=True)
+    if verified.get("ok") is not True:
+        raise PermissionError(str(verified.get("error") or "OIDC token is invalid"))
+    user_actor = verified.get("actor") if isinstance(verified.get("actor"), dict) else None
+    if not user_actor:
+        raise PermissionError("OIDC identity is not registered or is disabled")
+    session = issue_control_plane_session(
+        str(user_actor.get("actorId") or ""),
+        str(user_actor.get("role") or "user"),
+        authn_method="oidc-exchange",
+        actor=user_actor,
+    )
+    append_auth_audit("oidc-session-issued", str(user_actor.get("actorId") or ""), details={"issuer": verified.get("claims", {}).get("iss")})
+    return session
+
+
+def verify_control_plane_session(
+    token: str,
+    *,
+    expected_nonce: str = "",
+    oidc_only: bool = False,
+    allow_revoked: bool = False,
+) -> dict[str, Any]:
     policy = auth_policy()
     parts = str(token or "").split(".")
     if len(parts) != 3:
@@ -2071,6 +2344,8 @@ def verify_control_plane_session(token: str) -> dict[str, Any]:
         return {"ok": False, "error": "session claims are invalid"}
     algorithm = str(header.get("alg") or "")
     if algorithm == "HS256":
+        if oidc_only:
+            return {"ok": False, "error": "an OIDC RS256 token is required"}
         expected = b64url_encode(hmac.new(auth_signing_key(), signing_input, hashlib.sha256).digest())
         if not hmac.compare_digest(expected, parts[2]):
             return {"ok": False, "error": "session signature is invalid"}
@@ -2082,12 +2357,49 @@ def verify_control_plane_session(token: str) -> dict[str, Any]:
         issuer_kind = "oidc-rs256"
     else:
         return {"ok": False, "error": f"session algorithm {algorithm or 'unknown'} is not accepted"}
-    if str(claims.get("iss") or "") not in set(policy.get("acceptedIssuers") or []):
+    issuer = str(claims.get("iss") or "")
+    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
+    if issuer_kind == "oidc-rs256" and oidc.get("issuer") and issuer != str(oidc.get("issuer")):
+        return {"ok": False, "error": "OIDC token issuer does not match the configured provider"}
+    accepted_issuers = set(policy.get("acceptedIssuers") or [])
+    if issuer_kind == "local-hs256":
+        accepted_issuers.add("present-local-alpha")
+    if oidc.get("enabled") is True and oidc.get("issuer"):
+        accepted_issuers.add(str(oidc.get("issuer")))
+    if issuer not in accepted_issuers:
         return {"ok": False, "error": "session issuer is not accepted"}
-    if str(claims.get("aud") or "") not in set(policy.get("acceptedAudiences") or []):
+    audience_claim = claims.get("aud")
+    audiences = {str(value) for value in audience_claim} if isinstance(audience_claim, list) else {str(audience_claim or "")}
+    accepted_audiences = set(policy.get("acceptedAudiences") or [])
+    if issuer_kind == "local-hs256":
+        accepted_audiences.add("present-control-plane")
+    if oidc.get("audience"):
+        accepted_audiences.add(str(oidc.get("audience")))
+    if issuer_kind == "oidc-rs256" and oidc.get("clientId"):
+        accepted_audiences.add(str(oidc.get("clientId")))
+    if not audiences.intersection(accepted_audiences):
         return {"ok": False, "error": "session audience is not accepted"}
-    if int(claims.get("exp") or 0) < int(time.time()):
+    if issuer_kind == "oidc-rs256" and isinstance(audience_claim, list) and len(audience_claim) > 1 and oidc.get("clientId"):
+        if str(claims.get("azp") or "") != str(oidc.get("clientId")):
+            return {"ok": False, "error": "OIDC authorized party is invalid"}
+    now = int(time.time())
+    try:
+        expires = int(claims.get("exp") or 0)
+        issued = int(claims.get("iat") or 0)
+        not_before = int(claims.get("nbf") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "session timestamps are invalid"}
+    if expires < now:
         return {"ok": False, "error": "session is expired"}
+    if not_before and not_before > now + 30:
+        return {"ok": False, "error": "session is not active yet"}
+    if issued and issued > now + 30:
+        return {"ok": False, "error": "session issued-at time is invalid"}
+    if expected_nonce and not hmac.compare_digest(str(claims.get("nonce") or ""), expected_nonce):
+        return {"ok": False, "error": "OIDC nonce is invalid"}
+    jti = clean_optional_string(claims.get("jti"), limit=200)
+    if not allow_revoked and jti and jti in revoked_session_ids():
+        return {"ok": False, "error": "session is revoked"}
     role_claims = policy.get("roleClaims") if isinstance(policy.get("roleClaims"), list) else ["present_role", "role"]
     subject_claims = policy.get("subjectClaims") if isinstance(policy.get("subjectClaims"), list) else ["sub", "email", "preferred_username"]
     actor_id = ""
@@ -2100,11 +2412,34 @@ def verify_control_plane_session(token: str) -> dict[str, Any]:
         role_value = clean_optional_string(claims.get(str(claim)), limit=80)
         if role_value:
             break
-    role = corporate_role(role_value or "user")
+    mode = identity_mode(policy)
+    registered_actor: dict[str, Any] | None = None
+    if issuer_kind == "oidc-rs256":
+        registered_actor = resolve_registered_identity(claims, policy)
+        if mode == "oidc-required" and not registered_actor:
+            return {"ok": False, "error": "OIDC identity is not registered or is disabled"}
+    elif mode == "oidc-required":
+        if claims.get("authn_method") != "oidc-exchange":
+            return {"ok": False, "error": "local development sessions are not accepted in OIDC-required mode"}
+        user = registered_user(str(claims.get("sub") or ""))
+        if not user or user.get("status") != "active":
+            return {"ok": False, "error": "session subject is not registered or is disabled"}
+        registered_actor = actor_from_registered_user(user, policy)
+    role = corporate_role(str(registered_actor.get("role") if registered_actor else role_value or "user"))
+    resolved_actor_id = str(registered_actor.get("actorId") if registered_actor else actor_id or "session-subject")
+    result_actor = registered_actor or {
+        "actorId": resolved_actor_id,
+        "role": role,
+        "capabilities": clean_string_list(claims.get("capabilities"), limit=200),
+        "organizationIds": clean_string_list(claims.get("organization_ids"), limit=50),
+        "organizationId": clean_optional_string(claims.get("organization_id"), limit=120),
+        "identitySource": issuer_kind,
+    }
     return {
         "ok": True,
-        "actorId": actor_id or "session-subject",
+        "actorId": resolved_actor_id,
         "role": role,
+        "actor": result_actor,
         "claims": claims,
         "issuerKind": issuer_kind,
         "algorithm": algorithm,
@@ -2116,7 +2451,153 @@ def bearer_token_from_handler(handler: BaseHTTPRequestHandler) -> str:
     authorization = handler.headers.get("Authorization") or ""
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
-    return handler.headers.get("X-Present-Session") or ""
+    explicit = handler.headers.get("X-Present-Session") or ""
+    if explicit:
+        return explicit
+    cookie = SimpleCookie()
+    try:
+        cookie.load(handler.headers.get("Cookie") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+    return cookie.get("present_session").value if cookie.get("present_session") else ""
+
+
+def request_cookie(handler: BaseHTTPRequestHandler, name: str) -> str:
+    cookie = SimpleCookie()
+    try:
+        cookie.load(handler.headers.get("Cookie") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+    return cookie.get(name).value if cookie.get(name) else ""
+
+
+def is_loopback_request(handler: BaseHTTPRequestHandler) -> bool:
+    address = str(handler.client_address[0] if handler.client_address else "")
+    return address in {"127.0.0.1", "::1", "localhost"}
+
+
+def authenticate_http_request(handler: BaseHTTPRequestHandler, path: str, method: str) -> dict[str, Any]:
+    policy = auth_policy()
+    token = bearer_token_from_handler(handler)
+    cookie_authenticated = bool(request_cookie(handler, "present_session")) and not bool((handler.headers.get("Authorization") or "").strip())
+    if token:
+        verified = verify_control_plane_session(token)
+        if verified.get("ok") is not True:
+            append_auth_audit("request-denied", "", ok=False, details={"path": path, "error": verified.get("error")})
+            raise PermissionError(str(verified.get("error") or "valid session is required"))
+        actor = dict(verified.get("actor") if isinstance(verified.get("actor"), dict) else {})
+        actor.update({
+            "actorId": verified.get("actorId"),
+            "role": verified.get("role"),
+            "sessionVerified": True,
+            "authPolicyHash": verified.get("authPolicyHash"),
+            "claims": verified.get("claims"),
+            "accessToken": token,
+            "cookieAuthenticated": cookie_authenticated,
+        })
+        if cookie_authenticated and method in {"POST", "PUT", "PATCH", "DELETE"}:
+            csrf_cookie = request_cookie(handler, "present_csrf")
+            csrf_header = str(handler.headers.get("X-Present-CSRF") or "")
+            if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+                raise PermissionError("CSRF validation failed")
+        return actor
+    boundary = policy.get("identityBoundary") if isinstance(policy.get("identityBoundary"), dict) else {}
+    if identity_mode(policy) == "oidc-required":
+        raise PermissionError("OIDC-authenticated session is required")
+    if boundary.get("allowLoopbackDevelopmentIdentity") is not True or not is_loopback_request(handler):
+        raise PermissionError("development identity is restricted to loopback requests")
+    route_parts = path.strip("/").split("/")
+    fallback_role = route_parts[1] if len(route_parts) > 2 and route_parts[0] == "api" and route_parts[1] in {"owner", "admin", "publisher", "user"} else "user"
+    actor = actor_from_request(handler, fallback_role)
+    user = registered_user(str(actor.get("actorId") or ""))
+    if user and user.get("status") == "active":
+        actor = actor_from_registered_user(user, policy)
+    else:
+        actor.update({"organizationIds": [str(organization_registry().get("activeOrganizationId") or "")], "organizationId": str(organization_registry().get("activeOrganizationId") or ""), "capabilities": [], "identitySource": "loopback-development"})
+    actor.update({"sessionVerified": False, "authPolicyHash": canonical_json_hash(policy), "cookieAuthenticated": False})
+    return actor
+
+
+def oidc_redirect_uri(handler: BaseHTTPRequestHandler, oidc: dict[str, Any]) -> str:
+    configured = clean_optional_string(oidc.get("redirectUri"), limit=1000)
+    if configured:
+        return configured
+    host = str(handler.headers.get("Host") or "127.0.0.1:8765")
+    scheme = "https" if str(handler.headers.get("X-Forwarded-Proto") or "").lower() == "https" else "http"
+    return f"{scheme}://{host}/auth/callback"
+
+
+def begin_oidc_login(handler: BaseHTTPRequestHandler) -> str:
+    policy = auth_policy()
+    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
+    if identity_mode(policy) != "oidc-required" or oidc.get("enabled") is not True:
+        raise RuntimeError("OIDC login is not enabled")
+    authorization_endpoint = clean_optional_string(oidc.get("authorizationEndpoint"), limit=1000)
+    client_id = clean_optional_string(oidc.get("clientId"), limit=500)
+    if not authorization_endpoint or not client_id:
+        raise RuntimeError("OIDC authorization endpoint and client ID are required")
+    state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    challenge = b64url_encode(hashlib.sha256(verifier.encode("ascii")).digest())
+    redirect_uri = oidc_redirect_uri(handler, oidc)
+    with AUTH_LOCK:
+        cutoff = time.time() - 600
+        for key in [key for key, value in OIDC_LOGIN_STATES.items() if float(value.get("createdEpoch") or 0) < cutoff]:
+            OIDC_LOGIN_STATES.pop(key, None)
+        OIDC_LOGIN_STATES[state] = {"nonce": nonce, "verifier": verifier, "redirectUri": redirect_uri, "createdEpoch": time.time()}
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(clean_string_list(oidc.get("scopes"), limit=20) or ["openid", "profile", "email"]),
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    }
+    append_auth_audit("oidc-login-started", details={"redirectUri": redirect_uri})
+    return f"{authorization_endpoint}?{urlencode(params)}"
+
+
+def complete_oidc_login(handler: BaseHTTPRequestHandler, query: dict[str, list[str]]) -> tuple[dict[str, Any], str]:
+    state = (query.get("state") or [""])[0]
+    code = (query.get("code") or [""])[0]
+    if not state or not code:
+        raise PermissionError((query.get("error_description") or query.get("error") or ["OIDC callback is missing code or state"])[0])
+    state_cookie = request_cookie(handler, "present_oidc_state")
+    if not state_cookie or not hmac.compare_digest(state_cookie, state):
+        raise PermissionError("OIDC login state is not bound to this browser")
+    with AUTH_LOCK:
+        login = OIDC_LOGIN_STATES.pop(state, None)
+    if not isinstance(login, dict) or time.time() - float(login.get("createdEpoch") or 0) > 600:
+        raise PermissionError("OIDC login state is invalid or expired")
+    policy = auth_policy()
+    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
+    token_endpoint = clean_optional_string(oidc.get("tokenEndpoint"), limit=1000)
+    client_id = clean_optional_string(oidc.get("clientId"), limit=500)
+    if not token_endpoint or not client_id:
+        raise RuntimeError("OIDC token endpoint and client ID are required")
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": str(login.get("redirectUri") or ""),
+        "client_id": client_id,
+        "code_verifier": str(login.get("verifier") or ""),
+    }
+    secret_env = clean_optional_string(oidc.get("clientSecretEnv"), limit=200) or OIDC_CLIENT_SECRET_ENV
+    client_secret = str(os.environ.get(secret_env) or "")
+    if client_secret:
+        form["client_secret"] = client_secret
+    request = Request(token_endpoint, data=urlencode(form).encode("utf-8"), headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+    with urlopen(request, timeout=15) as response:
+        token_payload = json.loads(response.read(1024 * 1024).decode("utf-8"))
+    id_token = str(token_payload.get("id_token") or "") if isinstance(token_payload, dict) else ""
+    if not id_token:
+        raise PermissionError("OIDC provider did not return an ID token")
+    session = issue_oidc_exchange_session(id_token, expected_nonce=str(login.get("nonce") or ""))
+    csrf = secrets.token_urlsafe(32)
+    return session, csrf
 
 
 def latest_integrity_hash(mission_id: str) -> str:
@@ -2392,6 +2873,7 @@ def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
         # control-plane administrator. Privilege elevation remains an explicit
         # approval inside the mission lifecycle.
         "ingressRole": "user",
+        "serviceUserId": clean_optional_string(item.get("serviceUserId"), limit=200),
         "exportPath": clean_optional_string(item.get("exportPath"), limit=1000),
         "events": clean_string_list(item.get("events"), limit=40),
     }
@@ -2559,6 +3041,7 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
     connectors = registry.get("connectors") if isinstance(registry.get("connectors"), list) else []
     enabled = [item for item in connectors if isinstance(item, dict) and item.get("enabled") and not item.get("locked")]
     oidc = auth.get("oidc") if isinstance(auth.get("oidc"), dict) else {}
+    authorization = auth.get("authorization") if isinstance(auth.get("authorization"), dict) else {}
     kms = auth.get("kms") if isinstance(auth.get("kms"), dict) else {}
     execution_boundary = policy.get("executionBoundary") if isinstance(policy.get("executionBoundary"), dict) else {}
     signer = evidence_signer_health(auth)
@@ -2641,8 +3124,17 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "id": "baseline-auth",
             "label": "Baseline identity",
             "alpha": auth.get("enforcementMode") == "signed-session-required-for-control-plane",
-            "production": bool(oidc.get("enabled")),
-            "detail": "Signed sessions are required for guarded execution; RS256/OIDC validation is available when configured.",
+            "production": bool(
+                identity_mode(auth) == "oidc-required"
+                and oidc.get("enabled")
+                and oidc.get("issuer")
+                and (oidc.get("jwksUrl") or oidc.get("jwksPath") or oidc.get("jwks"))
+                and oidc.get("authorizationEndpoint")
+                and oidc.get("tokenEndpoint")
+                and oidc.get("clientId")
+                and authorization.get("preventSelfApproval") is True
+            ),
+            "detail": "Production fails closed on OIDC, maps identities to server-owned user/org authorization, and prevents self-approval.",
         },
     ]
     alpha_score = round(100 * sum(1 for item in checks if item["alpha"]) / len(checks))
@@ -2671,7 +3163,8 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             item for item in [
                 None if private_runner.get("productionEligible") and private_runner.get("isolationLevel") == "container" else "Build and select the hardened private-runner image for container-isolated execution.",
                 None if signer.get("ok") and kms.get("requireExternalSigning") else "Back evidence signing with a customer-controlled KMS or external signing command.",
-                None if oidc.get("enabled") else "Configure an OIDC issuer/JWKS for organization identity verification.",
+                None if identity_mode(auth) == "oidc-required" and oidc.get("enabled") and oidc.get("issuer") and oidc.get("authorizationEndpoint") and oidc.get("tokenEndpoint") and oidc.get("clientId") else "Configure the fail-closed OIDC browser/session boundary, issuer/JWKS, and client endpoints.",
+                None if authorization.get("preventSelfApproval") is True else "Enable separation of duties for mission approvals.",
                 None if native_ready else "Configure signed ingress and native egress credentials for at least one GitHub, Slack, or Jira workflow.",
                 None if runner_enforced else "Force executable agent actions through the guarded control-plane runner.",
             ]
@@ -3209,14 +3702,34 @@ def process_workflow_ingress(source: str, headers: Any, raw_body: bytes, content
             "event": event,
         })
     actor = event.get("actor") if isinstance(event.get("actor"), dict) else {}
+    mapped_actor = resolve_external_identity(source, actor, connector)
+    if not mapped_actor and identity_mode() == "oidc-required":
+        denied = {
+            "schemaVersion": 1,
+            "ok": False,
+            "status": "denied",
+            "duplicate": False,
+            "event": event,
+            "error": f"{source} actor is not mapped to an active registered user",
+        }
+        atomic_write_json(receipt_path, denied)
+        append_auth_audit("workflow-identity-denied", ok=False, details={"source": source, "externalActor": actor.get("id") or actor.get("name")})
+        return 403, denied
+    if not mapped_actor:
+        mapped_actor = {
+            "actorId": f"{source}:{actor.get('id') or actor.get('name') or 'external-user'}",
+            "role": corporate_role(str(connector.get("ingressRole") or "user")),
+            "organizationId": str(organization_registry().get("activeOrganizationId") or ""),
+        }
     try:
         started = start_orchestrated_mission(
             "investigate",
             str(event.get("objective") or "")[:12000],
             mock=False,
             profile=active_runtime_profile(),
-            operator_role=corporate_role(str(connector.get("ingressRole") or "user")),
-            actor_user_id=f"{source}:{actor.get('id') or actor.get('name') or 'external-user'}",
+            operator_role=corporate_role(str(mapped_actor.get("role") or "user")),
+            actor_user_id=str(mapped_actor.get("actorId") or "external-user"),
+            organization_id=str(mapped_actor.get("organizationId") or ""),
             workflow_origin=event.get("origin"),
         )
     except Exception as exc:  # noqa: BLE001
@@ -3810,8 +4323,23 @@ def append_mission_audit(
     return event
 
 
-def mission_list(role: str = "user", limit: int = 25) -> dict[str, Any]:
+def mission_visible_to_actor(record: dict[str, Any], actor: dict[str, Any]) -> bool:
+    role = corporate_role(str(actor.get("role") or "user"))
+    actor_id = str(actor.get("actorId") or "")
+    actor_orgs = set(clean_string_list(actor.get("organizationIds"), limit=50))
+    if actor.get("organizationId"):
+        actor_orgs.add(str(actor.get("organizationId")))
+    mission_org = str(record.get("organizationId") or "")
+    if mission_org and actor_orgs and mission_org not in actor_orgs:
+        return False
+    mission_users = record.get("missionUsers") if isinstance(record.get("missionUsers"), list) else []
+    assigned_ids = {str(user.get("id")) for user in mission_users if isinstance(user, dict) and user.get("id")}
+    return role in {"owner", "admin"} or actor_id == str(record.get("actorUserId") or "") or actor_id in assigned_ids
+
+
+def mission_list(role: str = "user", limit: int = 25, actor: dict[str, Any] | None = None) -> dict[str, Any]:
     selected = corporate_role(role)
+    selected_actor = actor or {"actorId": selected, "role": selected, "organizationIds": []}
     records: list[dict[str, Any]] = []
     for path in sorted(MISSION_ROOT.glob("ms-*/mission.json")) if MISSION_ROOT.exists() else []:
         try:
@@ -3820,10 +4348,8 @@ def mission_list(role: str = "user", limit: int = 25) -> dict[str, Any]:
             continue
         if not isinstance(payload, dict):
             continue
-        mission_users = payload.get("missionUsers") if isinstance(payload.get("missionUsers"), list) else []
-        mission_roles = {corporate_role(str(user.get("role"))) for user in mission_users if isinstance(user, dict)}
-        visible = selected in {"owner", "admin"} or payload.get("operatorRole") in {selected, "user"} or selected in mission_roles
-        if visible:
+        legacy_visible = selected in {"owner", "admin"} or payload.get("operatorRole") in {selected, "user"}
+        if mission_visible_to_actor(payload, selected_actor) if actor is not None else legacy_visible:
             records.append(payload)
     records.sort(key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
     return {
@@ -3834,14 +4360,16 @@ def mission_list(role: str = "user", limit: int = 25) -> dict[str, Any]:
     }
 
 
-def mission_detail(mission_id: str, role: str = "user") -> dict[str, Any]:
+def mission_detail(mission_id: str, role: str = "user", actor: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id, include_audit=True)
     if record is None:
         return {"ok": False, "error": "mission not found"}
     selected = corporate_role(role)
+    selected_actor = actor or {"actorId": selected, "role": selected, "organizationIds": []}
     mission_users = record.get("missionUsers") if isinstance(record.get("missionUsers"), list) else []
     mission_roles = {corporate_role(str(user.get("role"))) for user in mission_users if isinstance(user, dict)}
-    if selected not in {"owner", "admin"} and record.get("operatorRole") not in {selected, "user"} and selected not in mission_roles:
+    legacy_visible = selected in {"owner", "admin"} or record.get("operatorRole") in {selected, "user"} or selected in mission_roles
+    if not (mission_visible_to_actor(record, selected_actor) if actor is not None else legacy_visible):
         return {"ok": False, "error": "mission is not visible from this endpoint"}
     return {"ok": True, "role": selected, "mission": record}
 
@@ -4374,6 +4902,9 @@ def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[st
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(data)))
     handler.send_header("Cache-Control", "no-store")
+    for name, value in getattr(handler, "response_headers", []):
+        handler.send_header(str(name), str(value))
+    handler.response_headers = []
     handler.end_headers()
     handler.wfile.write(data)
 
@@ -4384,6 +4915,9 @@ def html_response(handler: BaseHTTPRequestHandler, status: int, html: str) -> No
     handler.send_header("Content-Type", "text/html; charset=utf-8")
     handler.send_header("Content-Length", str(len(data)))
     handler.send_header("Cache-Control", "no-store")
+    for name, value in getattr(handler, "response_headers", []):
+        handler.send_header(str(name), str(value))
+    handler.response_headers = []
     handler.end_headers()
     handler.wfile.write(data)
 
@@ -5218,7 +5752,7 @@ def run_coordinator_report(task_id: str, question: str, messages: list[dict[str,
 
 def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile: str | None = None,
               operator_role: str | None = None, uploads: Any = None, work_mode: str | None = None,
-              actor_user_id: str | None = None) -> str:
+              actor_user_id: str | None = None, organization_id: str | None = None) -> str:
     job_id = secrets.token_urlsafe(12)
     mission_id = "ms-" + secrets.token_hex(12)
     # The task id is minted here, not inside the run, so that a failed job still
@@ -5233,6 +5767,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
     snapshot_policy = runtime.get("snapshotPolicy") if isinstance(runtime.get("snapshotPolicy"), dict) else {}
     operator = corporate_role(operator_role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
+    selected_organization_id = clean_optional_string(organization_id, limit=120) or str(organization_registry().get("activeOrganizationId") or "")
     mode = normalize_work_mode(work_mode)
     mode_context = (
         "# Work mode\n\n"
@@ -5267,6 +5802,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
                "taskId": task_id, "mock": mock, "question": question, "scope": scope,
                "profile": selected_profile, "missionId": mission_id, "operatorRole": operator,
                "actorUserId": actor_id,
+               "organizationId": selected_organization_id,
                "workMode": mode,
                "messages": messages,
                "chatUploads": upload_summaries,
@@ -5286,6 +5822,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         state="waiting_for_decision" if initial_decision_demo else "running",
         operatorRole=operator,
         actorUserId=actor_id,
+        organizationId=selected_organization_id,
         mock=mock,
         missionKind="advisory-chat",
         question=question[:12000],
@@ -5511,9 +6048,11 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
     return job_id
 
 
-def mission_visible_to(record: dict[str, Any], role: str) -> bool:
+def mission_visible_to(record: dict[str, Any], role: str, actor: dict[str, Any] | None = None) -> bool:
     selected = corporate_role(role)
-    return selected in {"owner", "admin"} or record.get("operatorRole") in {selected, "user"}
+    if actor is None:
+        return selected in {"owner", "admin"} or record.get("operatorRole") in {selected, "user"}
+    return mission_visible_to_actor(record, actor)
 
 
 def mission_node_approved(record: dict[str, Any], node_id: str) -> bool:
@@ -6080,7 +6619,7 @@ def run_delivery_private_runner(
         "environment": scoped_environment,
         "stdin": stdin_text,
     }
-    signing_key = base64.b64encode(auth_signing_key())
+    signing_key = base64.b64encode(private_runner_signing_key())
     request_hash = canonical_json_hash(request)
     request["attestation"] = {
         "algorithm": "hmac-sha256",
@@ -7215,6 +7754,7 @@ def control_plane_execute_action(payload: dict[str, Any], actor: dict[str, str])
         state="running",
         operatorRole=corporate_role(actor.get("role")),
         actorUserId=actor.get("actorId") or actor.get("role") or "control-plane",
+        organizationId=actor.get("organizationId") or str(organization_registry().get("activeOrganizationId") or ""),
         mock=bool(payload.get("mock")),
         controlPlaneExecution=True,
         controlPlaneEntrypoint="api-or-cli",
@@ -7771,6 +8311,7 @@ def start_orchestrated_mission(
     domain_capability_keys: Any = None,
     delivery_context: Any = None,
     actor_user_id: str | None = None,
+    organization_id: str | None = None,
     workflow_origin: Any = None,
 ) -> dict[str, Any]:
     template = mission_template(template_id)
@@ -7778,6 +8319,7 @@ def start_orchestrated_mission(
         raise ValueError("mission template is not available")
     operator = corporate_role(operator_role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
+    selected_organization_id = clean_optional_string(organization_id, limit=120) or str(organization_registry().get("activeOrganizationId") or "")
     if operator not in set(template.get("allowedRoles", [])):
         raise ValueError("this endpoint cannot start that mission template")
     clean_objective = objective.strip()
@@ -7814,6 +8356,7 @@ def start_orchestrated_mission(
             "controlPlaneEntrypoint": "mission-orchestrator" if template_id == "delivery-execution" else "",
             "operatorRole": operator,
             "actorUserId": actor_id,
+            "organizationId": selected_organization_id,
             "missionUsers": users,
             "capabilityWorkSet": work_set,
             "deliveryContext": delivery,
@@ -7832,6 +8375,7 @@ def start_orchestrated_mission(
         state="running",
         operatorRole=operator,
         actorUserId=actor_id,
+        organizationId=selected_organization_id,
         mock=mock,
         missionKind="orchestrated",
         templateId=template_id,
@@ -7900,14 +8444,18 @@ def start_orchestrated_mission(
     return {"ok": True, "missionId": mission_id, "jobId": job_id, "taskId": task_id, "state": "running"}
 
 
-def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: str | None = None) -> dict[str, Any]:
+def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: str | None = None, actor_context: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id)
     if not record:
         raise KeyError("mission not found")
     operator = corporate_role(role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
-    if operator not in {"owner", "admin", "publisher"} or not mission_visible_to(record, operator):
+    if operator not in {"owner", "admin", "publisher"} or not mission_visible_to(record, operator, actor_context):
         raise PermissionError("this endpoint cannot approve the mission")
+    authorization = auth_policy().get("authorization")
+    prevent_self = not isinstance(authorization, dict) or authorization.get("preventSelfApproval") is not False
+    if prevent_self and (actor_context is not None or identity_mode() == "oidc-required") and actor_id == str(record.get("actorUserId") or ""):
+        raise PermissionError("separation of duties prevents a mission initiator from approving the same mission")
     nodes = [node for node in record.get("nodes", []) if isinstance(node, dict)]
     node = next((item for item in nodes if item.get("state") == "waiting_for_approval"), None)
     if not node:
@@ -7919,6 +8467,7 @@ def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: s
         "decision": "approved",
         "approvedAt": utc_now(),
         "actorRole": operator,
+        "actorId": actor_id,
         "note": note.strip()[:2000],
     }
     with MISSION_LOCK:
@@ -7947,13 +8496,13 @@ def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: s
     return {"ok": True, "missionId": mission_id, "approval": approval, "state": "running"}
 
 
-def pause_mission(mission_id: str, role: str, actor_user_id: str | None = None) -> dict[str, Any]:
+def pause_mission(mission_id: str, role: str, actor_user_id: str | None = None, actor_context: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id)
     if not record:
         raise KeyError("mission not found")
     operator = corporate_role(role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
-    if not mission_visible_to(record, operator):
+    if not mission_visible_to(record, operator, actor_context):
         raise PermissionError("mission is not visible from this endpoint")
     state = str(record.get("state") or "")
     if state not in {"running", "waiting_for_approval"}:
@@ -7972,13 +8521,13 @@ def pause_mission(mission_id: str, role: str, actor_user_id: str | None = None) 
     return {"ok": True, "missionId": mission_id, "state": "paused"}
 
 
-def resume_mission(mission_id: str, role: str, actor_user_id: str | None = None) -> dict[str, Any]:
+def resume_mission(mission_id: str, role: str, actor_user_id: str | None = None, actor_context: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id)
     if not record:
         raise KeyError("mission not found")
     operator = corporate_role(role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
-    if not mission_visible_to(record, operator):
+    if not mission_visible_to(record, operator, actor_context):
         raise PermissionError("mission is not visible from this endpoint")
     if str(record.get("state") or "") not in {"paused", "waiting_for_approval", "running"}:
         raise RuntimeError("mission cannot be resumed")
@@ -8045,6 +8594,24 @@ def supervise_missions_on_startup() -> dict[str, Any]:
 class Handler(BaseHTTPRequestHandler):
     server_version = "SteelMission/0.1"
 
+    def redirect(self, location: str, status: int = 303) -> None:
+        self.send_response(status)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        for name, value in getattr(self, "response_headers", []):
+            self.send_header(str(name), str(value))
+        self.response_headers = []
+        self.end_headers()
+
+    def authenticate(self, path: str, method: str) -> dict[str, Any] | None:
+        try:
+            actor = authenticate_http_request(self, path, method)
+            self.auth_actor = actor
+            return actor
+        except PermissionError as exc:
+            json_response(self, 401, {"ok": False, "error": str(exc), "loginPath": "/auth/login"})
+            return None
+
     def do_HEAD(self) -> None:
         path = urlparse(self.path).path
         if is_page_path(path):
@@ -8068,24 +8635,68 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path == "/auth/login":
+            try:
+                location = begin_oidc_login(self)
+                state = (parse_qs(urlparse(location).query).get("state") or [""])[0]
+                secure = "; Secure" if oidc_redirect_uri(self, auth_policy().get("oidc", {})).startswith("https://") else ""
+                self.response_headers = [("Set-Cookie", f"present_oidc_state={state}; Path=/auth/callback; HttpOnly; SameSite=Lax; Max-Age=600{secure}")]
+                self.redirect(location)
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+            return
+        if path == "/auth/callback":
+            try:
+                session, csrf = complete_oidc_login(self, parse_qs(urlparse(self.path).query))
+                secure = "; Secure" if oidc_redirect_uri(self, auth_policy().get("oidc", {})).startswith("https://") else ""
+                self.response_headers = [
+                    ("Set-Cookie", f"present_session={session['accessToken']}; Path=/; HttpOnly; SameSite=Lax{secure}"),
+                    ("Set-Cookie", f"present_csrf={csrf}; Path=/; SameSite=Lax{secure}"),
+                    ("Set-Cookie", f"present_oidc_state=; Path=/auth/callback; HttpOnly; SameSite=Lax; Max-Age=0{secure}"),
+                ]
+                self.redirect("/")
+            except Exception as exc:  # noqa: BLE001
+                append_auth_audit("oidc-login-failed", ok=False, details={"error": str(exc)})
+                json_response(self, 401, {"ok": False, "error": str(exc), "loginPath": "/auth/login"})
+            return
+        actor: dict[str, Any] | None = None
+        if path.startswith("/api/") and path != "/api/health":
+            actor = self.authenticate(path, "GET")
+            if actor is None:
+                return
+        elif path.startswith(("/job/", "/mission/")) and identity_mode() == "oidc-required":
+            actor = self.authenticate(path, "GET")
+            if actor is None:
+                return
         if path in {"/api/owner/workspace", "/api/admin/workspace", "/api/publisher/workspace", "/api/user/workspace"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, corporate_workspace(role))
             return
         if path in {"/api/owner/assignments", "/api/admin/assignments"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
+            if role not in {"owner", "admin"}:
+                json_response(self, 403, {"ok": False, "error": "owner or admin role is required"})
+                return
             payload = corporate_workspace(role)
             json_response(self, 200, {"ok": True, "role": payload["role"], "assignments": payload["assignments"]})
             return
         if path in {"/api/owner/organizations", "/api/admin/organizations", "/api/publisher/organizations", "/api/user/organizations"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             registry = organization_registry()
-            active = active_organization()
-            payload = registry if role in {"owner", "admin"} else {
+            actor_org_ids = set(clean_string_list(actor.get("organizationIds"), limit=50)) if actor else set()
+            visible_organizations = [
+                item for item in registry.get("organizations", [])
+                if isinstance(item, dict) and (not actor_org_ids or item.get("id") in actor_org_ids)
+            ]
+            actor_active_id = str(actor.get("organizationId") if actor else registry.get("activeOrganizationId") or "")
+            active = next((item for item in visible_organizations if item.get("id") == actor_active_id), visible_organizations[0] if visible_organizations else {})
+            payload = {
                 "schemaVersion": 1,
                 "activeOrganizationId": active.get("id") or "",
-                "organizations": [active] if active else [],
+                "organizations": visible_organizations,
             }
+            if role in {"owner", "admin"}:
+                payload = {**registry, **payload}
             json_response(self, 200, {
                 "ok": True,
                 "role": role,
@@ -8095,14 +8706,14 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         if path in {"/api/owner/knowledge", "/api/admin/knowledge", "/api/publisher/knowledge", "/api/user/knowledge"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             payload = knowledge_registry()
             payload["role"] = role
             payload["canManageGeneralKnowledge"] = role in {"owner", "admin"}
             json_response(self, 200 if payload.get("ok") else 503, payload)
             return
         if path in {"/api/owner/knowledge/prepared", "/api/admin/knowledge/prepared"}:
-            actor = actor_from_request(self, path.strip("/").split("/")[1])
+            actor = actor or {"actorId": "user", "role": "user"}
             try:
                 require_actor_role(actor, {"owner", "admin"})
                 json_response(self, 200, {"ok": True, "payload": prepare_knowledge_snapshot_payload(active_runtime_profile())})
@@ -8110,7 +8721,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, 403, {"ok": False, "error": str(exc)})
             return
         if path in {"/api/owner/users", "/api/admin/users", "/api/publisher/users", "/api/user/users"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             payload = user_registry()
             payload["role"] = role
             payload["canManageUsers"] = role in {"owner", "admin"}
@@ -8123,20 +8734,20 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, **payload})
             return
         if path in {"/api/owner/missions", "/api/admin/missions", "/api/publisher/missions", "/api/user/missions"}:
-            role = path.strip("/").split("/")[1]
-            json_response(self, 200, mission_list(role))
+            role = corporate_role(str(actor.get("role") if actor else "user"))
+            json_response(self, 200, mission_list(role, actor=actor))
             return
         if path in {"/api/owner/mutations", "/api/admin/mutations", "/api/publisher/mutations", "/api/user/mutations"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             payload = read_mutation_ledger(role)
             json_response(self, 200 if payload.get("ok") else 403, payload)
             return
         if path in {"/api/owner/integrations", "/api/admin/integrations", "/api/publisher/integrations", "/api/user/integrations"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, integration_registry(role))
             return
         if path in {"/api/owner/control-policy", "/api/admin/control-policy", "/api/publisher/control-policy", "/api/user/control-policy"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             policy = control_policy()
             if role not in {"owner", "admin"}:
                 policy = {
@@ -8148,7 +8759,7 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, "role": role, "policy": policy, "canManagePolicy": role in {"owner", "admin"}})
             return
         if path in {"/api/owner/auth-policy", "/api/admin/auth-policy", "/api/publisher/auth-policy", "/api/user/auth-policy"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             policy = auth_policy()
             if role not in {"owner", "admin"}:
                 policy = {
@@ -8160,18 +8771,21 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, "role": role, "policy": policy, "canManagePolicy": role in {"owner", "admin"}})
             return
         if path in {"/api/owner/mission-templates", "/api/admin/mission-templates", "/api/publisher/mission-templates", "/api/user/mission-templates"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, public_mission_templates(role))
             return
         if path.startswith("/api/missions/"):
             parts = path.strip("/").split("/")
+            role = corporate_role(str(actor.get("role") if actor else "user"))
+            visible_detail = mission_detail(parts[2], role, actor=actor) if len(parts) >= 3 else {"ok": False}
+            if not visible_detail.get("ok"):
+                json_response(self, 403, visible_detail)
+                return
             if len(parts) == 4 and parts[3] == "proof":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
                 payload = mission_proof_bundle(parts[2], role)
                 json_response(self, 200 if payload.get("ok") else 404, payload)
                 return
             if len(parts) == 4 and parts[3] == "report":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
                 payload = mission_report_markdown(parts[2], role)
                 if payload.get("ok"):
                     text_response(self, 200, str(payload.get("markdown") or ""), "text/markdown; charset=utf-8")
@@ -8179,7 +8793,6 @@ class Handler(BaseHTTPRequestHandler):
                     json_response(self, 404, payload)
                 return
             if len(parts) == 4 and parts[3] == "siem":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
                 payload = mission_siem_jsonl(parts[2], role)
                 if payload.get("ok"):
                     text_response(self, 200, str(payload.get("jsonl") or ""), "application/x-ndjson; charset=utf-8")
@@ -8187,8 +8800,7 @@ class Handler(BaseHTTPRequestHandler):
                     json_response(self, 403 if payload.get("status") == "locked" else 404, payload)
                 return
             if len(parts) == 4 and parts[3] == "export":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
-                detail = mission_detail(parts[2], role)
+                detail = visible_detail
                 if not detail.get("ok"):
                     json_response(self, 404, detail)
                     return
@@ -8207,8 +8819,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             if len(parts) == 3:
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
-                payload = mission_detail(parts[2], role)
+                payload = visible_detail
                 json_response(self, 200 if payload.get("ok") else 404, payload)
                 return
         if path == "/api/health":
@@ -8226,16 +8837,23 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, "registry": model_role_registry()})
             return
         if path == "/api/integrations":
-            json_response(self, 200, integration_registry("user"))
+            json_response(self, 200, integration_registry(str(actor.get("role") if actor else "user")))
             return
         if path == "/api/control-policy":
             json_response(self, 200, {"ok": True, "policy": control_policy()})
             return
         if path == "/api/auth-policy":
-            json_response(self, 200, {"ok": True, "policy": auth_policy()})
+            policy = auth_policy()
+            if corporate_role(str(actor.get("role") if actor else "user")) not in {"owner", "admin"}:
+                policy = {"policyId": policy.get("policyId"), "identityBoundary": policy.get("identityBoundary"), "oidc": {"enabled": policy.get("oidc", {}).get("enabled") is True}}
+            json_response(self, 200, {"ok": True, "policy": policy})
+            return
+        if path == "/api/auth/whoami":
+            public_actor = {key: actor.get(key) for key in ("actorId", "role", "organizationId", "organizationIds", "capabilities", "identitySource", "sessionVerified") if actor and key in actor}
+            json_response(self, 200, {"ok": True, "actor": public_actor, "identityMode": identity_mode()})
             return
         if path == "/api/control-plane/readiness":
-            role = parse_qs(urlparse(self.path).query).get("role", ["admin"])[0]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, control_plane_production_readiness(role))
             return
         if path == "/api/knowledge":
@@ -8252,6 +8870,9 @@ class Handler(BaseHTTPRequestHandler):
             if payload is None:
                 json_response(self, 404, {"ok": False, "error": "chat job not found"})
                 return
+            if not mission_visible_to_actor(payload, actor or {"actorId": "user", "role": "user"}):
+                json_response(self, 403, {"ok": False, "error": "chat job is not visible to this actor"})
+                return
             json_response(self, 200, job_api_payload(job_id, payload))
             return
         if path.startswith("/job/"):
@@ -8261,10 +8882,16 @@ class Handler(BaseHTTPRequestHandler):
             if payload is None:
                 html_response(self, 404, render_shell('<section class="panel"><h2>Job not found</h2><p><a href="/">Ask a question</a></p></section>'))
                 return
+            if actor is not None and not mission_visible_to_actor(payload, actor):
+                json_response(self, 403, {"ok": False, "error": "job is not visible to this actor"})
+                return
             html_response(self, 200, render_job(job_id, payload))
             return
         if path.startswith("/mission/"):
-            role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
+            role = corporate_role(str(actor.get("role") if actor else parse_qs(urlparse(self.path).query).get("role", ["user"])[0]))
+            if actor is not None and not mission_detail(path.rsplit("/", 1)[-1], role, actor=actor).get("ok"):
+                json_response(self, 403, {"ok": False, "error": "mission is not visible to this actor"})
+                return
             html_response(self, 200, render_mission_detail_page(path.rsplit("/", 1)[-1], role))
             return
         if is_page_path(path):
@@ -8302,10 +8929,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             json_response(self, status, payload)
             return
+        actor: dict[str, Any] | None = None
+        if path.startswith("/api/") and path != "/api/auth/session":
+            actor = self.authenticate(path, "POST")
+            if actor is None:
+                return
+        elif path == "/ask" and identity_mode() == "oidc-required":
+            actor = self.authenticate(path, "POST")
+            if actor is None:
+                return
         if path in {"/api/owner/assignments", "/api/admin/assignments"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_domain_capability_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -8316,7 +8952,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/knowledge", "/api/admin/knowledge"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_general_knowledge_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -8327,7 +8963,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/organizations", "/api/admin/organizations"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_organization_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -8338,7 +8974,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/knowledge/upload", "/api/admin/knowledge/upload"}:
             try:
                 body = read_json(self, MAX_UPLOAD_REQUEST_BYTES)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 payload = upload_organization_knowledge(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -8349,7 +8985,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/users", "/api/admin/users"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_user_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -8363,18 +8999,16 @@ class Handler(BaseHTTPRequestHandler):
                 template_id = body.get("templateId")
                 objective = body.get("objective")
                 profile = body.get("profile")
-                operator = body.get("operatorRole")
                 if not isinstance(template_id, str) or not template_id.strip():
                     raise ValueError("templateId is required")
                 if not isinstance(objective, str) or not objective.strip():
                     raise ValueError("objective is required")
                 if profile is not None and not isinstance(profile, str):
                     raise ValueError("profile must be a string")
-                if operator is not None and not isinstance(operator, str):
-                    raise ValueError("operatorRole must be a string")
-                actor = actor_from_payload(body, operator.strip() if isinstance(operator, str) else "user")
+                actor = actor or {"actorId": "user", "role": "user", "organizationId": str(organization_registry().get("activeOrganizationId") or "")}
                 user_ids = clean_string_list(body.get("userIds"), limit=50)
                 domain_capability_keys = clean_string_list(body.get("domainCapabilityKeys"), limit=50)
+                authorize_mission_bindings(actor, user_ids, domain_capability_keys)
                 delivery_context = normalize_delivery_context(body.get("delivery"))
                 payload = start_orchestrated_mission(
                     template_id.strip(),
@@ -8386,6 +9020,7 @@ class Handler(BaseHTTPRequestHandler):
                     domain_capability_keys=domain_capability_keys,
                     delivery_context=delivery_context,
                     actor_user_id=actor["actorId"],
+                    organization_id=str(actor.get("organizationId") or ""),
                     workflow_origin=body.get("origin"),
                 )
             except PermissionError as exc:
@@ -8399,7 +9034,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/control-policy", "/api/admin/control-policy"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 policy = save_control_policy(body, actor["role"])
             except PermissionError as exc:
@@ -8413,7 +9048,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/integrations", "/api/admin/integrations"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_integration_registry(body, actor["role"])
             except PermissionError as exc:
@@ -8427,7 +9062,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/auth-policy", "/api/admin/auth-policy"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 policy = save_auth_policy(body, actor["role"])
             except PermissionError as exc:
@@ -8441,25 +9076,40 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/session":
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, str(body.get("operatorRole") or "user"))
-                payload = issue_control_plane_session(actor["actorId"], actor["role"])
+                oidc_token = str(body.get("oidcToken") or body.get("idToken") or "")
+                if oidc_token:
+                    payload = issue_oidc_exchange_session(oidc_token)
+                else:
+                    if identity_mode() != "development-local" or not is_loopback_request(self):
+                        raise PermissionError("OIDC token exchange is required")
+                    local_actor = actor_from_payload(body, str(body.get("operatorRole") or "user"))
+                    payload = issue_control_plane_session(local_actor["actorId"], local_actor["role"])
+                append_auth_audit("session-issued", str(payload.get("claims", {}).get("sub") or ""), details={"authnMethod": payload.get("claims", {}).get("authn_method")})
+            except PermissionError as exc:
+                json_response(self, 403, {"ok": False, "error": str(exc)})
+                return
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
                 return
             json_response(self, 200, {"ok": True, "session": payload, "payload": payload})
             return
+        if path == "/api/auth/logout":
+            try:
+                payload = revoke_control_plane_session(str(actor.get("accessToken") or ""), str(actor.get("actorId") or "")) if actor else {"ok": True}
+                self.response_headers = [
+                    ("Set-Cookie", "present_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
+                    ("Set-Cookie", "present_csrf=; Path=/; SameSite=Lax; Max-Age=0"),
+                ]
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+                return
+            json_response(self, 200, payload)
+            return
         if path == "/api/control-plane/execute":
             try:
                 body = read_json(self)
-                session = verify_control_plane_session(str(body.get("accessToken") or body.get("session") or bearer_token_from_handler(self)))
-                if session.get("ok") is not True:
-                    raise PermissionError(str(session.get("error") or "signed session is required"))
-                actor = {
-                    "actorId": str(session.get("actorId") or ""),
-                    "role": corporate_role(str(session.get("role") or "user")),
-                    "authPolicyHash": str(session.get("authPolicyHash") or ""),
-                    "sessionVerified": True,
-                }
+                if not actor or actor.get("sessionVerified") is not True:
+                    raise PermissionError("signed session is required")
                 payload = control_plane_execute_action(body, actor)
             except PermissionError as exc:
                 json_response(self, 401, {"ok": False, "error": str(exc)})
@@ -8477,19 +9127,16 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) != 4 or parts[0] != "api" or parts[1] != "missions":
                     raise ValueError("invalid mission action path")
                 body = read_json(self)
-                role = body.get("operatorRole")
-                if role is not None and not isinstance(role, str):
-                    raise ValueError("operatorRole must be a string")
-                actor = actor_from_payload(body, role.strip() if isinstance(role, str) and role.strip() else "user")
+                actor = actor or {"actorId": "user", "role": "user"}
                 if parts[3] == "approve":
                     note = body.get("note", "")
                     if not isinstance(note, str):
                         raise ValueError("note must be a string")
-                    payload = approve_mission(parts[2], actor["role"], note, actor["actorId"])
+                    payload = approve_mission(parts[2], actor["role"], note, actor["actorId"], actor)
                 elif parts[3] == "pause":
-                    payload = pause_mission(parts[2], actor["role"], actor["actorId"])
+                    payload = pause_mission(parts[2], actor["role"], actor["actorId"], actor)
                 else:
-                    payload = resume_mission(parts[2], actor["role"], actor["actorId"])
+                    payload = resume_mission(parts[2], actor["role"], actor["actorId"], actor)
             except KeyError as exc:
                 json_response(self, 404, {"ok": False, "error": str(exc)})
                 return
@@ -8507,6 +9154,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/runtime-profiles/validate":
             try:
                 body = read_json(self)
+                require_actor_role(actor or {}, {"owner", "admin"})
                 profile = body.get("profile")
                 if not isinstance(profile, dict):
                     raise ValueError("profile is required")
@@ -8519,7 +9167,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/runtime-profiles/save":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 profile = body.get("profile")
                 if not isinstance(profile, dict):
                     raise ValueError("profile is required")
@@ -8542,7 +9191,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/runtime-profiles/clone":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 source = body.get("sourceId")
                 new_id = body.get("newId")
                 label = body.get("label") or ""
@@ -8572,7 +9222,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/model-roles/save":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 role = body.get("role")
                 if not isinstance(role, dict):
                     raise ValueError("role is required")
@@ -8595,7 +9246,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/model-roles/delete":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 role_id = body.get("roleId")
                 if not isinstance(role_id, str) or not role_id.strip():
                     raise ValueError("roleId is required")
@@ -8625,7 +9277,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not question:
                     raise ValueError("question is required")
                 profile = (form.get("profile") or [""])[0].strip() or None
-                job_id = start_job(question[:12000], [], bool(form.get("mock")), profile)
+                job_id = start_job(
+                    question[:12000], [], bool(form.get("mock")), profile,
+                    str(actor.get("role") if actor else "user"), actor_user_id=str(actor.get("actorId") if actor else "user"),
+                    organization_id=str(actor.get("organizationId") if actor else ""),
+                )
             except Exception as exc:  # noqa: BLE001
                 html_response(self, 400, render_shell(f'<section class="panel"><h2>Could not start DC13</h2><p>{escape_html(exc)}</p><p><a href="/">Try again</a></p></section>'))
                 return
@@ -8642,6 +9298,12 @@ class Handler(BaseHTTPRequestHandler):
                 content = body.get("content")
                 if not isinstance(content, str) or not content.strip():
                     raise ValueError("follow-up is required")
+                with JOBS_LOCK:
+                    existing_job = dict(JOBS.get(parts[2], {}))
+                if not existing_job:
+                    raise KeyError("chat job not found")
+                if not mission_visible_to_actor(existing_job, actor or {"actorId": "user", "role": "user"}):
+                    raise PermissionError("chat job is not visible to this actor")
                 event = append_follow_up(parts[2], content)
                 with JOBS_LOCK:
                     payload = dict(JOBS.get(parts[2], {}))
@@ -8650,6 +9312,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             except RuntimeError as exc:
                 json_response(self, 409, {"ok": False, "error": str(exc)})
+                return
+            except PermissionError as exc:
+                json_response(self, 403, {"ok": False, "error": str(exc)})
                 return
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
@@ -8670,6 +9335,12 @@ class Handler(BaseHTTPRequestHandler):
                     option_id = ""
                 if not isinstance(free_text, str):
                     raise ValueError("decision free text must be a string")
+                with JOBS_LOCK:
+                    existing_job = dict(JOBS.get(parts[2], {}))
+                if not existing_job:
+                    raise KeyError("chat job not found")
+                if not mission_visible_to_actor(existing_job, actor or {"actorId": "user", "role": "user"}):
+                    raise PermissionError("chat job is not visible to this actor")
                 event = append_decision_response(parts[2], option_id, free_text)
                 with JOBS_LOCK:
                     payload = dict(JOBS.get(parts[2], {}))
@@ -8678,6 +9349,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             except RuntimeError as exc:
                 json_response(self, 409, {"ok": False, "error": str(exc)})
+                return
+            except PermissionError as exc:
+                json_response(self, 403, {"ok": False, "error": str(exc)})
                 return
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
@@ -8699,10 +9373,7 @@ class Handler(BaseHTTPRequestHandler):
             profile = body.get("profile")
             if profile is not None and not isinstance(profile, str):
                 raise ValueError("profile must be a string")
-            operator = body.get("operatorRole")
-            if operator is not None and not isinstance(operator, str):
-                raise ValueError("operatorRole must be a string")
-            actor = actor_from_payload(body, operator.strip() if isinstance(operator, str) else "user")
+            actor = actor or {"actorId": "user", "role": "user"}
             work_mode = body.get("workMode")
             if work_mode is not None and not isinstance(work_mode, str):
                 raise ValueError("workMode must be a string")
@@ -8711,7 +9382,7 @@ class Handler(BaseHTTPRequestHandler):
                                actor["role"],
                                uploads,
                                work_mode.strip() if isinstance(work_mode, str) and work_mode.strip() else None,
-                               actor["actorId"])
+                               actor["actorId"], str(actor.get("organizationId") or ""))
         except Exception as exc:  # noqa: BLE001
             json_response(self, 400, {"ok": False, "error": str(exc)})
             return
