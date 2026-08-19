@@ -66,12 +66,6 @@ CONNECTOR_WEBHOOK_SECRET_ENV = "PRESENT_CONNECTOR_WEBHOOK_SECRET"
 STEEL_MISSION_EDITION_ENV = "STEEL_MISSION_EDITION"
 STEEL_MISSION_LICENSE_KEY_ENV = "STEEL_MISSION_LICENSE_KEY"
 STEEL_MISSION_LICENSE_KEY_SHA256_ENV = "STEEL_MISSION_LICENSE_KEY_SHA256"
-ENTERPRISE_FEATURES = {
-    "oidc-jwks": "production OIDC/JWKS customer identity",
-    "external-signing": "customer KMS, Vault Transit, HSM, or equivalent external signing",
-    "siem-connectors": "SIEM/security-monitoring connectors and exports",
-}
-ENTERPRISE_CONNECTOR_IDS = {"siem"}
 MAX_REQUEST_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
 MAX_UPLOAD_REQUEST_BYTES = 36 * 1024 * 1024
@@ -316,6 +310,7 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
             "status": "active",
             "modelRole": model_policy.get("role") or active_coordinator_role(),
             "modelProvider": str(model_policy.get("provider") or active_coordinator_provider()),
+            "requiredProviderCapabilities": list(model_policy.get("requiredProviderCapabilities", [])),
             "snapshotProfile": model_policy.get("snapshotProfile") or "worker-local-default",
             "defaultFor": ["steel-mission-chat"],
             "editableBy": ["local-user"],
@@ -422,12 +417,30 @@ def knowledge_registry() -> dict[str, Any]:
         "capabilities": roles,
         "generalKnowledge": general_knowledge_registry(),
         "effectiveKnowledge": effective_knowledge_sources(),
+        "knowledgeQuality": knowledge_quality_report(),
         "organizationRegistry": organization_registry(),
         "activeOrganization": active_organization(),
     }
 
 
 def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, Any]:
+    def metadata(item: dict[str, Any]) -> dict[str, Any]:
+        max_age = item.get("maxAgeDays")
+        try:
+            max_age_days = max(1, min(int(max_age), 3650)) if max_age not in {None, ""} else None
+        except (TypeError, ValueError):
+            max_age_days = None
+        provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+        return {
+            **({"owner": str(item["owner"]).strip()[:160]} if item.get("owner") else {}),
+            **({"lastReviewedAt": str(item["lastReviewedAt"]).strip()[:64]} if item.get("lastReviewedAt") else {}),
+            **({"expiresAt": str(item["expiresAt"]).strip()[:64]} if item.get("expiresAt") else {}),
+            **({"maxAgeDays": max_age_days} if max_age_days is not None else {}),
+            "required": bool_from_payload(item.get("required"), True),
+            "authoritative": bool_from_payload(item.get("authoritative"), False),
+            **({"provenance": provenance} if provenance else {}),
+        }
+
     repositories = []
     for index, item in enumerate(payload.get("repositories", [])):
         if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item.get("path").strip():
@@ -439,6 +452,7 @@ def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, A
             "path": path,
             "exists": source_path.exists(),
             "sourceKind": "repository",
+            **metadata(item),
             **({"description": str(item["description"]).strip()} if item.get("description") else {}),
         })
     documents = []
@@ -452,6 +466,7 @@ def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, A
             "path": path,
             "exists": source_path.exists(),
             "sourceKind": "document",
+            **metadata(item),
             **({"kind": str(item["kind"]).strip()} if item.get("kind") else {}),
             **({"description": str(item["description"]).strip()} if item.get("description") else {}),
         })
@@ -531,14 +546,14 @@ def default_organization_registry() -> dict[str, Any]:
                 ] or [f"DC{i:02d}" for i in range(1, 14)],
                 "knowledgeSources": {
                     "repositories": [
-                        {"name": "steel-mission-product", "path": "${WORKER_DIR}"},
-                        {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"},
+                        {"name": "steel-mission-product", "path": "${WORKER_DIR}", "owner": "platform-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"name": "starter-company", "path": "${WORKER_DIR}/starter-company", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
                     ],
                     "documents": [
-                        {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-                        {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-                        {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-                        {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"},
+                        {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
                     ],
                 },
                 "notes": "Synthetic starter organization for first-run demonstrations. Owners and admins can rename it or create additional organizations.",
@@ -631,17 +646,35 @@ def merge_knowledge_sources(*registries: dict[str, Any]) -> dict[str, Any]:
     documents: list[dict[str, Any]] = []
     repo_keys: set[tuple[str, str]] = set()
     doc_keys: set[tuple[str, str]] = set()
-    for registry in registries:
+    registry_scopes = ["shared-registry", "organization-registry"]
+    for registry_index, registry in enumerate(registries):
         normalized = normalize_general_knowledge_registry(registry if isinstance(registry, dict) else {})
+        registry_scope = registry_scopes[registry_index] if registry_index < len(registry_scopes) else f"registry-{registry_index + 1}"
         for item in normalized.get("repositories", []):
             key = (str(item.get("name") or ""), str(item.get("path") or ""))
             if key[1] and key not in repo_keys:
-                repositories.append(item)
+                provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+                repositories.append({
+                    **item,
+                    "provenance": {
+                        "registry": provenance.get("registry") or registry_scope,
+                        "registryProducedAt": provenance.get("registryProducedAt") or normalized.get("producedAt") or "",
+                        "sourcePath": item.get("path") or "",
+                    },
+                })
                 repo_keys.add(key)
         for item in normalized.get("documents", []):
             key = (str(item.get("title") or ""), str(item.get("path") or ""))
             if key[1] and key not in doc_keys:
-                documents.append(item)
+                provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+                documents.append({
+                    **item,
+                    "provenance": {
+                        "registry": provenance.get("registry") or registry_scope,
+                        "registryProducedAt": provenance.get("registryProducedAt") or normalized.get("producedAt") or "",
+                        "sourcePath": item.get("path") or "",
+                    },
+                })
                 doc_keys.add(key)
     return {
         "schemaVersion": 1,
@@ -658,6 +691,155 @@ def effective_knowledge_sources() -> dict[str, Any]:
         general_knowledge_registry(),
         organization.get("knowledgeSources", {}) if isinstance(organization.get("knowledgeSources"), dict) else {},
     )
+
+
+def parse_knowledge_timestamp(value: Any) -> dt.datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+
+
+def knowledge_quality_report() -> dict[str, Any]:
+    now = dt.datetime.now(dt.timezone.utc)
+    effective = effective_knowledge_sources()
+    sources = [
+        *[item for item in effective.get("repositories", []) if isinstance(item, dict)],
+        *[item for item in effective.get("documents", []) if isinstance(item, dict)],
+    ]
+    issues: list[dict[str, Any]] = []
+    assessed: list[dict[str, Any]] = []
+    for item in sources:
+        source_kind = str(item.get("sourceKind") or "knowledge")
+        label = str(item.get("name") or item.get("title") or item.get("path") or "knowledge source")
+        source_id = f"{source_kind}:{label.strip().lower()}"
+        path = resolve_config_path(str(item.get("path") or ""))
+        exists = path.exists()
+        owner = str(item.get("owner") or "").strip()
+        required = item.get("required") is not False
+        reviewed_at = parse_knowledge_timestamp(item.get("lastReviewedAt"))
+        expires_at = parse_knowledge_timestamp(item.get("expiresAt"))
+        max_age_days = item.get("maxAgeDays") if isinstance(item.get("maxAgeDays"), int) else None
+        stale = bool(expires_at and expires_at <= now)
+        if reviewed_at and max_age_days is not None:
+            stale = stale or reviewed_at + dt.timedelta(days=max_age_days) <= now
+        freshness = "expired" if expires_at and expires_at <= now else "stale" if stale else "current" if reviewed_at or expires_at else "unknown"
+        if not exists:
+            issues.append({
+                "id": "missing-source",
+                "severity": "error" if required else "warning",
+                "sourceId": source_id,
+                "message": f"{label} is unavailable at {path}.",
+                "owner": owner,
+            })
+        if stale:
+            issues.append({
+                "id": "stale-source",
+                "severity": "error" if required else "warning",
+                "sourceId": source_id,
+                "message": f"{label} is {freshness} and requires review.",
+                "owner": owner,
+            })
+        elif freshness == "unknown":
+            issues.append({
+                "id": "unknown-freshness",
+                "severity": "warning",
+                "sourceId": source_id,
+                "message": f"{label} has no review or expiration metadata.",
+                "owner": owner,
+            })
+        if not owner:
+            issues.append({
+                "id": "unowned-source",
+                "severity": "warning",
+                "sourceId": source_id,
+                "message": f"{label} has no accountable owner.",
+                "owner": "",
+            })
+        assessed.append({
+            "sourceId": source_id,
+            "sourceKind": source_kind,
+            "label": label,
+            "path": str(path),
+            "exists": exists,
+            "required": required,
+            "authoritative": item.get("authoritative") is True,
+            "owner": owner,
+            "lastReviewedAt": str(item.get("lastReviewedAt") or ""),
+            "expiresAt": str(item.get("expiresAt") or ""),
+            "maxAgeDays": max_age_days,
+            "freshness": freshness,
+            "provenance": item.get("provenance") if isinstance(item.get("provenance"), dict) else {},
+        })
+
+    logical_sources: dict[str, list[dict[str, Any]]] = {}
+    for registry_name, registry in [
+        ("shared-registry", general_knowledge_registry()),
+        ("organization-registry", active_organization().get("knowledgeSources", {})),
+    ]:
+        normalized = normalize_general_knowledge_registry(registry if isinstance(registry, dict) else {})
+        for item in [*normalized.get("repositories", []), *normalized.get("documents", [])]:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("name") or item.get("title") or "").strip().lower()
+            kind = str(item.get("sourceKind") or "knowledge")
+            logical_sources.setdefault(f"{kind}:{label}", []).append({**item, "registry": registry_name})
+    conflicts: list[dict[str, Any]] = []
+    for source_id, candidates in logical_sources.items():
+        paths = {str(item.get("path") or "") for item in candidates}
+        if len(paths) <= 1:
+            continue
+        authoritative = [item for item in candidates if item.get("authoritative") is True]
+        severity = "error" if len(authoritative) > 1 else "warning"
+        conflict = {
+            "id": "conflicting-source",
+            "severity": severity,
+            "sourceId": source_id,
+            "message": f"{source_id} resolves to multiple source paths: {', '.join(sorted(paths))}.",
+            "candidates": [
+                {"path": item.get("path") or "", "registry": item.get("registry") or "", "owner": item.get("owner") or "", "authoritative": item.get("authoritative") is True}
+                for item in candidates
+            ],
+        }
+        conflicts.append(conflict)
+        issues.append(conflict)
+
+    if not sources:
+        issues.append({"id": "no-knowledge-sources", "severity": "error", "sourceId": "knowledge", "message": "No organizational knowledge sources are configured."})
+    elif not any(item["exists"] for item in assessed):
+        issues.append({"id": "no-available-knowledge", "severity": "error", "sourceId": "knowledge", "message": "No configured organizational knowledge source is currently available."})
+    error_count = len([item for item in issues if item.get("severity") == "error"])
+    warning_count = len(issues) - error_count
+    context_sufficient = error_count == 0
+    status = "healthy" if not issues else "warning" if context_sufficient else "insufficient"
+    directive = (
+        "Organizational context is insufficient. Do not infer missing or conflicting organizational facts; identify the gaps and request owner input."
+        if not context_sufficient else
+        "Organizational context has quality warnings. Cite source provenance and state uncertainty where warnings affect the answer."
+        if issues else
+        "Organizational context passed configured availability, freshness, ownership, and conflict checks."
+    )
+    report = {
+        "schemaVersion": 1,
+        "status": status,
+        "contextSufficient": context_sufficient,
+        "checkedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "sourceCount": len(assessed),
+        "availableSourceCount": len([item for item in assessed if item["exists"]]),
+        "staleSourceCount": len([item for item in assessed if item["freshness"] in {"stale", "expired"}]),
+        "unownedSourceCount": len([item for item in assessed if not item["owner"]]),
+        "conflictCount": len(conflicts),
+        "errorCount": error_count,
+        "warningCount": warning_count,
+        "issues": issues,
+        "sources": assessed,
+        "confidenceDirective": directive,
+    }
+    return {**report, "qualityHash": canonical_json_hash(report)}
 
 
 def save_organization_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -731,6 +913,11 @@ def upload_organization_knowledge(payload: dict[str, Any], actor: str) -> dict[s
             "name": safe_path_part(label, "uploaded-folder"),
             "path": str(root),
             "description": f"Uploaded organization knowledge folder with {len(files)} files.",
+            "owner": role,
+            "lastReviewedAt": utc_now(),
+            "maxAgeDays": 90,
+            "required": True,
+            "authoritative": False,
         })
     else:
         stored_files = sorted(path for path in root.rglob("*") if path.is_file())
@@ -740,6 +927,11 @@ def upload_organization_knowledge(payload: dict[str, Any], actor: str) -> dict[s
             "path": str(target),
             "kind": files[0].get("type") or "uploaded-file",
             "description": "Uploaded organization knowledge document.",
+            "owner": role,
+            "lastReviewedAt": utc_now(),
+            "maxAgeDays": 90,
+            "required": True,
+            "authoritative": False,
         })
     organization = {
         **organization,
@@ -814,6 +1006,7 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
             "sourceKind": "repository",
             "name": item.get("name") or path.name,
             "path": str(path),
+            **{key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "maxAgeDays", "required", "authoritative", "provenance") if key in item},
             **sample,
         })
     for item in registry.get("documents", []):
@@ -825,9 +1018,11 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
             "sourceKind": "document",
             "title": item.get("title") or path.name,
             "path": str(path),
+            **{key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "maxAgeDays", "required", "authoritative", "provenance") if key in item},
             **sample,
         })
     missing = [source for source in sources if not source.get("exists")]
+    quality = knowledge_quality_report()
     return {
         "schemaVersion": 1,
         "profile": profile or active_runtime_profile(),
@@ -846,6 +1041,9 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
         "fileCount": sum(int(source.get("fileCount") or 0) for source in sources),
         "byteCount": sum(int(source.get("byteCount") or 0) for source in sources),
         "sources": sources,
+        "knowledgeQuality": quality,
+        "contextSufficient": quality.get("contextSufficient") is True,
+        "warnings": quality.get("issues", []),
         "preparedAt": utc_now(),
         "producer": "steel-mission-chat knowledge-preparer",
     }
@@ -1155,6 +1353,10 @@ def resolve_model_policy(role: str | None = None) -> dict[str, Any]:
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         pass
     provider = active_coordinator_provider()
+    native_capabilities = {
+        "claude": ["model-effort-controls", "provider-native-cli", "streaming-progress", "structured-output"],
+        "glimmer": ["local-inference", "offline-operation", "persistent-model-residency", "structured-json-output"],
+    }
     return {
         "schemaVersion": 1,
         "role": selected_role,
@@ -1162,6 +1364,10 @@ def resolve_model_policy(role: str | None = None) -> dict[str, Any]:
         "provider": provider,
         "transport": "ollama" if provider == "glimmer" else "claude-code",
         "snapshotProfile": "worker-local-glimmer-fallback" if provider == "glimmer" else "worker-local-default",
+        "capabilityMode": "provider-native-with-governance-envelope",
+        "nativeCapabilities": native_capabilities[provider],
+        "requiredProviderCapabilities": [],
+        "governanceCapabilities": ["audit-evidence", "bounded-snapshot", "guarded-execution", "role-binding"],
         "resolvedAt": utc_now(),
     }
 
@@ -1527,48 +1733,12 @@ def license_entitlement() -> dict[str, Any]:
         "licenseConfigured": bool(license_key),
         "licenseHashConfigured": bool(expected_hash),
         "reason": reason,
-        "features": {
-            feature_id: {
-                "id": feature_id,
-                "label": label,
-                "requiredEdition": "enterprise",
-                "enabled": enterprise_enabled,
-                "locked": not enterprise_enabled,
-            }
-            for feature_id, label in ENTERPRISE_FEATURES.items()
-        },
+        "features": {},
+        "commercialBoundary": "managed-scale-governance-and-support",
     }
-
-
-def enterprise_feature_enabled(feature_id: str) -> bool:
-    feature = license_entitlement().get("features", {}).get(feature_id)
-    return isinstance(feature, dict) and feature.get("enabled") is True
-
-
-def enterprise_feature_lock(feature_id: str) -> dict[str, Any]:
-    label = ENTERPRISE_FEATURES.get(feature_id, feature_id)
-    entitlement = license_entitlement()
-    feature = entitlement.get("features", {}).get(feature_id, {})
-    locked = not (isinstance(feature, dict) and feature.get("enabled") is True)
-    return {
-        "id": feature_id,
-        "label": label,
-        "locked": locked,
-        "enabled": not locked,
-        "requiredEdition": "enterprise",
-        "status": entitlement.get("status"),
-        "reason": f"Enterprise license required for {label}." if locked else "",
-    }
-
-
-def require_enterprise_feature(feature_id: str) -> None:
-    if not enterprise_feature_enabled(feature_id):
-        raise PermissionError(enterprise_feature_lock(feature_id)["reason"])
 
 
 def external_evidence_signer_command() -> str:
-    if not enterprise_feature_enabled("external-signing"):
-        return ""
     configured = os.environ.get(EVIDENCE_SIGNER_COMMAND_ENV)
     if configured:
         return configured
@@ -1578,8 +1748,6 @@ def external_evidence_signer_command() -> str:
 
 
 def external_signing_required(policy: dict[str, Any] | None = None) -> bool:
-    if not enterprise_feature_enabled("external-signing"):
-        return False
     selected = policy if isinstance(policy, dict) else auth_policy()
     kms = selected.get("kms") if isinstance(selected.get("kms"), dict) else {}
     configured = str(os.environ.get("PRESENT_REQUIRE_EXTERNAL_SIGNING") or "").strip().lower()
@@ -1630,17 +1798,6 @@ def external_sign_payload(record_hash: str, payload: dict[str, Any]) -> dict[str
 def evidence_signer_health(policy: dict[str, Any] | None = None) -> dict[str, Any]:
     selected = policy if isinstance(policy, dict) else auth_policy()
     kms = selected.get("kms") if isinstance(selected.get("kms"), dict) else {}
-    if not enterprise_feature_enabled("external-signing"):
-        return {
-            "ok": False,
-            "status": "locked",
-            "required": False,
-            "provider": str(kms.get("provider") or "customer-managed"),
-            "keyId": str(kms.get("keyId") or ""),
-            "commandConfigured": False,
-            "enterpriseFeature": "external-signing",
-            "lock": enterprise_feature_lock("external-signing"),
-        }
     command = str(os.environ.get(EVIDENCE_SIGNER_COMMAND_ENV) or kms.get("signCommand") or "").strip()
     if not command:
         return {
@@ -1729,8 +1886,6 @@ def jwk_to_rsa_public_key(jwk: dict[str, Any]) -> Any:
 
 
 def verify_oidc_rs256_session(token: str, header: dict[str, Any], claims: dict[str, Any], signature: bytes, signing_input: bytes, policy: dict[str, Any]) -> dict[str, Any]:
-    if not enterprise_feature_enabled("oidc-jwks"):
-        return {"ok": False, "error": enterprise_feature_lock("oidc-jwks")["reason"], "enterpriseFeature": "oidc-jwks"}
     if hashes is None or crypto_padding is None or rsa is None:
         return {"ok": False, "error": "RS256 verification is unavailable because cryptography is not installed"}
     oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
@@ -1759,7 +1914,7 @@ def verify_oidc_rs256_session(token: str, header: dict[str, Any], claims: dict[s
 def default_auth_policy() -> dict[str, Any]:
     return {
         "schemaVersion": 1,
-        "policyId": "present.enterprise-auth.alpha",
+        "policyId": "present.control-plane-auth.alpha",
         "producer": "steel-mission-chat auth-control",
         "enforcementMode": "signed-session-required-for-control-plane",
         "sessionTtlSeconds": 3600,
@@ -1787,63 +1942,19 @@ def auth_policy() -> dict[str, Any]:
     configured = read_json_file(AUTH_POLICY_PATH)
     policy = default_auth_policy()
     if not configured:
-        return apply_auth_entitlements({**policy, "configuredPath": str(AUTH_POLICY_PATH), "configured": False})
+        return attach_auth_edition_metadata({**policy, "configuredPath": str(AUTH_POLICY_PATH), "configured": False})
     merged = {**policy, **configured}
     for key in ["oidc", "kms"]:
         if isinstance(policy.get(key), dict) and isinstance(configured.get(key), dict):
             merged[key] = {**policy[key], **configured[key]}
-    return apply_auth_entitlements({**merged, "configuredPath": str(AUTH_POLICY_PATH), "configured": True})
+    return attach_auth_edition_metadata({**merged, "configuredPath": str(AUTH_POLICY_PATH), "configured": True})
 
 
-def auth_policy_enterprise_features(policy: dict[str, Any]) -> list[str]:
-    features: list[str] = []
-    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
-    if (
-        oidc.get("enabled") is True
-        or bool(str(oidc.get("issuer") or "").strip())
-        or bool(str(oidc.get("jwksUrl") or "").strip())
-        or bool(str(oidc.get("jwksPath") or "").strip())
-        or isinstance(oidc.get("jwks"), dict)
-    ):
-        features.append("oidc-jwks")
-    kms = policy.get("kms") if isinstance(policy.get("kms"), dict) else {}
-    if (
-        kms.get("enabled") is True
-        or kms.get("requireExternalSigning") is True
-        or bool(str(kms.get("keyId") or "").strip())
-        or bool(str(kms.get("signCommand") or "").strip())
-        or str(kms.get("provider") or "customer-managed").strip() not in {"", "customer-managed"}
-    ):
-        features.append("external-signing")
-    return features
-
-
-def apply_auth_entitlements(policy: dict[str, Any]) -> dict[str, Any]:
-    entitlement = license_entitlement()
-    locks = {feature_id: enterprise_feature_lock(feature_id) for feature_id in ("oidc-jwks", "external-signing")}
-    selected = {
+def attach_auth_edition_metadata(policy: dict[str, Any]) -> dict[str, Any]:
+    return {
         **policy,
-        "entitlement": entitlement,
-        "enterpriseFeatureLocks": locks,
+        "entitlement": license_entitlement(),
     }
-    if locks["oidc-jwks"]["locked"]:
-        oidc = selected.get("oidc") if isinstance(selected.get("oidc"), dict) else {}
-        selected["oidc"] = {
-            "enabled": False,
-            "issuer": "",
-            "audience": str(oidc.get("audience") or "present-control-plane"),
-            "jwksUrl": "",
-            "jwksPath": "",
-        }
-    if locks["external-signing"]["locked"]:
-        selected["kms"] = {
-            "enabled": False,
-            "provider": "customer-managed",
-            "keyId": "",
-            "signCommand": "",
-            "requireExternalSigning": False,
-        }
-    return selected
 
 
 def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1895,8 +2006,6 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
         raise ValueError("only owner and admin endpoints can manage auth policy")
     before = read_json_file(AUTH_POLICY_PATH)
     policy = normalize_auth_policy(payload)
-    for feature_id in auth_policy_enterprise_features(policy):
-        require_enterprise_feature(feature_id)
     atomic_write_json(AUTH_POLICY_PATH, policy)
     record_mutation(
         "auth-policy-saved",
@@ -1911,10 +2020,10 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
             "kmsEnabled": policy.get("kms", {}).get("enabled") is True,
         },
     )
-    return apply_auth_entitlements(policy)
+    return attach_auth_edition_metadata(policy)
 
 
-def sign_enterprise_session(claims: dict[str, Any]) -> str:
+def sign_control_plane_session(claims: dict[str, Any]) -> str:
     header = {"alg": "HS256", "typ": "JWT", "kid": os.environ.get(EVIDENCE_SIGNER_ID_ENV, "present-local-alpha")}
     encoded_header = b64url_encode(json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     encoded_payload = b64url_encode(json.dumps(claims, sort_keys=True, separators=(",", ":")).encode("utf-8"))
@@ -1922,7 +2031,7 @@ def sign_enterprise_session(claims: dict[str, Any]) -> str:
     return f"{encoded_header}.{encoded_payload}.{b64url_encode(signature)}"
 
 
-def issue_enterprise_session(actor_id: str, role: str, *, ttl_seconds: int | None = None) -> dict[str, Any]:
+def issue_control_plane_session(actor_id: str, role: str, *, ttl_seconds: int | None = None) -> dict[str, Any]:
     policy = auth_policy()
     ttl = ttl_seconds or int(policy.get("sessionTtlSeconds") or 3600)
     now = int(time.time())
@@ -1939,14 +2048,14 @@ def issue_enterprise_session(actor_id: str, role: str, *, ttl_seconds: int | Non
     return {
         "schemaVersion": 1,
         "tokenType": "Bearer",
-        "accessToken": sign_enterprise_session(claims),
+        "accessToken": sign_control_plane_session(claims),
         "expiresAt": dt.datetime.fromtimestamp(claims["exp"], dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "claims": claims,
         "authPolicyHash": canonical_json_hash(policy),
     }
 
 
-def verify_enterprise_session(token: str) -> dict[str, Any]:
+def verify_control_plane_session(token: str) -> dict[str, Any]:
     policy = auth_policy()
     parts = str(token or "").split(".")
     if len(parts) != 3:
@@ -2200,6 +2309,17 @@ def default_integration_registry() -> dict[str, Any]:
             "evidenceRoot": str(MISSION_ROOT),
             "modelIndependent": True,
         },
+        "workflowEmbedding": {
+            "strategy": "existing-tools-first",
+            "controlSurfaceRole": "administration-investigation-and-fallback",
+            "inboundChannels": ["scm-events", "issue-events", "chat-commands", "ci-events", "ide-provider-events"],
+            "returnChannels": ["status", "approval-request", "control-decision", "evidence-link", "completion"],
+            "requirements": [
+                "preserve-originating-identity-and-thread",
+                "return-status-approvals-decisions-and-evidence-to-source",
+                "deep-link-to-investigation-without-forced-relocation",
+            ],
+        },
         "modelProviders": [
             {"id": "claude", "label": "Claude", "status": "configured-by-runtime-profile"},
             {"id": "openai", "label": "OpenAI", "status": "provider-adapter-ready"},
@@ -2213,7 +2333,7 @@ def default_integration_registry() -> dict[str, Any]:
             {"id": "linear", "label": "Linear", "kind": "work-tracking", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
             {"id": "slack", "label": "Slack", "kind": "approval-notifications", "status": "alpha-outbox-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
             {"id": "ci-cd", "label": "CI/CD pipelines", "kind": "build-test-deploy", "status": "alpha-command-and-github-actions", "enabled": True, "mode": "registry", "events": ["build", "test", "deploy"]},
-            {"id": "siem", "label": "SIEM/security monitoring", "kind": "security-evidence-export", "status": "enterprise-locked", "enabled": False, "mode": "registry", "events": ["audit", "evidence", "control-decision"], "enterpriseFeature": "siem-connectors"},
+            {"id": "siem", "label": "SIEM/security monitoring", "kind": "security-evidence-export", "status": "core-export-ready", "enabled": False, "mode": "registry", "events": ["audit", "evidence", "control-decision"]},
         ],
     }
 
@@ -2222,9 +2342,6 @@ def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
     connector_id = safe_path_part(str(item.get("id") or item.get("label") or "connector"), "connector")
     mode = clean_choice(item.get("mode"), {"registry", "outbox", "command", "webhook"}, "registry")
     kind = clean_optional_string(item.get("kind"), limit=120) or "integration"
-    enterprise_feature = clean_optional_string(item.get("enterpriseFeature"), limit=120)
-    if connector_id in ENTERPRISE_CONNECTOR_IDS or kind == "security-evidence-export":
-        enterprise_feature = "siem-connectors"
     return {
         "id": connector_id,
         "label": clean_optional_string(item.get("label"), limit=120) or connector_id,
@@ -2237,7 +2354,6 @@ def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
         "webhookSecretEnv": clean_optional_string(item.get("webhookSecretEnv"), limit=120) or CONNECTOR_WEBHOOK_SECRET_ENV,
         "exportPath": clean_optional_string(item.get("exportPath"), limit=1000),
         "events": clean_string_list(item.get("events"), limit=40),
-        **({"enterpriseFeature": enterprise_feature} if enterprise_feature else {}),
     }
 
 
@@ -2267,6 +2383,7 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
             "status": clean_optional_string(item.get("status"), limit=120) or "provider-adapter-ready",
         })
     control = source.get("controlPlane") if isinstance(source.get("controlPlane"), dict) else {}
+    workflow_embedding = source.get("workflowEmbedding") if isinstance(source.get("workflowEmbedding"), dict) else base["workflowEmbedding"]
     return {
         "schemaVersion": 1,
         "producer": "steel-mission-chat integration-registry",
@@ -2277,6 +2394,13 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
             "evidenceRoot": clean_optional_string(control.get("evidenceRoot"), limit=1000) or str(MISSION_ROOT),
             "modelIndependent": True,
         },
+        "workflowEmbedding": {
+            "strategy": "existing-tools-first",
+            "controlSurfaceRole": "administration-investigation-and-fallback",
+            "inboundChannels": clean_string_list(workflow_embedding.get("inboundChannels"), limit=20) or base["workflowEmbedding"]["inboundChannels"],
+            "returnChannels": clean_string_list(workflow_embedding.get("returnChannels"), limit=20) or base["workflowEmbedding"]["returnChannels"],
+            "requirements": clean_string_list(workflow_embedding.get("requirements"), limit=20) or base["workflowEmbedding"]["requirements"],
+        },
         "modelProviders": model_providers or base["modelProviders"],
         "connectors": sorted(by_id.values(), key=lambda connector: connector["id"]),
     }
@@ -2285,7 +2409,7 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
 def integration_registry(role: str = "user") -> dict[str, Any]:
     configured = read_json_file(INTEGRATION_REGISTRY_PATH)
     registry = normalize_integration_registry(configured) if configured else normalize_integration_registry(default_integration_registry())
-    registry = apply_integration_entitlements(registry)
+    registry = attach_integration_edition_metadata(registry)
     selected = corporate_role(role)
     payload = {**registry, "ok": True, "role": selected, "configuredPath": str(INTEGRATION_REGISTRY_PATH), "configured": bool(configured)}
     if selected not in {"owner", "admin"}:
@@ -2307,18 +2431,6 @@ def save_integration_registry(payload: dict[str, Any], actor: str) -> dict[str, 
         raise ValueError("only owner and admin endpoints can manage integrations")
     before = read_json_file(INTEGRATION_REGISTRY_PATH)
     registry = normalize_integration_registry(payload)
-    for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
-        if not isinstance(connector, dict) or connector.get("enterpriseFeature") != "siem-connectors":
-            continue
-        configured = (
-            connector.get("enabled") is True
-            or str(connector.get("mode") or "registry") in {"outbox", "command", "webhook"}
-            or bool(str(connector.get("command") or "").strip())
-            or bool(str(connector.get("webhookUrl") or "").strip())
-            or bool(str(connector.get("exportPath") or "").strip())
-        )
-        if configured:
-            require_enterprise_feature("siem-connectors")
     atomic_write_json(INTEGRATION_REGISTRY_PATH, registry)
     record_mutation(
         "integration-registry-saved",
@@ -2331,40 +2443,14 @@ def save_integration_registry(payload: dict[str, Any], actor: str) -> dict[str, 
             "enabled": len([item for item in registry.get("connectors", []) if isinstance(item, dict) and item.get("enabled")]),
         },
     )
-    return apply_integration_entitlements(registry)
+    return attach_integration_edition_metadata(registry)
 
 
-def apply_integration_entitlements(registry: dict[str, Any]) -> dict[str, Any]:
+def attach_integration_edition_metadata(registry: dict[str, Any]) -> dict[str, Any]:
     entitlement = license_entitlement()
-    connectors: list[dict[str, Any]] = []
-    for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
-        if not isinstance(connector, dict):
-            continue
-        selected = dict(connector)
-        feature_id = str(selected.get("enterpriseFeature") or "")
-        if feature_id and not enterprise_feature_enabled(feature_id):
-            lock = enterprise_feature_lock(feature_id)
-            selected.update({
-                "enabled": False,
-                "mode": "registry",
-                "command": "",
-                "webhookUrl": "",
-                "exportPath": "",
-                "status": "enterprise-locked",
-                "locked": True,
-                "lockReason": lock["reason"],
-                "lock": lock,
-            })
-        elif feature_id:
-            selected.update({"locked": False, "lock": enterprise_feature_lock(feature_id)})
-        connectors.append(selected)
     return {
         **registry,
         "entitlement": entitlement,
-        "enterpriseFeatureLocks": {
-            "siem-connectors": enterprise_feature_lock("siem-connectors"),
-        },
-        "connectors": connectors,
     }
 
 
@@ -2460,7 +2546,7 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "id": "tamper-evident-evidence",
             "label": "Tamper-evident evidence",
             "alpha": True,
-            "production": bool(enterprise_feature_enabled("external-signing") and kms.get("requireExternalSigning") and signer.get("ok")),
+            "production": bool(kms.get("requireExternalSigning") and signer.get("ok")),
             "detail": "Mission records are signed and hash chained; production requires a healthy external signer or customer KMS command.",
         },
         {
@@ -2485,10 +2571,10 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "detail": "GitHub/GitHub Actions plus command/webhook/outbox connectors cover GitLab, Jira, Linear, Slack, CI/CD, and SIEM categories.",
         },
         {
-            "id": "enterprise-auth",
-            "label": "Enterprise auth",
+            "id": "baseline-auth",
+            "label": "Baseline identity",
             "alpha": auth.get("enforcementMode") == "signed-session-required-for-control-plane",
-            "production": bool(enterprise_feature_enabled("oidc-jwks") and oidc.get("enabled")),
+            "production": bool(oidc.get("enabled")),
             "detail": "Signed sessions are required for guarded execution; RS256/OIDC validation is available when configured.",
         },
     ]
@@ -2515,8 +2601,8 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
         "remainingProductionHardening": [
             item for item in [
                 "Run agents in containers or private workers where direct shell/tool access is removed.",
-                None if enterprise_feature_enabled("external-signing") and signer.get("ok") and kms.get("requireExternalSigning") else "Activate Enterprise and back evidence signing with customer KMS or an external signing command.",
-                None if enterprise_feature_enabled("oidc-jwks") and oidc.get("enabled") else "Activate Enterprise and configure OIDC issuer/JWKS for enterprise identity verification.",
+                None if signer.get("ok") and kms.get("requireExternalSigning") else "Back evidence signing with a customer-controlled KMS or external signing command.",
+                None if oidc.get("enabled") else "Configure an OIDC issuer/JWKS for organization identity verification.",
                 None if enabled else "Attach native connector credentials and webhook destinations for each customer tool.",
                 None if runner_enforced else "Force executable agent actions through the guarded control-plane runner.",
             ]
@@ -2559,6 +2645,8 @@ def connector_action_plan(connector: dict[str, Any], event_type: str, payload: d
         "eventType": event_type,
         "mode": connector.get("mode") or "registry",
         "enabled": bool(connector.get("enabled")),
+        "interactionModel": "workflow-embedded",
+        "controlSurfaceRole": "administration-investigation-and-fallback",
         "payloadHash": canonical_json_hash(payload),
     }
 
@@ -2566,9 +2654,6 @@ def connector_action_plan(connector: dict[str, Any], event_type: str, payload: d
 def connector_action_preflight(connector: dict[str, Any], event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     plan = connector_action_plan(connector, event_type, payload)
     blockers: list[str] = []
-    enterprise_feature = str(connector.get("enterpriseFeature") or "")
-    if enterprise_feature and not enterprise_feature_enabled(enterprise_feature):
-        blockers.append(enterprise_feature_lock(enterprise_feature)["reason"])
     if not connector.get("enabled"):
         blockers.append("connector is disabled")
     if not connector_supports_event(connector, event_type):
@@ -2589,7 +2674,6 @@ def connector_action_preflight(connector: dict[str, Any], event_type: str, paylo
         "plan": plan,
         "risk": "medium" if mode in {"command", "webhook"} else "low",
         "blockers": blockers,
-        "enterpriseFeature": enterprise_feature,
         "modelIndependent": True,
         "customerControlled": True,
         "policyHash": canonical_json_hash(control_policy()),
@@ -4649,6 +4733,19 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         "chat transcript available as user intent and conversational context."
     )
     messages = [*messages, {"role": "user", "content": mode_context}]
+    knowledge_quality = knowledge_quality_report()
+    if knowledge_quality.get("issues"):
+        issue_lines = [
+            f"- [{str(item.get('severity') or 'warning').upper()}] {item.get('message') or item.get('id') or 'knowledge issue'}"
+            for item in knowledge_quality.get("issues", [])[:8]
+            if isinstance(item, dict)
+        ]
+        messages = [*messages, {
+            "role": "user",
+            "content": "# Knowledge quality\n\n"
+            + str(knowledge_quality.get("confidenceDirective") or "")
+            + ("\n\n" + "\n".join(issue_lines) if issue_lines else ""),
+        }]
     upload_summaries, upload_context = chat_upload_context(uploads)
     if upload_context:
         messages = [*messages, {"role": "user", "content": "# Uploaded chat context\n\n" + upload_context}]
@@ -4662,6 +4759,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
                "workMode": mode,
                "messages": messages,
                "chatUploads": upload_summaries,
+               "knowledgeQuality": knowledge_quality,
                "followUps": [], "steeringRevision": 0, "restartRequested": False,
                "restartCount": 0}
         if initial_decision_demo:
@@ -4687,6 +4785,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         modelPolicy=model_policy,
         snapshotPolicySummary=snapshot_policy_summary(snapshot_policy),
         snapshotCollections=scope,
+        knowledgeQuality=knowledge_quality,
         steeringRevision=1 if initial_decision_demo else 0,
         followUpCount=0,
         restartCount=0,
@@ -4708,6 +4807,9 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
             "model": model_policy.get("selectedModel"),
             "workMode": mode,
             "snapshotPolicyHash": snapshot_policy_summary(snapshot_policy).get("policyHash"),
+            "knowledgeQualityStatus": knowledge_quality.get("status"),
+            "knowledgeContextSufficient": knowledge_quality.get("contextSufficient") is True,
+            "knowledgeQualityHash": knowledge_quality.get("qualityHash"),
             "chatUploadCount": len(upload_summaries),
         },
     )
@@ -5882,18 +5984,9 @@ def write_delivery_proof_pack(
     patch_path = evidence_dir / "changes.patch"
     atomic_write_text(patch_path, str(change_set.get("patchPreview") or ""))
     siem_path = evidence_dir / "siem-events.jsonl"
-    siem_ref: dict[str, Any]
-    if enterprise_feature_enabled("siem-connectors"):
-        siem_payload = mission_siem_jsonl(mission_id, corporate_role(str(record.get("operatorRole") or "user")))
-        atomic_write_text(siem_path, str(siem_payload.get("jsonl") or ""))
-        siem_ref = {"kind": "siem-jsonl", "path": str(siem_path), "sha256": file_sha256(siem_path) or ""}
-    else:
-        siem_ref = {
-            "kind": "siem-jsonl",
-            "status": "locked",
-            "enterpriseFeature": "siem-connectors",
-            "lockReason": enterprise_feature_lock("siem-connectors")["reason"],
-        }
+    siem_payload = mission_siem_jsonl(mission_id, corporate_role(str(record.get("operatorRole") or "user")))
+    atomic_write_text(siem_path, str(siem_payload.get("jsonl") or ""))
+    siem_ref = {"kind": "siem-jsonl", "path": str(siem_path), "sha256": file_sha256(siem_path) or ""}
     manifest = {
         "schemaVersion": 1,
         "missionId": mission_id,
@@ -5916,7 +6009,7 @@ def write_delivery_proof_pack(
         ]:
             if source.exists():
                 archive.write(source, arcname)
-        if enterprise_feature_enabled("siem-connectors") and siem_path.exists():
+        if siem_path.exists():
             archive.write(siem_path, "siem-events.jsonl")
         refs = record.get("evidenceLedger") if isinstance(record.get("evidenceLedger"), list) else []
         for ref in refs:
@@ -5945,19 +6038,6 @@ def mission_proof_bundle(mission_id: str, role: str = "user") -> dict[str, Any]:
 
 
 def mission_siem_events(mission_id: str, role: str = "user") -> dict[str, Any]:
-    if not enterprise_feature_enabled("siem-connectors"):
-        return {
-            "ok": False,
-            "status": "locked",
-            "role": corporate_role(role),
-            "missionId": mission_id,
-            "stream": "present.control-plane.siem",
-            "eventCount": 0,
-            "events": [],
-            "enterpriseFeature": "siem-connectors",
-            "error": enterprise_feature_lock("siem-connectors")["reason"],
-            "entitlement": license_entitlement(),
-        }
     detail = mission_detail(mission_id, role)
     if not detail.get("ok"):
         return detail
@@ -6553,10 +6633,12 @@ def execute_mission_node(record: dict[str, Any], node: dict[str, Any]) -> tuple[
             operator_role=operator,
             summary=f"Prepared {payload['availableSourceCount']} of {payload['sourceCount']} organization knowledge sources.",
         )
-        update_mission(mission_id, knowledgeSnapshot=payload, knowledgeSnapshotRef=ref)
+        update_mission(mission_id, knowledgeSnapshot=payload, knowledgeSnapshotRef=ref, knowledgeQuality=payload.get("knowledgeQuality"))
         return True, "Knowledge snapshot prepared.", {
             "sourceCount": payload["sourceCount"],
             "missingSourceCount": payload["missingSourceCount"],
+            "knowledgeQualityStatus": (payload.get("knowledgeQuality") or {}).get("status"),
+            "contextSufficient": payload.get("contextSufficient") is True,
         }, [ref]
 
     if kind == "broker-overview":
@@ -7561,7 +7643,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 body = read_json(self)
                 actor = actor_from_payload(body, str(body.get("operatorRole") or "user"))
-                payload = issue_enterprise_session(actor["actorId"], actor["role"])
+                payload = issue_control_plane_session(actor["actorId"], actor["role"])
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
                 return
@@ -7570,7 +7652,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/control-plane/execute":
             try:
                 body = read_json(self)
-                session = verify_enterprise_session(str(body.get("accessToken") or body.get("session") or bearer_token_from_handler(self)))
+                session = verify_control_plane_session(str(body.get("accessToken") or body.get("session") or bearer_token_from_handler(self)))
                 if session.get("ok") is not True:
                     raise PermissionError(str(session.get("error") or "signed session is required"))
                 actor = {

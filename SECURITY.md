@@ -39,8 +39,9 @@ Before production use:
 ## Not Yet Included In Core Alpha
 
 - hosted vulnerability disclosure process;
-- managed Enterprise identity configuration;
+- managed identity lifecycle and federation operations;
 - managed KMS/HSM integrations;
+- multi-organization fleet policy and upgrade operations;
 - hardened container images;
 - formal third-party security audit;
 - certified SOC 2, ISO 27001, or ISO 42001 evidence pack.

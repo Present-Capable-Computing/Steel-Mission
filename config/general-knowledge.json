@@ -5,25 +5,55 @@
   "repositories": [
     {
       "name": "steel-mission-product",
-      "path": "${WORKER_DIR}"
+      "path": "${WORKER_DIR}",
+      "owner": "platform-owner",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-11-17T00:00:00Z",
+      "maxAgeDays": 90,
+      "required": true,
+      "authoritative": true
     }
   ],
   "documents": [
     {
       "title": "Starter Organization Operating Context",
-      "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"
+      "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md",
+      "owner": "organization-owner",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-11-17T00:00:00Z",
+      "maxAgeDays": 90,
+      "required": true,
+      "authoritative": true
     },
     {
       "title": "Starter Organization Team Doctrine",
-      "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"
+      "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md",
+      "owner": "organization-owner",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-11-17T00:00:00Z",
+      "maxAgeDays": 90,
+      "required": true,
+      "authoritative": true
     },
     {
       "title": "Starter Organization Team Roster and Workflow",
-      "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"
+      "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md",
+      "owner": "organization-owner",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-11-17T00:00:00Z",
+      "maxAgeDays": 90,
+      "required": true,
+      "authoritative": true
     },
     {
       "title": "Starter Organization Capability Map",
-      "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"
+      "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md",
+      "owner": "organization-owner",
+      "lastReviewedAt": "2026-08-19T00:00:00Z",
+      "expiresAt": "2026-11-17T00:00:00Z",
+      "maxAgeDays": 90,
+      "required": true,
+      "authoritative": true
     }
   ]
 }

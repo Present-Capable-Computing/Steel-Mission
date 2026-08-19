@@ -22,6 +22,10 @@ Steel Mission starts with the synthetic Northstar Forge organization:
 
 Owners and admins can replace starter data from Settings.
 
+## Knowledge Hygiene
+
+Give each durable source an accountable owner plus review or expiration metadata. Treat an `insufficient` knowledge-quality result as an operational blocker for claims about organizational policy or intent: repair the source, resolve conflicts, or ask the owner. Do not solve quality warnings by copying the same documents into a second Steel Mission-only documentation system; bind the authoritative repositories and systems that teams already maintain.
+
 ## Production Controls
 
 Before production use:
@@ -39,3 +43,5 @@ Use `bin/present-control-plane` for executable delivery work. Direct command pat
 ## Adapter Roadmap
 
 n8n is optional. Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
+
+Adapters should support bidirectional workflow embedding. Preserve the source event and thread identity on ingress, and publish approvals, status, decisions, evidence, and completion back to that same surface. Use the built-in control UI for setup, investigation, and recovery.

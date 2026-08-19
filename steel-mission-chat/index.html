@@ -1445,28 +1445,53 @@
     }
 
     function repositoryLines(items) {
-      return (Array.isArray(items) ? items : []).map(item => `${item.name || "repo"}=${item.path || ""}`).join("\n");
+      return (Array.isArray(items) ? items : []).map(item => knowledgeSourceLine(item.name || "repo", item)).join("\n");
     }
 
     function parseRepositoryLines(value) {
-      return lines(value).map((line, index) => {
-        const eq = line.indexOf("=");
-        if (eq <= 0) return {name: `repo-${index + 1}`, path: line};
-        return {name: line.slice(0, eq).trim(), path: line.slice(eq + 1).trim()};
-      }).filter(item => item.name && item.path);
+      return lines(value).map((line, index) => parseKnowledgeSourceLine(line, "name", `repo-${index + 1}`)).filter(item => item.name && item.path);
     }
 
     function documentLines(items) {
-      return (Array.isArray(items) ? items : []).map(item => `${item.title || "document"}=${item.path || ""}`).join("\n");
+      return (Array.isArray(items) ? items : []).map(item => knowledgeSourceLine(item.title || "document", item)).join("\n");
     }
 
     function parseDocumentLines(value) {
-      return lines(value).map((line, index) => {
-        const eq = line.indexOf("=");
-        const title = eq <= 0 ? `document-${index + 1}` : line.slice(0, eq).trim();
-        const path = eq <= 0 ? line : line.slice(eq + 1).trim();
-        return {title, path};
-      }).filter(item => item.title && item.path);
+      return lines(value).map((line, index) => parseKnowledgeSourceLine(line, "title", `document-${index + 1}`)).filter(item => item.title && item.path);
+    }
+
+    function knowledgeSourceLine(label, item) {
+      const metadata = [
+        item.owner ? `owner=${item.owner}` : "",
+        item.lastReviewedAt ? `reviewed=${item.lastReviewedAt}` : "",
+        item.expiresAt ? `expires=${item.expiresAt}` : "",
+        item.maxAgeDays ? `maxAgeDays=${item.maxAgeDays}` : "",
+        item.required !== undefined ? `required=${Boolean(item.required)}` : "",
+        item.authoritative !== undefined ? `authoritative=${Boolean(item.authoritative)}` : ""
+      ].filter(Boolean);
+      return `${label}=${item.path || ""}${metadata.length ? ` | ${metadata.join(" | ")}` : ""}`;
+    }
+
+    function parseKnowledgeSourceLine(line, labelKey, fallbackLabel) {
+      const segments = String(line || "").split("|").map(item => item.trim()).filter(Boolean);
+      const primary = segments.shift() || "";
+      const eq = primary.indexOf("=");
+      const result = {
+        [labelKey]: eq <= 0 ? fallbackLabel : primary.slice(0, eq).trim(),
+        path: eq <= 0 ? primary : primary.slice(eq + 1).trim()
+      };
+      const aliases = {reviewed: "lastReviewedAt", expires: "expiresAt"};
+      segments.forEach(segment => {
+        const split = segment.indexOf("=");
+        if (split <= 0) return;
+        const rawKey = segment.slice(0, split).trim();
+        const key = aliases[rawKey] || rawKey;
+        const rawValue = segment.slice(split + 1).trim();
+        if (["required", "authoritative"].includes(key)) result[key] = ["1", "true", "yes"].includes(rawValue.toLowerCase());
+        else if (key === "maxAgeDays") result[key] = Number(rawValue);
+        else if (["owner", "lastReviewedAt", "expiresAt"].includes(key)) result[key] = rawValue;
+      });
+      return result;
     }
 
     function checkedValues(name) {
@@ -1765,6 +1790,7 @@
         status: source ? source.status : "active",
         modelRole: source ? source.modelRole : (modelRoles()[0] && modelRoles()[0].id) || "dc13.coordination-report",
         modelProvider: source ? source.modelProvider || "auto" : "auto",
+        requiredProviderCapabilities: source && Array.isArray(source.requiredProviderCapabilities) ? source.requiredProviderCapabilities : [],
         snapshotProfile: source ? source.snapshotProfile : "worker-local-default",
         defaultFor: source && Array.isArray(source.defaultFor) ? source.defaultFor : [],
         editableBy: source && Array.isArray(source.editableBy) ? source.editableBy : ["owner", "admin", "publisher"],
@@ -1909,6 +1935,7 @@
             <option value="claude" ${profile.modelProvider === "claude" ? "selected" : ""}>claude</option>
             <option value="glimmer" ${profile.modelProvider === "glimmer" ? "selected" : ""}>glimmer</option>
           </select></label>
+          <label class="form-field">Required Provider-Native Capabilities <input id="requiredProviderCapabilities" value="${escapeHtml((profile.requiredProviderCapabilities || []).join(", "))}"><span class="form-hint">Resolution fails instead of silently downgrading when the selected provider cannot supply these capabilities.</span></label>
           <label class="form-field">Snapshot Profile <input id="snapshotProfile" value="${escapeHtml(profile.snapshotProfile || "")}"></label>
           <label class="form-field">Default For <input id="defaultFor" value="${escapeHtml((profile.defaultFor || []).join(", "))}"></label>
         </div>
@@ -1961,6 +1988,7 @@
         status: document.querySelector("#profileStatus").value,
         modelRole: document.querySelector("#profileModelRole").value,
         modelProvider: document.querySelector("#profileModelProvider").value,
+        requiredProviderCapabilities: csvValues(document.querySelector("#requiredProviderCapabilities").value),
         snapshotProfile: document.querySelector("#snapshotProfile").value.trim(),
         defaultFor: lines(document.querySelector("#defaultFor").value.replaceAll(",", "\n")),
         editableBy: checkedValues("editableBy"),
@@ -2045,10 +2073,12 @@
       const admin = activeOperatorRole === "owner" || activeOperatorRole === "admin";
       const roles = modelRoles();
       const models = modelIds();
+      const modelDescriptors = Array.isArray(modelRoleRegistry.models) ? modelRoleRegistry.models : [];
       const first = roles[0] || {id: "", title: "", primaryModel: models[0] || "", fallbackModels: [], snapshotProfile: ""};
       roleAdmin.innerHTML = `
         <h2>Delivery Coordinator Model Binding</h2>
         <div class="form-hint">${admin ? "Owner/Admin endpoints can change which model instance DC13 binds to first." : "Publishers can choose existing model bindings in profiles. Owners/Admins change the binding itself."}</div>
+        <div class="source-list">${modelDescriptors.map(model => `<div class="source-row"><strong>${escapeHtml(model.id || "model")} · ${escapeHtml(model.provider || "provider")}</strong><span>Native capabilities: ${escapeHtml((model.nativeCapabilities || []).join(", ") || "not declared")}</span></div>`).join("")}</div>
         <div class="role-list">${roles.map(role => `
           <div class="role-row">
             <div><strong>${escapeHtml(role.title || role.id)}</strong><span>${escapeHtml(role.id)} · ${escapeHtml(role.primaryModel || "model")}</span></div>
@@ -2063,6 +2093,7 @@
             <label class="form-field">Title <input id="roleTitle" value="${escapeHtml(role.title || "")}" ${admin ? "" : "readonly"}></label>
             <label class="form-field">Primary Model <select id="rolePrimary" ${admin ? "" : "disabled"}>${models.map(model => `<option value="${escapeHtml(model)}" ${model === role.primaryModel ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}</select></label>
             <label class="form-field">Snapshot Profile <input id="roleSnapshot" value="${escapeHtml(role.snapshotProfile || "")}" ${admin ? "" : "readonly"}></label>
+            <label class="form-field">Governance Capabilities <input id="roleGovernance" value="${escapeHtml((role.governanceCapabilities || []).join(", "))}" ${admin ? "" : "readonly"}></label>
           </div>
           <label class="form-field">Fallback Models ${renderChecks("roleFallback", models, [...fallbackSet])}</label>
           <div class="role-actions">
@@ -2084,6 +2115,7 @@
         title: document.querySelector("#roleTitle").value.trim(),
         primaryModel: document.querySelector("#rolePrimary").value,
         fallbackModels: checkedValues("roleFallback").filter(model => model !== document.querySelector("#rolePrimary").value),
+        governanceCapabilities: csvValues(document.querySelector("#roleGovernance").value),
         snapshotProfile: document.querySelector("#roleSnapshot").value.trim()
       };
     }
@@ -2417,6 +2449,10 @@
       const sharedRepositories = Array.isArray(general.repositories) ? general.repositories : [];
       const sharedDocuments = Array.isArray(general.documents) ? general.documents : [];
       const organization = knowledgeRegistry.activeOrganization || organizationWorkspace.activeOrganization || {};
+      const knowledgeQuality = knowledgeRegistry.knowledgeQuality || {status: "unknown", issues: [], sources: []};
+      const qualitySources = Array.isArray(knowledgeQuality.sources) ? knowledgeQuality.sources : [];
+      const qualityBySourceId = new Map(qualitySources.map(item => [item.sourceId || "", item]));
+      const qualityIssues = Array.isArray(knowledgeQuality.issues) ? knowledgeQuality.issues : [];
       const canManageKnowledge = knowledgeRegistry.canManageGeneralKnowledge || activeOperatorRole === "owner" || activeOperatorRole === "admin";
       if (!roles.length && !foundations.length && !repositories.length && !documents.length && !canManageKnowledge) {
         knowledgePanel.innerHTML = `<h2>Knowledge System</h2><div class="form-hint">Canon knowledge registry unavailable.</div>`;
@@ -2426,8 +2462,8 @@
       selectedKnowledgeRole = selected.roleKey || selectedKnowledgeRole;
       const sources = Array.isArray(selected.domainSources) ? selected.domainSources : [];
       const sourceRows = [
-        ...repositories.map(item => ({title: item.name || "repository", path: item.path || "", type: "Repository", exists: item.exists})),
-        ...documents.map(item => ({title: item.title || "document", path: item.path || "", type: "Document", exists: item.exists}))
+        ...repositories.map(item => ({title: item.name || "repository", path: item.path || "", type: "Repository", exists: item.exists, quality: qualityBySourceId.get(`repository:${String(item.name || "repository").trim().toLowerCase()}`) || item})),
+        ...documents.map(item => ({title: item.title || "document", path: item.path || "", type: "Document", exists: item.exists, quality: qualityBySourceId.get(`document:${String(item.title || "document").trim().toLowerCase()}`) || item}))
       ];
       const organizationKnowledge = canManageKnowledge ? `
         <div class="source-list">
@@ -2435,8 +2471,8 @@
             <strong>Shared Knowledge Source Pool</strong>
             <span>Global fallback sources. Manage organization-specific sources and KD/DC bindings in Organizations.</span>
           </div>
-          <label class="form-field">Repositories And Folders <textarea id="knowledgeRepositories">${escapeHtml(repositoryLines(sharedRepositories))}</textarea><span class="form-hint">One name=path per line. Use this for sources shared across organizations.</span></label>
-          <label class="form-field">Documents <textarea id="knowledgeDocuments">${escapeHtml(documentLines(sharedDocuments))}</textarea><span class="form-hint">One title=path per line. PDFs, Markdown, docs exports, specs, and other files are valid knowledge.</span></label>
+          <label class="form-field">Repositories And Folders <textarea id="knowledgeRepositories">${escapeHtml(repositoryLines(sharedRepositories))}</textarea><span class="form-hint">One name=path per line. Optional metadata: | owner=team | reviewed=ISO-date | expires=ISO-date | maxAgeDays=90 | required=true | authoritative=true</span></label>
+          <label class="form-field">Documents <textarea id="knowledgeDocuments">${escapeHtml(documentLines(sharedDocuments))}</textarea><span class="form-hint">One title=path per line with the same optional ownership, freshness, expiration, and authority metadata.</span></label>
           <div class="manager-actions">
             <button id="saveKnowledgeSources" class="primary" type="button">Save Sources</button>
             <button id="previewKnowledgeSnapshot" type="button">Preview Prepared Snapshot</button>
@@ -2453,13 +2489,17 @@
           </div>
         </div>` : `
         <div class="source-list">
-          ${sourceRows.length ? sourceRows.map(item => `<div class="source-row"><strong>${escapeHtml(item.type)} · ${escapeHtml(item.title || "")}</strong><span>${escapeHtml(item.path || "")}</span><span>${item.exists ? "available" : "missing"}</span></div>`).join("") : `<div class="source-row"><strong>No assigned organization sources</strong><span>Publishers and users can attach files directly in chat for a single job.</span></div>`}
+          ${sourceRows.length ? sourceRows.map(item => `<div class="source-row"><strong>${escapeHtml(item.type)} · ${escapeHtml(item.title || "")}</strong><span>${escapeHtml(item.path || "")}</span><span>${item.exists ? "available" : "missing"} · ${escapeHtml(item.quality.freshness || "freshness unknown")} · owner ${escapeHtml(item.quality.owner || "unassigned")}</span></div>`).join("") : `<div class="source-row"><strong>No assigned organization sources</strong><span>Publishers and users can attach files directly in chat for a single job.</span></div>`}
         </div>`;
       knowledgePanel.innerHTML = `
         <h2>${canManageKnowledge ? "Knowledge System" : "Assigned Knowledge System"}</h2>
         <div class="form-hint">${canManageKnowledge ? "KD01-KD03 are organizational document domains. DC01-DC13 are Domain Capabilities: the roles and workflows the organization can assign. Owners/Admins manage durable sources and prepare snapshots; missions and profiles decide which sources become job context." : "Your endpoint can use assigned capabilities and organization knowledge allowed by the active profile. Chat uploads add temporary job context only."}</div>
         <div class="role-row">
           <div><strong>Effective Source Registry</strong><span>${escapeHtml(organization.name || "active organization")} · ${repositories.length} repositories/folders · ${documents.length} documents · ${sourceRows.filter(item => item.exists).length} available</span></div>
+        </div>
+        <div class="source-list">
+          <div class="source-row"><strong>Knowledge Quality · ${escapeHtml(knowledgeQuality.status || "unknown")}</strong><span>Context sufficient: ${knowledgeQuality.contextSufficient ? "yes" : "no"} · ${Number(knowledgeQuality.staleSourceCount || 0)} stale · ${Number(knowledgeQuality.unownedSourceCount || 0)} unowned · ${Number(knowledgeQuality.conflictCount || 0)} conflicts</span><span>${escapeHtml(knowledgeQuality.confidenceDirective || "Quality check unavailable.")}</span></div>
+          ${qualityIssues.slice(0, 8).map(item => `<div class="source-row"><strong>${escapeHtml(String(item.severity || "warning").toUpperCase())} · ${escapeHtml(item.id || "knowledge-warning")}</strong><span>${escapeHtml(item.message || "")}</span><span>Owner: ${escapeHtml(item.owner || "unassigned")}</span></div>`).join("")}
         </div>
         ${organizationKnowledge}
         <div class="knowledge-layout">
@@ -2577,7 +2617,8 @@
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error || "prepared snapshot unavailable");
         const payload = data.payload || {};
-        setManagerMessage(`Prepared snapshot preview: ${payload.availableSourceCount || 0}/${payload.sourceCount || 0} sources available, ${payload.fileCount || 0} files.`, "good");
+        const quality = payload.knowledgeQuality || {};
+        setManagerMessage(`Prepared snapshot preview: ${payload.availableSourceCount || 0}/${payload.sourceCount || 0} sources available, ${payload.fileCount || 0} files. Knowledge quality: ${quality.status || "unknown"}.`, quality.contextSufficient === false ? "bad" : "good");
       } catch (error) {
         setManagerMessage(error.message, "bad");
       }
@@ -2635,17 +2676,14 @@
       const connectors = Array.isArray(integrationRegistry.connectors) ? integrationRegistry.connectors : [];
       const providers = Array.isArray(integrationRegistry.modelProviders) ? integrationRegistry.modelProviders : [];
       const control = integrationRegistry.controlPlane || {};
+      const workflowEmbedding = integrationRegistry.workflowEmbedding || {};
       const approval = controlPolicy.approvalRequired || {};
       const oidc = authPolicy.oidc || {};
       const kms = authPolicy.kms || {};
       const signer = controlPlaneReadiness.evidenceSigner || {};
       const entitlement = controlPlaneReadiness.entitlement || authPolicy.entitlement || integrationRegistry.entitlement || {};
-      const enterpriseEnabled = Boolean(entitlement.enterpriseEnabled);
-      const enterpriseStatus = entitlement.status || "core";
-      const enterpriseDisabled = enterpriseEnabled ? "" : "disabled";
-      const enterpriseLockText = enterpriseEnabled
-        ? "Enterprise entitlement active. OIDC/JWKS, external signing, and SIEM connectors can be configured."
-        : "Enterprise features locked. Configure a valid Enterprise entitlement to enable OIDC/JWKS, customer KMS or external signing, and SIEM connectors.";
+      const editionStatus = entitlement.status || "core";
+      const editionBoundaryText = "Core includes OIDC/JWKS identity, SIEM/audit export, and customer-controlled external signing. Enterprise covers managed operation, fleet governance, and support.";
       const canManageControlPlane = ["owner", "admin"].includes(activeOperatorRole);
       const standards = ["SOC 2", "ISO 27001", "ISO 42001"];
       const readinessChecks = Array.isArray(controlPlaneReadiness.checks) ? controlPlaneReadiness.checks : [];
@@ -2661,8 +2699,8 @@
           </div>
           <div class="source-row">
             <strong>Edition</strong>
-            <span>${escapeHtml(entitlement.edition || "core")} · ${escapeHtml(enterpriseStatus)}</span>
-            <span>${escapeHtml(enterpriseLockText)}</span>
+            <span>${escapeHtml(entitlement.edition || "core")} · ${escapeHtml(editionStatus)}</span>
+            <span>${escapeHtml(editionBoundaryText)}</span>
           </div>
           <div class="source-row">
             <strong>Deployment Boundary</strong>
@@ -2670,6 +2708,12 @@
             <span>Policy path: ${escapeHtml(control.policyPath || integrationRegistry.configuredPath || "local policy fallback")}</span>
             <span>Evidence root: ${escapeHtml(control.evidenceRoot || "mission evidence store")}</span>
             <span>Auth mode: ${escapeHtml(authPolicy.enforcementMode || "signed-session-required-for-control-plane")}</span>
+          </div>
+          <div class="source-row">
+            <strong>Workflow Embedding</strong>
+            <span>${escapeHtml(workflowEmbedding.strategy || "existing-tools-first")} · control UI for ${escapeHtml(workflowEmbedding.controlSurfaceRole || "administration and investigation")}</span>
+            <span>Inbound: ${escapeHtml((workflowEmbedding.inboundChannels || []).join(", "))}</span>
+            <span>Return to source: ${escapeHtml((workflowEmbedding.returnChannels || []).join(", "))}</span>
           </div>
           <div class="source-row">
             <strong>Pre-Execution Policy</strong>
@@ -2709,7 +2753,7 @@
             <label class="form-field">Compliance Mappings JSON <textarea id="policyComplianceMappings">${escapeHtml(JSON.stringify(controlPolicy.complianceMappings || {}, null, 2))}</textarea></label>
           </div>
           <button id="saveControlPolicy" class="primary" type="button">Save Policy</button>
-          <h3>Enterprise Auth</h3>
+          <h3>Identity And Signing</h3>
           <div class="manager-grid">
             <label class="form-field">Enforcement Mode <select id="authEnforcementMode">
               <option value="signed-session-required-for-control-plane" ${authPolicy.enforcementMode === "signed-session-required-for-control-plane" ? "selected" : ""}>Signed sessions for guarded actions</option>
@@ -2718,15 +2762,15 @@
             <label class="form-field">Session TTL Seconds <input id="authSessionTtl" type="number" min="60" max="86400" value="${escapeHtml(authPolicy.sessionTtlSeconds || 3600)}"></label>
             <label class="form-field">Accepted Issuers <input id="authAcceptedIssuers" value="${escapeHtml((authPolicy.acceptedIssuers || []).join(", "))}"></label>
             <label class="form-field">Accepted Audiences <input id="authAcceptedAudiences" value="${escapeHtml((authPolicy.acceptedAudiences || []).join(", "))}"></label>
-            <label class="form-field check-line"><input id="authOidcEnabled" type="checkbox" ${oidc.enabled ? "checked" : ""} ${enterpriseDisabled}> Enable OIDC metadata</label>
-            <label class="form-field">OIDC Issuer <input id="authOidcIssuer" value="${escapeHtml(oidc.issuer || "")}" ${enterpriseDisabled}></label>
-            <label class="form-field">OIDC Audience <input id="authOidcAudience" value="${escapeHtml(oidc.audience || "present-control-plane")}" ${enterpriseDisabled}></label>
-            <label class="form-field">OIDC JWKS URL <input id="authOidcJwks" value="${escapeHtml(oidc.jwksUrl || "")}" ${enterpriseDisabled}></label>
-            <label class="form-field check-line"><input id="authKmsEnabled" type="checkbox" ${kms.enabled ? "checked" : ""} ${enterpriseDisabled}> Enable customer KMS metadata</label>
-            <label class="form-field">KMS Provider <input id="authKmsProvider" value="${escapeHtml(kms.provider || "customer-managed")}" ${enterpriseDisabled}></label>
-            <label class="form-field">KMS Key ID <input id="authKmsKeyId" value="${escapeHtml(kms.keyId || "")}" ${enterpriseDisabled}></label>
-            <label class="form-field">KMS Sign Command <input id="authKmsSignCommand" value="${escapeHtml(kms.signCommand || "")}" ${enterpriseDisabled}></label>
-            <label class="form-field check-line"><input id="authRequireExternalSigning" type="checkbox" ${kms.requireExternalSigning ? "checked" : ""} ${enterpriseDisabled}> Require external evidence signing</label>
+            <label class="form-field check-line"><input id="authOidcEnabled" type="checkbox" ${oidc.enabled ? "checked" : ""}> Enable OIDC metadata</label>
+            <label class="form-field">OIDC Issuer <input id="authOidcIssuer" value="${escapeHtml(oidc.issuer || "")}"></label>
+            <label class="form-field">OIDC Audience <input id="authOidcAudience" value="${escapeHtml(oidc.audience || "present-control-plane")}"></label>
+            <label class="form-field">OIDC JWKS URL <input id="authOidcJwks" value="${escapeHtml(oidc.jwksUrl || "")}"></label>
+            <label class="form-field check-line"><input id="authKmsEnabled" type="checkbox" ${kms.enabled ? "checked" : ""}> Enable customer KMS metadata</label>
+            <label class="form-field">KMS Provider <input id="authKmsProvider" value="${escapeHtml(kms.provider || "customer-managed")}"></label>
+            <label class="form-field">KMS Key ID <input id="authKmsKeyId" value="${escapeHtml(kms.keyId || "")}"></label>
+            <label class="form-field">KMS Sign Command <input id="authKmsSignCommand" value="${escapeHtml(kms.signCommand || "")}"></label>
+            <label class="form-field check-line"><input id="authRequireExternalSigning" type="checkbox" ${kms.requireExternalSigning ? "checked" : ""}> Require external evidence signing</label>
           </div>
           <button id="saveAuthPolicy" class="primary" type="button">Save Auth Policy</button>
         ` : ""}
@@ -2754,6 +2798,7 @@
           <h3>Connector Registry JSON</h3>
           <label class="form-field">Connectors <textarea id="integrationRegistryJson">${escapeHtml(JSON.stringify({
             controlPlane: integrationRegistry.controlPlane || {},
+            workflowEmbedding: integrationRegistry.workflowEmbedding || {},
             modelProviders: integrationRegistry.modelProviders || [],
             connectors: integrationRegistry.connectors || []
           }, null, 2))}</textarea></label>

@@ -8,10 +8,10 @@ Steel Mission is part of the Present family of products. Present stands for capa
 
 Steel Mission uses an open-core release model.
 
-- Core: open source under Apache-2.0 for teams to download, inspect, run, modify, and evaluate with the included synthetic starter company.
-- Enterprise Edition: closed-source, proprietary, commercially licensed features and services for production governance, including SSO/OIDC, KMS or external evidence signing, managed evidence retention, SIEM export, enterprise approval routing, private-cloud deployment templates, and managed integrations.
+- Core: open source under Apache-2.0 for teams to download, inspect, run, modify, and deploy. Core includes self-managed SSO/OIDC, audit logging, SIEM/security-monitoring export, and the included synthetic starter company.
+- Enterprise Edition: proprietary software and services for operational scale, including multi-organization fleet governance, managed deployment and upgrades, managed evidence retention, managed KMS/HSM operations, advanced separation-of-duties workflows, private-cloud operations, managed integrations, and support.
 
-Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Enterprise Edition functionality is gated behind a commercial license key or equivalent entitlement check in the official distribution.
+Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Core trust controls are not license-gated; separately distributed Enterprise functionality may use a commercial entitlement.
 
 See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICENSE](LICENSE) for the Apache-2.0 core license text.
 
@@ -23,6 +23,9 @@ See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICE
 - Blocks unsafe commands before execution.
 - Requires external evidence signing when production policy is enabled.
 - Creates signed, hash-chained mission evidence.
+- Checks organizational knowledge for availability, freshness, ownership, provenance, expiration, conflicts, and context sufficiency before relying on it.
+- Preserves provider-native capability requirements inside a common policy and evidence envelope.
+- Returns work to existing SCM, issue, chat, CI, and provider workflows instead of requiring the control UI as the daily work surface.
 - Maps proof packs to SOC 2, ISO 27001, and ISO 42001 evidence.
 - Starts with a synthetic company, Northstar Forge, so the product is usable immediately.
 
@@ -43,6 +46,8 @@ The starter company is not private data. Owners and admins can replace it with t
 - Delivery Coordinator is responsible for mission state, evidence, approvals, and closure.
 
 Delivery Coordinator is a role/capability. Binding it to Claude, OpenAI, Glimmer, or another model creates a model instance; it does not create a new role.
+
+Snapshots are reproducibility artifacts, not an assertion that their contents are correct. Each mission records a knowledge-quality report and warns the model and operator when required sources are missing or expired, when ownership or freshness is unknown, or when authoritative sources conflict. Insufficient context must be disclosed rather than filled with a confident guess.
 
 ## Running Locally
 
@@ -99,11 +104,11 @@ bin/present-control-plane exec --token "$TOKEN" --json '{"phase":"inspect","repo
 
 Direct command execution paths are blocked by default when the control policy requires the guarded runner.
 
-## External Signing
+## Evidence Signing
 
-Core uses local HMAC signing for downloadable evaluation. Customer-held signing custody is Enterprise-only and is locked unless a valid Enterprise entitlement is active.
+Core uses local HMAC signing by default and can require a customer-controlled KMS, Vault Transit service, HSM, or private signing service for evidence custody.
 
-The Enterprise signing adapter can use:
+The external signing adapter can use:
 
 ```bash
 bin/present-evidence-signer --key-file ~/.present/control-plane/evidence-signing-key --signer-id present-external-signer sign
@@ -111,29 +116,24 @@ bin/present-evidence-signer --key-file ~/.present/control-plane/evidence-signing
 
 The signing key is created outside the repository. A customer KMS, Vault Transit service, HSM, or private signing service can replace this command without changing the evidence contract.
 
-## Enterprise Entitlement
+## Open-Core Boundary
 
-The official runtime keeps the following features locked in Core:
+Core includes the controls teams need to admit Steel Mission into an enterprise pilot:
 
-- OIDC/JWKS customer identity configuration;
-- customer KMS, Vault Transit, HSM, or equivalent external evidence signing;
-- SIEM/security-monitoring connectors and exports.
+- self-managed SSO/OIDC through OIDC issuer and JWKS configuration;
+- audit logging and SIEM/security-monitoring JSONL export;
+- self-managed command, webhook, and outbox connectors;
+- customer-controlled external evidence signing.
 
-For licensed Enterprise environments, configure:
-
-```bash
-STEEL_MISSION_EDITION=enterprise
-STEEL_MISSION_LICENSE_KEY=...
-STEEL_MISSION_LICENSE_KEY_SHA256=...
-```
-
-The hash is the SHA-256 digest of the configured license key. The key value is never returned by the API.
+Enterprise monetizes operational scale rather than access to baseline security: managed deployment and upgrades, multi-organization fleet governance, managed retention and integrations, advanced governance workflows, private-cloud operations, and support. Core trust controls do not require a license key.
 
 ## n8n And Orchestration
 
 Steel Mission does not depend on n8n. n8n should be treated as a replaceable orchestration adapter that can request work, receive events, or coordinate external workflows. It is not the source of truth for policy, approval, evidence, or execution authority.
 
 Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
+
+The intended interaction model is existing-tools-first: requests originate in repositories, issue trackers, chat, CI, IDEs, or provider-native tools, and Steel Mission returns status, approval requests, control decisions, and evidence links to the originating workflow. The built-in UI is primarily for configuration, investigation, and fallback.
 
 ## Protocol Status
 

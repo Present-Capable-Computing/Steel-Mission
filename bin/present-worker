@@ -282,7 +282,7 @@ def _role_registry_with_updated_role(registry: dict, role: dict) -> dict:
     updated = False
     for index, existing in enumerate(roles):
         if isinstance(existing, dict) and existing.get("id") == role_id:
-            roles[index] = role
+            roles[index] = {**existing, **role}
             updated = True
             break
     if not updated:
@@ -315,6 +315,7 @@ def _provider_ready(provider: str, provider_capabilities: dict | None = None) ->
 def _resolve_model_policy(
     role_id: str = DEFAULT_COORDINATOR_ROLE, *, provider_override: str | None = None,
     provider_capabilities: dict | None = None, require_ready: bool = True,
+    required_native_capabilities: list[str] | None = None,
 ) -> dict:
     registry = _load_model_role_registry()
     registry_path = _model_role_registry_path()
@@ -333,6 +334,22 @@ def _resolve_model_policy(
             raise common.TaskBundleError(
                 f"model role {role_id!r} has no candidate for provider {provider_override!r}"
             )
+    required_native = set(required_native_capabilities or [])
+    if required_native:
+        capable_ids = [
+            model_id for model_id in candidate_ids
+            if required_native <= set(models[model_id].get("nativeCapabilities", []))
+        ]
+        if not capable_ids:
+            advertised = {
+                model_id: sorted(models[model_id].get("nativeCapabilities", []))
+                for model_id in candidate_ids
+            }
+            raise common.TaskBundleError(
+                f"model role {role_id!r} has no candidate with required provider-native capabilities "
+                f"{sorted(required_native)}; advertised={advertised}"
+            )
+        candidate_ids = capable_ids
     selected = candidate_ids[0]
     if require_ready:
         for model_id in candidate_ids:
@@ -348,6 +365,10 @@ def _resolve_model_policy(
         "provider": model["provider"],
         "transport": model["transport"],
         "snapshotProfile": role["snapshotProfile"],
+        "capabilityMode": "provider-native-with-governance-envelope",
+        "nativeCapabilities": sorted(model.get("nativeCapabilities", [])),
+        "requiredProviderCapabilities": sorted(required_native),
+        "governanceCapabilities": sorted(role.get("governanceCapabilities", [])),
         "registryPath": str(registry_path),
         "resolvedAt": common.utc_now(),
     }
@@ -381,6 +402,16 @@ def _organization_registry_path() -> Path:
 
 def _normalize_general_knowledge_registry(payload: object) -> dict:
     payload = payload if isinstance(payload, dict) else {}
+    def metadata(item: dict) -> dict:
+        return {
+            **({"owner": str(item["owner"]).strip()} if item.get("owner") else {}),
+            **({"lastReviewedAt": str(item["lastReviewedAt"]).strip()} if item.get("lastReviewedAt") else {}),
+            **({"expiresAt": str(item["expiresAt"]).strip()} if item.get("expiresAt") else {}),
+            **({"maxAgeDays": item["maxAgeDays"]} if isinstance(item.get("maxAgeDays"), int) else {}),
+            "required": item.get("required") is not False,
+            "authoritative": item.get("authoritative") is True,
+            **({"provenance": item["provenance"]} if isinstance(item.get("provenance"), dict) else {}),
+        }
     repositories = []
     for index, item in enumerate(payload.get("repositories", [])):
         if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item.get("path").strip():
@@ -388,6 +419,7 @@ def _normalize_general_knowledge_registry(payload: object) -> dict:
         repositories.append({
             "name": str(item.get("name") or f"repo-{index + 1}").strip(),
             "path": item["path"].strip(),
+            **metadata(item),
             **({"description": str(item["description"]).strip()} if item.get("description") else {}),
         })
     documents = []
@@ -397,6 +429,7 @@ def _normalize_general_knowledge_registry(payload: object) -> dict:
         documents.append({
             "title": str(item.get("title") or f"document-{index + 1}").strip(),
             "path": item["path"].strip(),
+            **metadata(item),
             **({"kind": str(item["kind"]).strip()} if item.get("kind") else {}),
             **({"description": str(item["description"]).strip()} if item.get("description") else {}),
         })
@@ -441,14 +474,26 @@ def _load_active_organization_knowledge_registry() -> dict:
 def _merge_general_knowledge_sources(sources: dict) -> dict:
     merged = {key: (list(value) if isinstance(value, list) else value) for key, value in sources.items()}
     knowledge = _normalize_general_knowledge_registry({})
-    for source_registry in (_load_general_knowledge_registry(), _load_active_organization_knowledge_registry()):
-        knowledge["repositories"].extend(source_registry.get("repositories", []))
-        knowledge["documents"].extend(source_registry.get("documents", []))
-    repo_keys = {
-        (item.get("name"), item.get("path"))
-        for item in merged.get("repositoryRoots", [])
-        if isinstance(item, dict)
-    }
+    for registry_name, source_registry in (
+        ("shared-registry", _load_general_knowledge_registry()),
+        ("organization-registry", _load_active_organization_knowledge_registry()),
+    ):
+        for kind in ("repositories", "documents"):
+            knowledge[kind].extend([
+                {
+                    **item,
+                    "provenance": {
+                        **(item.get("provenance") if isinstance(item.get("provenance"), dict) else {}),
+                        "registry": (item.get("provenance") or {}).get("registry") if isinstance(item.get("provenance"), dict) and item.get("provenance", {}).get("registry") else registry_name,
+                        "registryProducedAt": (item.get("provenance") or {}).get("registryProducedAt") if isinstance(item.get("provenance"), dict) and item.get("provenance", {}).get("registryProducedAt") else source_registry.get("producedAt") or "",
+                        "sourcePath": item.get("path") or "",
+                    },
+                }
+                for item in source_registry.get(kind, []) if isinstance(item, dict)
+            ])
+    repo_items = [item for item in merged.get("repositoryRoots", []) if isinstance(item, dict)]
+    repo_keys = {(item.get("name"), item.get("path")): index for index, item in enumerate(repo_items)}
+    merged["repositoryRoots"] = repo_items
     for item in knowledge.get("repositories", []):
         if not isinstance(item, dict):
             continue
@@ -457,14 +502,16 @@ def _merge_general_knowledge_sources(sources: dict) -> dict:
         if not isinstance(name, str) or not isinstance(path, str):
             continue
         key = (name, path)
+        source = {key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "maxAgeDays", "required", "authoritative", "provenance") if key in item}
         if key not in repo_keys:
-            merged.setdefault("repositoryRoots", []).append({"name": name, "path": path})
-            repo_keys.add(key)
-    doc_keys = {
-        (item.get("title"), item.get("path"))
-        for item in merged.get("documentPaths", [])
-        if isinstance(item, dict)
-    }
+            merged.setdefault("repositoryRoots", []).append({"name": name, "path": path, **source})
+            repo_keys[key] = len(merged["repositoryRoots"]) - 1
+        else:
+            index = repo_keys[key]
+            merged["repositoryRoots"][index] = {**source, **merged["repositoryRoots"][index]}
+    doc_items = [item for item in merged.get("documentPaths", []) if isinstance(item, dict)]
+    doc_keys = {(item.get("title"), item.get("path")): index for index, item in enumerate(doc_items)}
+    merged["documentPaths"] = doc_items
     for item in knowledge.get("documents", []):
         if not isinstance(item, dict):
             continue
@@ -473,13 +520,18 @@ def _merge_general_knowledge_sources(sources: dict) -> dict:
         if not isinstance(title, str) or not isinstance(path, str):
             continue
         key = (title, path)
+        source = {key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "maxAgeDays", "required", "authoritative", "provenance") if key in item}
         if key not in doc_keys:
             merged.setdefault("documentPaths", []).append({
                 "title": title,
                 "path": path,
+                **source,
                 **({"kind": item["kind"]} if item.get("kind") else {}),
             })
-            doc_keys.add(key)
+            doc_keys[key] = len(merged["documentPaths"]) - 1
+        else:
+            index = doc_keys[key]
+            merged["documentPaths"][index] = {**source, **merged["documentPaths"][index]}
     return merged
 
 
@@ -513,24 +565,34 @@ def _expand_runtime_profile_value(value: str) -> str:
     return re.sub(r"\$\{([A-Z0-9_]+)\}", repl, value)
 
 
+def _expand_runtime_profile_structure(value):
+    if isinstance(value, str):
+        return _expand_runtime_profile_value(value)
+    if isinstance(value, list):
+        return [_expand_runtime_profile_structure(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _expand_runtime_profile_structure(item) for key, item in value.items()}
+    return value
+
+
 def _expand_runtime_profile_sources(sources: dict) -> dict:
     expanded: dict = {}
     for key, value in sources.items():
         if key == "repositoryRoots" and isinstance(value, list):
             expanded[key] = [
-                {**item, "path": _expand_runtime_profile_value(item["path"])}
+                _expand_runtime_profile_structure(item)
                 for item in value
                 if isinstance(item, dict) and isinstance(item.get("path"), str)
             ]
         elif key == "documentPaths" and isinstance(value, list):
             expanded[key] = [
-                {**item, "path": _expand_runtime_profile_value(item["path"])}
+                _expand_runtime_profile_structure(item)
                 for item in value
                 if isinstance(item, dict) and isinstance(item.get("path"), str)
             ]
         elif isinstance(value, list):
             expanded[key] = [
-                _expand_runtime_profile_value(item)
+                _expand_runtime_profile_structure(item)
                 for item in value
                 if isinstance(item, str)
             ]
@@ -569,7 +631,7 @@ def _runtime_profile_registry_errors(registry: dict) -> list[str]:
         model_role = profile.get("modelRole")
         if model_roles and model_role not in model_roles:
             errors.append(f"$.profiles[{profile_id}].modelRole: unknown model role {model_role!r}")
-        for key in ("defaultFor", "editableBy", "visibilityRoleKeys", "includeCollections"):
+        for key in ("defaultFor", "editableBy", "visibilityRoleKeys", "includeCollections", "requiredProviderCapabilities"):
             value = profile.get(key)
             if isinstance(value, list) and len(value) != len(set(value)):
                 errors.append(f"$.profiles[{profile_id}].{key}: duplicate item")
@@ -647,6 +709,7 @@ def _runtime_profile_summary(profile: dict, *, registry_path: Path, resolved_at:
         "status": profile["status"],
         "modelRole": profile["modelRole"],
         "modelProvider": profile["modelProvider"],
+        "requiredProviderCapabilities": list(profile.get("requiredProviderCapabilities", [])),
         "snapshotProfile": profile["snapshotProfile"],
         "defaultFor": list(profile.get("defaultFor", [])),
         "editableBy": list(profile.get("editableBy", [])),
@@ -674,6 +737,7 @@ def _resolve_runtime_profile(
         provider_override=profile.get("modelProvider") if profile.get("modelProvider") != "auto" else None,
         provider_capabilities=provider_capabilities,
         require_ready=require_ready,
+        required_native_capabilities=profile.get("requiredProviderCapabilities", []),
     )
     snapshot_policy = _runtime_profile_to_snapshot_policy(profile)
     if model_policy.get("snapshotProfile") != profile["snapshotProfile"]:
@@ -2278,7 +2342,12 @@ def _coordinator_repository_commits(policy: dict) -> list[dict]:
         if not isinstance(name, str) or not isinstance(path, str):
             continue
         root = Path(path).expanduser()
-        summaries.append({"name": name, "path": str(root), "commit": common.git_rev_parse(root)})
+        summaries.append({
+            "name": name,
+            "path": str(root),
+            "commit": common.git_rev_parse(root),
+            **{key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "required", "authoritative", "provenance") if key in item},
+        })
     return summaries
 
 
@@ -2297,6 +2366,7 @@ def _coordinator_document_knowledge(policy: dict, limit: int) -> tuple[list[dict
         summary = {
             "title": str(item.get("title") or path.name),
             "path": str(path),
+            **{key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "required", "authoritative", "provenance") if key in item},
             **({"kind": str(item["kind"])} if item.get("kind") else {}),
         }
         try:

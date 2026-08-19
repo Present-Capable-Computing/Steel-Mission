@@ -17,7 +17,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "provider", "transport", "roles", "requiresNetwork", "local"],
+        "required": ["id", "provider", "transport", "roles", "nativeCapabilities", "requiresNetwork", "local"],
         "properties": {
           "id": {"type": "string", "minLength": 1, "maxLength": 128},
           "provider": {"enum": ["claude", "glimmer"]},
@@ -26,6 +26,13 @@
             "type": "array",
             "minItems": 1,
             "maxItems": 50,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          },
+          "nativeCapabilities": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "uniqueItems": true,
             "items": {"type": "string", "minLength": 1, "maxLength": 128}
           },
           "requiresNetwork": {"type": "boolean"},
@@ -40,7 +47,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "title", "primaryModel", "fallbackModels", "snapshotProfile"],
+        "required": ["id", "title", "primaryModel", "fallbackModels", "governanceCapabilities", "snapshotProfile"],
         "properties": {
           "id": {"type": "string", "minLength": 1, "maxLength": 128},
           "title": {"type": "string", "minLength": 1, "maxLength": 128},
@@ -48,6 +55,13 @@
           "fallbackModels": {
             "type": "array",
             "maxItems": 20,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          },
+          "governanceCapabilities": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "uniqueItems": true,
             "items": {"type": "string", "minLength": 1, "maxLength": 128}
           },
           "snapshotProfile": {"type": "string", "minLength": 1, "maxLength": 128}

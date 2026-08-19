@@ -19,7 +19,7 @@
     "issuer": "",
     "jwksUrl": ""
   },
-  "policyId": "present.enterprise-auth.ga-boundary",
+  "policyId": "present.control-plane-auth.ga-boundary",
   "producer": "steel-mission-chat auth-control",
   "roleClaims": [
     "present_role",

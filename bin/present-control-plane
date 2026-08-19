@@ -32,7 +32,7 @@ def read_payload(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_session(args: argparse.Namespace) -> int:
     server = load_server()
-    session = server["issue_enterprise_session"](args.actor, args.role)
+    session = server["issue_control_plane_session"](args.actor, args.role)
     print(json.dumps({"ok": True, "session": session}, indent=2, sort_keys=True))
     return 0
 
@@ -41,7 +41,7 @@ def command_exec(args: argparse.Namespace) -> int:
     payload = read_payload(args)
     server = load_server()
     token = args.token or payload.get("accessToken") or payload.get("session") or ""
-    verified = server["verify_enterprise_session"](token)
+    verified = server["verify_control_plane_session"](token)
     if verified.get("ok") is not True:
         print(json.dumps({
             "ok": False,
@@ -63,7 +63,7 @@ def command_exec(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="present-control-plane")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    session = subparsers.add_parser("session", help="Issue a local signed enterprise-session token.")
+    session = subparsers.add_parser("session", help="Issue a local signed control-plane session token.")
     session.add_argument("--actor", default="local-user")
     session.add_argument("--role", default="user")
     session.set_defaults(func=command_session)
