@@ -105,6 +105,16 @@ repo_id="$(gh api "repos/$REPO" -q .node_id)"
 gh api graphql -f query='mutation($p:ID!,$r:ID!){linkProjectV2ToRepository(input:{projectId:$p,repositoryId:$r}){repository{name}}}' \
   -f p="$project_id" -f r="$repo_id" >/dev/null 2>&1 || echo "  already linked"
 
+# A board created through the API is private by default. Every item on this one is
+# a public issue on a public repository, so a private board hides a view of public
+# information without protecting anything. Declared in the manifest, not assumed:
+# a board for a private repository would set this to private.
+visibility="$(python3 -c "import json;print(json.load(open('$ROOT/tooling/github-plan.json'))['project'].get('boardVisibility','private'))")"
+echo "Setting board visibility: $visibility"
+gh api graphql -F public="$([ "$visibility" = public ] && echo true || echo false)" \
+  -f p="$project_id" \
+  -f query='mutation($p:ID!,$public:Boolean!){updateProjectV2(input:{projectId:$p,public:$public}){projectV2{public}}}' >/dev/null
+
 echo "Applying fields, item values and views"
 python3 "$ROOT/tooling/gh-project-fields.py" --number "$number"
 

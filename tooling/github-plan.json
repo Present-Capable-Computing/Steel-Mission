@@ -6,6 +6,8 @@
     "recordFile": "plan/PRJ-0001.json",
     "boardTitle": "Steel-Mission — Durable Core (PRJ-0001)",
     "boardDescription": "PRJ-0001. Durable broker service and remote pull-runner. Source of truth for the shape of this work is plan/PRJ-0001.json in the repository; this board is the working surface.",
+    "boardVisibility": "public",
+    "$commentVisibility": "The repository is public and every item on the board is a public issue, so a private board would hide a view of public information without protecting anything.",
     "fields": [
       {
         "name": "Phase",
