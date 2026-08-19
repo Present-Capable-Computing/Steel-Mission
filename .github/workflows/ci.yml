@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python test suite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install development dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Install mocked provider probes
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/claude" <<'SH'
+          #!/usr/bin/env sh
+          if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+            printf '{"loggedIn":true,"authMethod":"ci-mock","apiProvider":"ci"}\n'
+            exit 0
+          fi
+          printf 'ci mock claude only supports auth status\n' >&2
+          exit 2
+          SH
+          cat > "$HOME/.local/bin/codex" <<'SH'
+          #!/usr/bin/env sh
+          if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+            printf 'CI mock Codex authenticated\n'
+            exit 0
+          fi
+          printf 'ci mock codex only supports login status\n' >&2
+          exit 2
+          SH
+          chmod +x "$HOME/.local/bin/claude" "$HOME/.local/bin/codex"
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Compile entrypoints
+        run: python -m py_compile steel-mission-chat/server.py bin/present-worker bin/present-control-plane bin/present-evidence-signer
+
+      - name: Run tests
+        run: python -m pytest

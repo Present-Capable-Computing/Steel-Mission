@@ -1,4 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec "$(cd "$(dirname "$0")" && pwd)/present-worker" "$@"
+BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$BIN_DIR/.." && pwd)"
+
+command="${1:-serve}"
+case "$command" in
+  serve|start)
+    shift || true
+    host="${STEEL_MISSION_HOST:-127.0.0.1}"
+    port="${STEEL_MISSION_PORT:-8765}"
+    profile="${STEEL_MISSION_RUNTIME_PROFILE:-dc13.local}"
+    exec python3 "$ROOT_DIR/steel-mission-chat/server.py" --host "$host" --port "$port" --profile "$profile" "$@"
+    ;;
+  doctor)
+    shift || true
+    exec "$BIN_DIR/present-worker" doctor "$@"
+    ;;
+  test)
+    shift || true
+    exec python3 -m pytest "$ROOT_DIR/tests" "$@"
+    ;;
+  worker)
+    shift || true
+    exec "$BIN_DIR/present-worker" "$@"
+    ;;
+  *)
+    exec "$BIN_DIR/present-worker" "$@"
+    ;;
+esac

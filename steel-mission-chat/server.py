@@ -63,6 +63,15 @@ EVIDENCE_SIGNER_ID_ENV = "PRESENT_EVIDENCE_SIGNER_ID"
 EVIDENCE_SIGNER_COMMAND_ENV = "PRESENT_EVIDENCE_SIGNER_COMMAND"
 AUTH_SIGNING_KEY_ENV = "PRESENT_AUTH_SIGNING_KEY"
 CONNECTOR_WEBHOOK_SECRET_ENV = "PRESENT_CONNECTOR_WEBHOOK_SECRET"
+STEEL_MISSION_EDITION_ENV = "STEEL_MISSION_EDITION"
+STEEL_MISSION_LICENSE_KEY_ENV = "STEEL_MISSION_LICENSE_KEY"
+STEEL_MISSION_LICENSE_KEY_SHA256_ENV = "STEEL_MISSION_LICENSE_KEY_SHA256"
+ENTERPRISE_FEATURES = {
+    "oidc-jwks": "production OIDC/JWKS customer identity",
+    "external-signing": "customer KMS, Vault Transit, HSM, or equivalent external signing",
+    "siem-connectors": "SIEM/security-monitoring connectors and exports",
+}
+ENTERPRISE_CONNECTOR_IDS = {"siem"}
 MAX_REQUEST_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
 MAX_UPLOAD_REQUEST_BYTES = 36 * 1024 * 1024
@@ -1489,7 +1498,77 @@ def auth_signing_key() -> bytes:
     return evidence_signing_key()
 
 
+def license_entitlement() -> dict[str, Any]:
+    edition = str(os.environ.get(STEEL_MISSION_EDITION_ENV) or "core").strip().lower() or "core"
+    license_key = str(os.environ.get(STEEL_MISSION_LICENSE_KEY_ENV) or "")
+    expected_hash = str(os.environ.get(STEEL_MISSION_LICENSE_KEY_SHA256_ENV) or "").strip().lower()
+    actual_hash = hashlib.sha256(license_key.encode("utf-8")).hexdigest() if license_key else ""
+    enterprise_enabled = edition == "enterprise" and bool(license_key) and bool(expected_hash) and hmac.compare_digest(actual_hash, expected_hash)
+    if enterprise_enabled:
+        status = "enterprise-active"
+        reason = ""
+    elif edition == "enterprise" and not license_key:
+        status = "enterprise-license-missing"
+        reason = "Enterprise edition is selected but no license key is configured."
+    elif edition == "enterprise" and not expected_hash:
+        status = "enterprise-license-hash-missing"
+        reason = "Enterprise edition is selected but no license key hash is configured."
+    elif edition == "enterprise":
+        status = "enterprise-license-invalid"
+        reason = "Enterprise license key does not match the configured license hash."
+    else:
+        status = "core"
+        reason = "Core edition is active."
+    return {
+        "schemaVersion": 1,
+        "edition": "enterprise" if edition == "enterprise" else "core",
+        "status": status,
+        "enterpriseEnabled": enterprise_enabled,
+        "licenseConfigured": bool(license_key),
+        "licenseHashConfigured": bool(expected_hash),
+        "reason": reason,
+        "features": {
+            feature_id: {
+                "id": feature_id,
+                "label": label,
+                "requiredEdition": "enterprise",
+                "enabled": enterprise_enabled,
+                "locked": not enterprise_enabled,
+            }
+            for feature_id, label in ENTERPRISE_FEATURES.items()
+        },
+    }
+
+
+def enterprise_feature_enabled(feature_id: str) -> bool:
+    feature = license_entitlement().get("features", {}).get(feature_id)
+    return isinstance(feature, dict) and feature.get("enabled") is True
+
+
+def enterprise_feature_lock(feature_id: str) -> dict[str, Any]:
+    label = ENTERPRISE_FEATURES.get(feature_id, feature_id)
+    entitlement = license_entitlement()
+    feature = entitlement.get("features", {}).get(feature_id, {})
+    locked = not (isinstance(feature, dict) and feature.get("enabled") is True)
+    return {
+        "id": feature_id,
+        "label": label,
+        "locked": locked,
+        "enabled": not locked,
+        "requiredEdition": "enterprise",
+        "status": entitlement.get("status"),
+        "reason": f"Enterprise license required for {label}." if locked else "",
+    }
+
+
+def require_enterprise_feature(feature_id: str) -> None:
+    if not enterprise_feature_enabled(feature_id):
+        raise PermissionError(enterprise_feature_lock(feature_id)["reason"])
+
+
 def external_evidence_signer_command() -> str:
+    if not enterprise_feature_enabled("external-signing"):
+        return ""
     configured = os.environ.get(EVIDENCE_SIGNER_COMMAND_ENV)
     if configured:
         return configured
@@ -1499,6 +1578,8 @@ def external_evidence_signer_command() -> str:
 
 
 def external_signing_required(policy: dict[str, Any] | None = None) -> bool:
+    if not enterprise_feature_enabled("external-signing"):
+        return False
     selected = policy if isinstance(policy, dict) else auth_policy()
     kms = selected.get("kms") if isinstance(selected.get("kms"), dict) else {}
     configured = str(os.environ.get("PRESENT_REQUIRE_EXTERNAL_SIGNING") or "").strip().lower()
@@ -1549,6 +1630,17 @@ def external_sign_payload(record_hash: str, payload: dict[str, Any]) -> dict[str
 def evidence_signer_health(policy: dict[str, Any] | None = None) -> dict[str, Any]:
     selected = policy if isinstance(policy, dict) else auth_policy()
     kms = selected.get("kms") if isinstance(selected.get("kms"), dict) else {}
+    if not enterprise_feature_enabled("external-signing"):
+        return {
+            "ok": False,
+            "status": "locked",
+            "required": False,
+            "provider": str(kms.get("provider") or "customer-managed"),
+            "keyId": str(kms.get("keyId") or ""),
+            "commandConfigured": False,
+            "enterpriseFeature": "external-signing",
+            "lock": enterprise_feature_lock("external-signing"),
+        }
     command = str(os.environ.get(EVIDENCE_SIGNER_COMMAND_ENV) or kms.get("signCommand") or "").strip()
     if not command:
         return {
@@ -1637,6 +1729,8 @@ def jwk_to_rsa_public_key(jwk: dict[str, Any]) -> Any:
 
 
 def verify_oidc_rs256_session(token: str, header: dict[str, Any], claims: dict[str, Any], signature: bytes, signing_input: bytes, policy: dict[str, Any]) -> dict[str, Any]:
+    if not enterprise_feature_enabled("oidc-jwks"):
+        return {"ok": False, "error": enterprise_feature_lock("oidc-jwks")["reason"], "enterpriseFeature": "oidc-jwks"}
     if hashes is None or crypto_padding is None or rsa is None:
         return {"ok": False, "error": "RS256 verification is unavailable because cryptography is not installed"}
     oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
@@ -1693,12 +1787,63 @@ def auth_policy() -> dict[str, Any]:
     configured = read_json_file(AUTH_POLICY_PATH)
     policy = default_auth_policy()
     if not configured:
-        return {**policy, "configuredPath": str(AUTH_POLICY_PATH), "configured": False}
+        return apply_auth_entitlements({**policy, "configuredPath": str(AUTH_POLICY_PATH), "configured": False})
     merged = {**policy, **configured}
     for key in ["oidc", "kms"]:
         if isinstance(policy.get(key), dict) and isinstance(configured.get(key), dict):
             merged[key] = {**policy[key], **configured[key]}
-    return {**merged, "configuredPath": str(AUTH_POLICY_PATH), "configured": True}
+    return apply_auth_entitlements({**merged, "configuredPath": str(AUTH_POLICY_PATH), "configured": True})
+
+
+def auth_policy_enterprise_features(policy: dict[str, Any]) -> list[str]:
+    features: list[str] = []
+    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
+    if (
+        oidc.get("enabled") is True
+        or bool(str(oidc.get("issuer") or "").strip())
+        or bool(str(oidc.get("jwksUrl") or "").strip())
+        or bool(str(oidc.get("jwksPath") or "").strip())
+        or isinstance(oidc.get("jwks"), dict)
+    ):
+        features.append("oidc-jwks")
+    kms = policy.get("kms") if isinstance(policy.get("kms"), dict) else {}
+    if (
+        kms.get("enabled") is True
+        or kms.get("requireExternalSigning") is True
+        or bool(str(kms.get("keyId") or "").strip())
+        or bool(str(kms.get("signCommand") or "").strip())
+        or str(kms.get("provider") or "customer-managed").strip() not in {"", "customer-managed"}
+    ):
+        features.append("external-signing")
+    return features
+
+
+def apply_auth_entitlements(policy: dict[str, Any]) -> dict[str, Any]:
+    entitlement = license_entitlement()
+    locks = {feature_id: enterprise_feature_lock(feature_id) for feature_id in ("oidc-jwks", "external-signing")}
+    selected = {
+        **policy,
+        "entitlement": entitlement,
+        "enterpriseFeatureLocks": locks,
+    }
+    if locks["oidc-jwks"]["locked"]:
+        oidc = selected.get("oidc") if isinstance(selected.get("oidc"), dict) else {}
+        selected["oidc"] = {
+            "enabled": False,
+            "issuer": "",
+            "audience": str(oidc.get("audience") or "present-control-plane"),
+            "jwksUrl": "",
+            "jwksPath": "",
+        }
+    if locks["external-signing"]["locked"]:
+        selected["kms"] = {
+            "enabled": False,
+            "provider": "customer-managed",
+            "keyId": "",
+            "signCommand": "",
+            "requireExternalSigning": False,
+        }
+    return selected
 
 
 def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1750,6 +1895,8 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
         raise ValueError("only owner and admin endpoints can manage auth policy")
     before = read_json_file(AUTH_POLICY_PATH)
     policy = normalize_auth_policy(payload)
+    for feature_id in auth_policy_enterprise_features(policy):
+        require_enterprise_feature(feature_id)
     atomic_write_json(AUTH_POLICY_PATH, policy)
     record_mutation(
         "auth-policy-saved",
@@ -1764,7 +1911,7 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
             "kmsEnabled": policy.get("kms", {}).get("enabled") is True,
         },
     )
-    return policy
+    return apply_auth_entitlements(policy)
 
 
 def sign_enterprise_session(claims: dict[str, Any]) -> str:
@@ -2066,7 +2213,7 @@ def default_integration_registry() -> dict[str, Any]:
             {"id": "linear", "label": "Linear", "kind": "work-tracking", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
             {"id": "slack", "label": "Slack", "kind": "approval-notifications", "status": "alpha-outbox-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
             {"id": "ci-cd", "label": "CI/CD pipelines", "kind": "build-test-deploy", "status": "alpha-command-and-github-actions", "enabled": True, "mode": "registry", "events": ["build", "test", "deploy"]},
-            {"id": "siem", "label": "SIEM/security monitoring", "kind": "security-evidence-export", "status": "alpha-jsonl-export", "enabled": True, "mode": "outbox", "events": ["audit", "evidence", "control-decision"]},
+            {"id": "siem", "label": "SIEM/security monitoring", "kind": "security-evidence-export", "status": "enterprise-locked", "enabled": False, "mode": "registry", "events": ["audit", "evidence", "control-decision"], "enterpriseFeature": "siem-connectors"},
         ],
     }
 
@@ -2074,10 +2221,14 @@ def default_integration_registry() -> dict[str, Any]:
 def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
     connector_id = safe_path_part(str(item.get("id") or item.get("label") or "connector"), "connector")
     mode = clean_choice(item.get("mode"), {"registry", "outbox", "command", "webhook"}, "registry")
+    kind = clean_optional_string(item.get("kind"), limit=120) or "integration"
+    enterprise_feature = clean_optional_string(item.get("enterpriseFeature"), limit=120)
+    if connector_id in ENTERPRISE_CONNECTOR_IDS or kind == "security-evidence-export":
+        enterprise_feature = "siem-connectors"
     return {
         "id": connector_id,
         "label": clean_optional_string(item.get("label"), limit=120) or connector_id,
-        "kind": clean_optional_string(item.get("kind"), limit=120) or "integration",
+        "kind": kind,
         "status": clean_optional_string(item.get("status"), limit=120) or "registry-ready",
         "enabled": bool_from_payload(item.get("enabled"), False),
         "mode": mode,
@@ -2086,6 +2237,7 @@ def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
         "webhookSecretEnv": clean_optional_string(item.get("webhookSecretEnv"), limit=120) or CONNECTOR_WEBHOOK_SECRET_ENV,
         "exportPath": clean_optional_string(item.get("exportPath"), limit=1000),
         "events": clean_string_list(item.get("events"), limit=40),
+        **({"enterpriseFeature": enterprise_feature} if enterprise_feature else {}),
     }
 
 
@@ -2133,6 +2285,7 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
 def integration_registry(role: str = "user") -> dict[str, Any]:
     configured = read_json_file(INTEGRATION_REGISTRY_PATH)
     registry = normalize_integration_registry(configured) if configured else normalize_integration_registry(default_integration_registry())
+    registry = apply_integration_entitlements(registry)
     selected = corporate_role(role)
     payload = {**registry, "ok": True, "role": selected, "configuredPath": str(INTEGRATION_REGISTRY_PATH), "configured": bool(configured)}
     if selected not in {"owner", "admin"}:
@@ -2154,6 +2307,18 @@ def save_integration_registry(payload: dict[str, Any], actor: str) -> dict[str, 
         raise ValueError("only owner and admin endpoints can manage integrations")
     before = read_json_file(INTEGRATION_REGISTRY_PATH)
     registry = normalize_integration_registry(payload)
+    for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
+        if not isinstance(connector, dict) or connector.get("enterpriseFeature") != "siem-connectors":
+            continue
+        configured = (
+            connector.get("enabled") is True
+            or str(connector.get("mode") or "registry") in {"outbox", "command", "webhook"}
+            or bool(str(connector.get("command") or "").strip())
+            or bool(str(connector.get("webhookUrl") or "").strip())
+            or bool(str(connector.get("exportPath") or "").strip())
+        )
+        if configured:
+            require_enterprise_feature("siem-connectors")
     atomic_write_json(INTEGRATION_REGISTRY_PATH, registry)
     record_mutation(
         "integration-registry-saved",
@@ -2166,7 +2331,41 @@ def save_integration_registry(payload: dict[str, Any], actor: str) -> dict[str, 
             "enabled": len([item for item in registry.get("connectors", []) if isinstance(item, dict) and item.get("enabled")]),
         },
     )
-    return registry
+    return apply_integration_entitlements(registry)
+
+
+def apply_integration_entitlements(registry: dict[str, Any]) -> dict[str, Any]:
+    entitlement = license_entitlement()
+    connectors: list[dict[str, Any]] = []
+    for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
+        if not isinstance(connector, dict):
+            continue
+        selected = dict(connector)
+        feature_id = str(selected.get("enterpriseFeature") or "")
+        if feature_id and not enterprise_feature_enabled(feature_id):
+            lock = enterprise_feature_lock(feature_id)
+            selected.update({
+                "enabled": False,
+                "mode": "registry",
+                "command": "",
+                "webhookUrl": "",
+                "exportPath": "",
+                "status": "enterprise-locked",
+                "locked": True,
+                "lockReason": lock["reason"],
+                "lock": lock,
+            })
+        elif feature_id:
+            selected.update({"locked": False, "lock": enterprise_feature_lock(feature_id)})
+        connectors.append(selected)
+    return {
+        **registry,
+        "entitlement": entitlement,
+        "enterpriseFeatureLocks": {
+            "siem-connectors": enterprise_feature_lock("siem-connectors"),
+        },
+        "connectors": connectors,
+    }
 
 
 def compliance_evidence(control: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -2222,8 +2421,9 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
     policy = control_policy()
     auth = auth_policy()
     registry = integration_registry(role)
+    entitlement = license_entitlement()
     connectors = registry.get("connectors") if isinstance(registry.get("connectors"), list) else []
-    enabled = [item for item in connectors if isinstance(item, dict) and item.get("enabled")]
+    enabled = [item for item in connectors if isinstance(item, dict) and item.get("enabled") and not item.get("locked")]
     oidc = auth.get("oidc") if isinstance(auth.get("oidc"), dict) else {}
     kms = auth.get("kms") if isinstance(auth.get("kms"), dict) else {}
     execution_boundary = policy.get("executionBoundary") if isinstance(policy.get("executionBoundary"), dict) else {}
@@ -2260,7 +2460,7 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "id": "tamper-evident-evidence",
             "label": "Tamper-evident evidence",
             "alpha": True,
-            "production": bool(kms.get("requireExternalSigning") and signer.get("ok")),
+            "production": bool(enterprise_feature_enabled("external-signing") and kms.get("requireExternalSigning") and signer.get("ok")),
             "detail": "Mission records are signed and hash chained; production requires a healthy external signer or customer KMS command.",
         },
         {
@@ -2288,7 +2488,7 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "id": "enterprise-auth",
             "label": "Enterprise auth",
             "alpha": auth.get("enforcementMode") == "signed-session-required-for-control-plane",
-            "production": bool(oidc.get("enabled") or auth.get("acceptedIssuers")),
+            "production": bool(enterprise_feature_enabled("oidc-jwks") and oidc.get("enabled")),
             "detail": "Signed sessions are required for guarded execution; RS256/OIDC validation is available when configured.",
         },
     ]
@@ -2309,13 +2509,14 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "directCommandMode": str(execution_boundary.get("directCommandMode") or ""),
             "guardedRunnerRequired": execution_boundary.get("guardedRunnerRequired") is True,
         },
+        "entitlement": entitlement,
         "evidenceSigner": signer,
         "checks": checks,
         "remainingProductionHardening": [
             item for item in [
                 "Run agents in containers or private workers where direct shell/tool access is removed.",
-                None if signer.get("ok") and kms.get("requireExternalSigning") else "Back evidence signing with customer KMS or an external signing command.",
-                None if oidc.get("enabled") or auth.get("acceptedIssuers") else "Configure OIDC issuer/JWKS for enterprise identity verification.",
+                None if enterprise_feature_enabled("external-signing") and signer.get("ok") and kms.get("requireExternalSigning") else "Activate Enterprise and back evidence signing with customer KMS or an external signing command.",
+                None if enterprise_feature_enabled("oidc-jwks") and oidc.get("enabled") else "Activate Enterprise and configure OIDC issuer/JWKS for enterprise identity verification.",
                 None if enabled else "Attach native connector credentials and webhook destinations for each customer tool.",
                 None if runner_enforced else "Force executable agent actions through the guarded control-plane runner.",
             ]
@@ -2365,6 +2566,9 @@ def connector_action_plan(connector: dict[str, Any], event_type: str, payload: d
 def connector_action_preflight(connector: dict[str, Any], event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     plan = connector_action_plan(connector, event_type, payload)
     blockers: list[str] = []
+    enterprise_feature = str(connector.get("enterpriseFeature") or "")
+    if enterprise_feature and not enterprise_feature_enabled(enterprise_feature):
+        blockers.append(enterprise_feature_lock(enterprise_feature)["reason"])
     if not connector.get("enabled"):
         blockers.append("connector is disabled")
     if not connector_supports_event(connector, event_type):
@@ -2385,6 +2589,7 @@ def connector_action_preflight(connector: dict[str, Any], event_type: str, paylo
         "plan": plan,
         "risk": "medium" if mode in {"command", "webhook"} else "low",
         "blockers": blockers,
+        "enterpriseFeature": enterprise_feature,
         "modelIndependent": True,
         "customerControlled": True,
         "policyHash": canonical_json_hash(control_policy()),
@@ -5677,8 +5882,18 @@ def write_delivery_proof_pack(
     patch_path = evidence_dir / "changes.patch"
     atomic_write_text(patch_path, str(change_set.get("patchPreview") or ""))
     siem_path = evidence_dir / "siem-events.jsonl"
-    siem_payload = mission_siem_jsonl(mission_id, corporate_role(str(record.get("operatorRole") or "user")))
-    atomic_write_text(siem_path, str(siem_payload.get("jsonl") or ""))
+    siem_ref: dict[str, Any]
+    if enterprise_feature_enabled("siem-connectors"):
+        siem_payload = mission_siem_jsonl(mission_id, corporate_role(str(record.get("operatorRole") or "user")))
+        atomic_write_text(siem_path, str(siem_payload.get("jsonl") or ""))
+        siem_ref = {"kind": "siem-jsonl", "path": str(siem_path), "sha256": file_sha256(siem_path) or ""}
+    else:
+        siem_ref = {
+            "kind": "siem-jsonl",
+            "status": "locked",
+            "enterpriseFeature": "siem-connectors",
+            "lockReason": enterprise_feature_lock("siem-connectors")["reason"],
+        }
     manifest = {
         "schemaVersion": 1,
         "missionId": mission_id,
@@ -5687,7 +5902,7 @@ def write_delivery_proof_pack(
         "proof": proof_ref,
         "report": report_ref,
         "patch": {"kind": "patch", "path": str(patch_path), "sha256": file_sha256(patch_path) or ""},
-        "siem": {"kind": "siem-jsonl", "path": str(siem_path), "sha256": file_sha256(siem_path) or ""},
+        "siem": siem_ref,
         "evidenceCount": len(record.get("evidenceLedger") if isinstance(record.get("evidenceLedger"), list) else []),
     }
     manifest_path = evidence_dir / "proof-pack-manifest.json"
@@ -5697,11 +5912,12 @@ def write_delivery_proof_pack(
             (Path(str(proof_ref.get("path") or "")), "proof.json"),
             (Path(str(report_ref.get("path") or "")), "delivery-report.md"),
             (patch_path, "changes.patch"),
-            (siem_path, "siem-events.jsonl"),
             (manifest_path, "proof-pack-manifest.json"),
         ]:
             if source.exists():
                 archive.write(source, arcname)
+        if enterprise_feature_enabled("siem-connectors") and siem_path.exists():
+            archive.write(siem_path, "siem-events.jsonl")
         refs = record.get("evidenceLedger") if isinstance(record.get("evidenceLedger"), list) else []
         for ref in refs:
             if not isinstance(ref, dict) or not isinstance(ref.get("path"), str):
@@ -5729,6 +5945,19 @@ def mission_proof_bundle(mission_id: str, role: str = "user") -> dict[str, Any]:
 
 
 def mission_siem_events(mission_id: str, role: str = "user") -> dict[str, Any]:
+    if not enterprise_feature_enabled("siem-connectors"):
+        return {
+            "ok": False,
+            "status": "locked",
+            "role": corporate_role(role),
+            "missionId": mission_id,
+            "stream": "present.control-plane.siem",
+            "eventCount": 0,
+            "events": [],
+            "enterpriseFeature": "siem-connectors",
+            "error": enterprise_feature_lock("siem-connectors")["reason"],
+            "entitlement": license_entitlement(),
+        }
     detail = mission_detail(mission_id, role)
     if not detail.get("ok"):
         return detail
@@ -7094,7 +7323,7 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("ok"):
                     text_response(self, 200, str(payload.get("jsonl") or ""), "application/x-ndjson; charset=utf-8")
                 else:
-                    json_response(self, 404, payload)
+                    json_response(self, 403 if payload.get("status") == "locked" else 404, payload)
                 return
             if len(parts) == 4 and parts[3] == "export":
                 role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
