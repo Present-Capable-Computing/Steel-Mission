@@ -7607,7 +7607,7 @@ def delivery_step_payload(record: dict[str, Any], node: dict[str, Any]) -> dict[
         workspace.get("deliveryBranch") if context.get("worktreeMode") == "isolated" else context.get("branch") or ""
     ).strip()
     actual_branch = str(git_state.get("branch") or "").strip() if isinstance(git_state, dict) else ""
-    if expected_branch and git_state and (git_state.get("ok") is not True or actual_branch != expected_branch):
+    if not mock and expected_branch and git_state and (git_state.get("ok") is not True or actual_branch != expected_branch):
         status = "blocked"
         ok = False
         blockers.append(f"repository branch is {actual_branch or 'unknown'}, expected {expected_branch}")

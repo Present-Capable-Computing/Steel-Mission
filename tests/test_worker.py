@@ -7623,6 +7623,41 @@ def test_steel_mission_delivery_step_requires_guarded_runner_for_configured_buil
     assert (repo / "built.txt").read_text() == "ok"
 
 
+def test_steel_mission_mock_delivery_tolerates_detached_branch_but_real_execution_blocks_mismatch(tmp_path):
+    import runpy
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    (repo / "README.md").write_text("branch validation\n")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
+    node = {"nodeId": "delivery-build", "phase": "build"}
+    context = {
+        "repositoryPath": str(repo),
+        "branch": "definitely-not-the-current-branch",
+        "buildCommand": "python3 -c \"from pathlib import Path; Path('must-not-run').write_text('no')\"",
+    }
+
+    mocked = chat["delivery_step_payload"](
+        {"mock": True, "controlPlaneExecution": True, "deliveryContext": context},
+        node,
+    )
+    assert mocked["ok"] is True
+    assert mocked["status"] == "mocked"
+
+    real = chat["delivery_step_payload"](
+        {"mock": False, "controlPlaneExecution": True, "deliveryContext": context},
+        node,
+    )
+    assert real["ok"] is False
+    assert real["status"] == "blocked"
+    assert any("expected definitely-not-the-current-branch" in item for item in real["blockers"])
+    assert not (repo / "must-not-run").exists()
+
+
 def test_steel_mission_delivery_preflight_blocks_unsafe_command_before_execution(tmp_path):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
