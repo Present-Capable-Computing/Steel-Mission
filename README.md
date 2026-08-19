@@ -47,6 +47,14 @@ Delivery Coordinator is a role/capability. Binding it to Claude, OpenAI, Glimmer
 ## Running Locally
 
 ```bash
+python3 -m pip install -r requirements-dev.txt
+bin/steel-mission doctor
+bin/steel-mission serve
+```
+
+Or use the Python entrypoint directly:
+
+```bash
 python3 steel-mission-chat/server.py --host 127.0.0.1 --port 8765 --profile dc13.local
 ```
 
@@ -55,6 +63,30 @@ Open:
 ```text
 http://127.0.0.1:8765/
 ```
+
+## Requirements
+
+Minimum core:
+
+- macOS or Linux;
+- Python 3.11 or newer;
+- Git;
+- a modern browser.
+
+Optional provider tools:
+
+- Claude Code CLI for the `dc13.claude` profile;
+- Codex CLI for the repair-agent path;
+- Ollama and a local coding model for the `dc13.local` profile;
+- GitHub CLI for release and PR flows.
+
+See [INSTALL.md](INSTALL.md) for the complete setup guide.
+
+## Quickstarts
+
+- [Local starter](docs/quickstart-local.md)
+- [Claude Code](docs/quickstart-claude-code.md)
+- [Codex](docs/quickstart-codex.md)
 
 ## Guarded Runner
 
@@ -82,6 +114,19 @@ The signing key is created outside the repository. A customer KMS, Vault Transit
 Steel Mission does not depend on n8n. n8n should be treated as a replaceable orchestration adapter that can request work, receive events, or coordinate external workflows. It is not the source of truth for policy, approval, evidence, or execution authority.
 
 Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
+
+## Protocol Status
+
+Steel Mission includes the Steel Mission Control Plane Protocol, experimental v0.1. It is a protocol candidate embedded in the product, with versioned schemas for runtime profiles, snapshot policy, mission control, audit, evidence, and guarded execution.
+
+Do not describe it as a stable public standard yet. See [docs/steel-mission-control-plane-protocol.md](docs/steel-mission-control-plane-protocol.md).
+
+## Release And Security
+
+- [Release notes](RELEASE_NOTES.md)
+- [Security policy](SECURITY.md)
+- [Architecture](architecture.md)
+- [Operations](operations.md)
 
 ## Release Posture
 

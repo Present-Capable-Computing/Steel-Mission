@@ -24,6 +24,7 @@ import pytest
 WORKER_DIR = Path(__file__).resolve().parent.parent
 TESTS_DIR = Path(__file__).resolve().parent
 BIN = WORKER_DIR / "bin" / "present-worker"
+STEEL_MISSION = WORKER_DIR / "bin" / "steel-mission"
 SSH_GUARD = WORKER_DIR / "bin" / "present-worker-ssh-guard"
 BROKER = WORKER_DIR / "bin" / "present-lease-broker"
 FILE_LOCK = WORKER_DIR / "bin" / "present-file-lock"
@@ -51,6 +52,11 @@ def run_worker_result(*args: str, input_text: str | None = None) -> tuple[int, d
 def run_worker(*args: str) -> tuple[int, dict]:
     code, stdout_payload, _stderr_payload, _stdout, _stderr = run_worker_result(*args)
     return code, stdout_payload
+
+
+def run_steel_mission(*args: str) -> tuple[int, dict, dict, str, str]:
+    result = subprocess.run([str(STEEL_MISSION), *args], capture_output=True, text=True, timeout=60)
+    return result.returncode, _parse_json(result.stdout), _parse_json(result.stderr), result.stdout, result.stderr
 
 
 def run_broker_result(*args: str, input_text: str | None = None) -> tuple[int, dict, dict, str, str]:
@@ -95,6 +101,18 @@ def test_version():
     assert payload["name"] == "present-worker"
     assert payload["schemaRegistryHash"] == common.schema_registry_hash()
     assert schema_check.validate(payload, "canonical/worker-version-v1.json") == []
+
+
+def test_steel_mission_wrapper_exposes_worker_version_and_doctor():
+    code, payload, _stderr_payload, _stdout, _stderr = run_steel_mission("worker", "version")
+    assert code == 0
+    assert payload["name"] == "present-worker"
+    assert payload["schemaRegistryHash"] == common.schema_registry_hash()
+
+    code, payload, _stderr_payload, _stdout, _stderr = run_steel_mission("doctor")
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["checks"]["steel_mission_chat"]["exists"] is True
 
 
 def test_status_schema_valid():
