@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 COPY requirements-dev.txt /tmp/steel-mission-requirements-dev.txt
 COPY --chmod=0755 bin/private-runner-entrypoint /usr/local/bin/private-runner-entrypoint
