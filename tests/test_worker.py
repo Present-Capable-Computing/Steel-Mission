@@ -387,6 +387,10 @@ def _status_for_pool(worker_id: str, *, protocol: str = "2.10", max_parallel: in
     identity["resourceLimits"]["maxWorkflowParallel"] = max_parallel
     status["detail"]["protocolVersion"] = protocol
     registry = status["detail"]["capabilityRegistry"]
+    for capability in ("plan", "code-review", "review", "security-review", "adversarial", "candidate", "fix"):
+        if capability in registry:
+            registry[capability]["available"] = True
+            registry[capability]["missing"] = []
     for capability in unavailable or []:
         if capability in registry:
             registry[capability]["available"] = False
