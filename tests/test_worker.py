@@ -10124,25 +10124,3 @@ def test_chat_poll_carries_the_identity_that_created_the_job():
     poll = html[html.index("/api/chat/${started.jobId}"):]
     poll = poll[:poll.index("\n\n")] if "\n\n" in poll[:600] else poll[:600]
     assert "actorHeaders()" in poll, "the chat poll does not send the creating actor's identity"
-
-
-def test_browser_storage_is_scoped_per_instance():
-    """localStorage ignores the port, and a host is not a server.
-
-    An actor stored by the container on one port was handed to a development
-    server on another, which then received an X-Present-Actor for a user it had
-    never heard of. Keys are namespaced by host and port so two instances on one
-    machine stop sharing an identity.
-    """
-    import re
-    import runpy
-
-    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    html = chat["chat_index"]()
-    assert "instanceKey" in html and "location.host" in html
-
-    # The invariant is that no call names a key directly: every key goes through
-    # the helper that scopes it. Counting calls would break the moment the helper
-    # is edited and would pin nothing worth pinning.
-    literal = re.findall(r'localStorage\.(?:get|set|remove)Item\(\s*["\']steel-mission', html)
-    assert not literal, f"{len(literal)} storage calls name a key directly instead of scoping it"

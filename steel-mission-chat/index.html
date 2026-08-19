@@ -1380,45 +1380,16 @@
     const missionTemplateSelect = document.querySelector("#missionTemplateSelect");
     const missionObjective = document.querySelector("#missionObjective");
     const missionBindingPanel = document.querySelector("#missionBindingPanel");
-    // Browser storage is scoped to the origin's host, and a host is not a server:
-    // localStorage and cookies both ignore the port. A session and an actor stored
-    // by the container on :8766 are handed to a development server on :8765, which
-    // then receives an X-Present-Actor for a user it has never heard of. Every key
-    // is namespaced by host and port so two instances on one machine stop sharing
-    // an identity.
-    const instanceKey = name => `steel-mission:${location.host}:${name}`;
-    const store = {
-      get: name => {
-        const scoped = localStorage.getItem(instanceKey(name));
-        if (scoped !== null) return scoped;
-        // One-time migration from the unscoped keys, so an existing session is not
-        // logged out by this change. The old key is removed rather than left to be
-        // picked up by the next instance on a different port.
-        const legacy = localStorage.getItem(name);
-        if (legacy !== null) {
-          localStorage.setItem(instanceKey(name), legacy);
-          localStorage.removeItem(name);
-          return legacy;
-        }
-        return null;
-      },
-      set: (name, value) => localStorage.setItem(instanceKey(name), value),
-      remove: name => {
-        localStorage.removeItem(instanceKey(name));
-        localStorage.removeItem(name);
-      },
-    };
-
     const storageKey = "steel-mission-chat-messages-v1";
     const workModeKey = "steel-mission-work-mode";
-    let messages = JSON.parse(store.get(storageKey) || "[]");
+    let messages = JSON.parse(localStorage.getItem(storageKey) || "[]");
     let busy = false;
     let activeJobId = null;
-    let activeWorkMode = store.get(workModeKey) === "normal" ? "normal" : "domain-capabilities";
-    let activeProfile = store.get("steel-mission-runtime-profile") || "";
-    let activeOperatorRole = store.get("steel-mission-operator-role") || "user";
-    let activeActorUserId = store.get("steel-mission-actor-user") || "local-user";
-    let activeSettingsSection = store.get("steel-mission-settings-section") || "knowledge";
+    let activeWorkMode = localStorage.getItem(workModeKey) === "normal" ? "normal" : "domain-capabilities";
+    let activeProfile = localStorage.getItem("steel-mission-runtime-profile") || "";
+    let activeOperatorRole = localStorage.getItem("steel-mission-operator-role") || "user";
+    let activeActorUserId = localStorage.getItem("steel-mission-actor-user") || "local-user";
+    let activeSettingsSection = localStorage.getItem("steel-mission-settings-section") || "knowledge";
     let runtimeRegistry = {profiles: []};
     let modelRoleRegistry = {models: [], roles: []};
     let knowledgeRegistry = {foundations: [], roles: []};
@@ -1478,7 +1449,7 @@
     ];
 
     function save() {
-      store.set(storageKey, JSON.stringify(messages.slice(-12)));
+      localStorage.setItem(storageKey, JSON.stringify(messages.slice(-12)));
     }
 
     function escapeHtml(value) {
@@ -1564,7 +1535,7 @@
 
     function currentActorUserId() {
       activeActorUserId = actorUserId ? actorUserId.value.trim() || activeOperatorRole : activeActorUserId || activeOperatorRole;
-      store.set("steel-mission-actor-user", activeActorUserId);
+      localStorage.setItem("steel-mission-actor-user", activeActorUserId);
       return activeActorUserId;
     }
 
@@ -1587,7 +1558,7 @@
 
     function setWorkMode(value) {
       activeWorkMode = value === "normal" ? "normal" : "domain-capabilities";
-      store.set(workModeKey, activeWorkMode);
+      localStorage.setItem(workModeKey, activeWorkMode);
       if (normalMode) normalMode.classList.toggle("active", activeWorkMode === "normal");
       if (domainCapabilityMode) domainCapabilityMode.classList.toggle("active", activeWorkMode === "domain-capabilities");
       question.placeholder = activeWorkMode === "normal"
@@ -1835,8 +1806,8 @@
       activeOperatorRole = organizationRole(activeOperatorRole);
       if (operatorRole) operatorRole.value = activeOperatorRole;
       if (actorUserId) actorUserId.value = activeActorUserId || activeOperatorRole;
-      store.set("steel-mission-operator-role", activeOperatorRole);
-      store.set("steel-mission-actor-user", activeActorUserId || activeOperatorRole);
+      localStorage.setItem("steel-mission-operator-role", activeOperatorRole);
+      localStorage.setItem("steel-mission-actor-user", activeActorUserId || activeOperatorRole);
       setManagerMessage("");
       await loadRuntimeProfiles();
       await loadKnowledgeRegistry();
@@ -1937,7 +1908,7 @@
       if (!sections.some(section => section.id === activeSettingsSection)) {
         activeSettingsSection = sections[0]?.id || "knowledge";
       }
-      store.set("steel-mission-settings-section", activeSettingsSection);
+      localStorage.setItem("steel-mission-settings-section", activeSettingsSection);
       return sections;
     }
 
@@ -1974,7 +1945,7 @@
       profileList.querySelectorAll("[data-settings-target]").forEach(button => {
         button.addEventListener("click", () => {
           activeSettingsSection = button.getAttribute("data-settings-target") || activeSettingsSection;
-          store.set("steel-mission-settings-section", activeSettingsSection);
+          localStorage.setItem("steel-mission-settings-section", activeSettingsSection);
           renderProfileManager();
         });
       });
@@ -3684,7 +3655,7 @@
         profileSelect.value = profiles.some(profile => profile.id === activeProfile) ? activeProfile : fallback;
         activeProfile = profileSelect.value;
         if (!selectedManagerProfile) selectedManagerProfile = activeProfile;
-        store.set("steel-mission-runtime-profile", activeProfile);
+        localStorage.setItem("steel-mission-runtime-profile", activeProfile);
         if (profileDialog && profileDialog.open) renderProfileManager();
       } catch {
         profileSelect.innerHTML = `<option value="${escapeHtml(activeProfile || "dc13.auto")}">${escapeHtml(activeProfile || "dc13.auto")}</option>`;
@@ -3758,8 +3729,7 @@
         messages = messages.filter(message => message !== statusMessage);
         await checkServer();
         // A chat owned by another actor is not a server fault, and telling someone
-        // to restart the server sends them to fix the wrong thing. Say what
-        // happened and drop the orphaned job rather than polling it forever.
+        // to restart the server sends them to fix the wrong thing.
         const notOurs = /not visible to this actor/i.test(error.message || "");
         messages.push({
           role: "assistant",
@@ -3875,7 +3845,7 @@
       profileSelect.addEventListener("change", () => {
         activeProfile = profileSelect.value;
         selectedManagerProfile = activeProfile;
-        store.set("steel-mission-runtime-profile", activeProfile);
+        localStorage.setItem("steel-mission-runtime-profile", activeProfile);
         checkServer();
       });
     }
@@ -3889,7 +3859,7 @@
       activeOperatorRole = operatorRole.value;
       operatorRole.addEventListener("change", async () => {
         activeOperatorRole = organizationRole(operatorRole.value);
-        store.set("steel-mission-operator-role", activeOperatorRole);
+        localStorage.setItem("steel-mission-operator-role", activeOperatorRole);
         await loadOrganizationWorkspace();
         await loadOrganizations();
         await loadKnowledgeRegistry();
@@ -3909,7 +3879,7 @@
       actorUserId.value = activeActorUserId || activeOperatorRole;
       actorUserId.addEventListener("change", () => {
         activeActorUserId = actorUserId.value.trim() || activeOperatorRole;
-        store.set("steel-mission-actor-user", activeActorUserId);
+        localStorage.setItem("steel-mission-actor-user", activeActorUserId);
       });
     }
 
