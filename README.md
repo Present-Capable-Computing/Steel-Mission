@@ -9,9 +9,9 @@ Steel Mission is part of the Present family of products. Present stands for capa
 Steel Mission uses an open-core release model.
 
 - Core: open source under Apache-2.0 for teams to download, inspect, run, modify, and evaluate with the included synthetic starter company.
-- Enterprise Edition: closed-source, proprietary, commercially licensed features and services for production governance, including SSO/OIDC, KMS or external evidence signing, compliance evidence packs, SIEM export, enterprise approval routing, private-cloud deployment templates, and managed integrations.
+- Enterprise Edition: closed-source, proprietary, commercially licensed features and services for production governance, including SSO/OIDC, KMS or external evidence signing, managed evidence retention, SIEM export, enterprise approval routing, private-cloud deployment templates, and managed integrations.
 
-Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Enterprise Edition functionality is gated behind a commercial license key or equivalent entitlement check.
+Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Enterprise Edition functionality is gated behind a commercial license key or equivalent entitlement check in the official distribution.
 
 See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICENSE](LICENSE) for the Apache-2.0 core license text.
 
@@ -101,13 +101,33 @@ Direct command execution paths are blocked by default when the control policy re
 
 ## External Signing
 
-The default release configuration uses:
+Core uses local HMAC signing for downloadable evaluation. Customer-held signing custody is Enterprise-only and is locked unless a valid Enterprise entitlement is active.
+
+The Enterprise signing adapter can use:
 
 ```bash
 bin/present-evidence-signer --key-file ~/.present/control-plane/evidence-signing-key --signer-id present-external-signer sign
 ```
 
-The signing key is created outside the repository. A customer KMS, Vault Transit service, or private signing service can replace this command without changing the evidence contract.
+The signing key is created outside the repository. A customer KMS, Vault Transit service, HSM, or private signing service can replace this command without changing the evidence contract.
+
+## Enterprise Entitlement
+
+The official runtime keeps the following features locked in Core:
+
+- OIDC/JWKS customer identity configuration;
+- customer KMS, Vault Transit, HSM, or equivalent external evidence signing;
+- SIEM/security-monitoring connectors and exports.
+
+For licensed Enterprise environments, configure:
+
+```bash
+STEEL_MISSION_EDITION=enterprise
+STEEL_MISSION_LICENSE_KEY=...
+STEEL_MISSION_LICENSE_KEY_SHA256=...
+```
+
+The hash is the SHA-256 digest of the configured license key. The key value is never returned by the API.
 
 ## n8n And Orchestration
 

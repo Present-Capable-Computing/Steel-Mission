@@ -7,11 +7,11 @@
   ],
   "enforcementMode": "signed-session-required-for-control-plane",
   "kms": {
-    "enabled": true,
-    "keyId": "present-external-signer",
-    "provider": "external-signer",
-    "requireExternalSigning": true,
-    "signCommand": "bin/present-evidence-signer --key-file ~/.present/control-plane/evidence-signing-key --signer-id present-external-signer sign"
+    "enabled": false,
+    "keyId": "",
+    "provider": "customer-managed",
+    "requireExternalSigning": false,
+    "signCommand": ""
   },
   "oidc": {
     "audience": "present-control-plane",

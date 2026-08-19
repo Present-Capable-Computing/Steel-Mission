@@ -102,8 +102,25 @@ Use environment variables from `.env.example` when you want to redirect runtime 
 
 Before production use:
 
+- activate a valid Enterprise entitlement before configuring customer identity, external signing custody, or SIEM export;
 - configure customer identity through OIDC/JWKS;
 - replace local signing with customer KMS, Vault Transit, HSM, or equivalent external signing;
-- configure repository, issue tracker, chat, CI/CD, and SIEM connectors;
+- configure repository, issue tracker, chat, CI/CD, and licensed SIEM connectors;
 - run inside customer infrastructure, a private worker, container, or private cloud environment;
 - require approvals for high-risk changes and production deployments.
+
+## Enterprise Entitlement
+
+The downloadable Core build locks OIDC/JWKS, customer KMS or equivalent external signing, and SIEM/security-monitoring export. Licensed Enterprise builds can enable those paths with:
+
+```bash
+STEEL_MISSION_EDITION=enterprise
+STEEL_MISSION_LICENSE_KEY=...
+STEEL_MISSION_LICENSE_KEY_SHA256=...
+```
+
+Generate the hash with:
+
+```bash
+python3 -c 'import hashlib, os; print(hashlib.sha256(os.environ["STEEL_MISSION_LICENSE_KEY"].encode()).hexdigest())'
+```

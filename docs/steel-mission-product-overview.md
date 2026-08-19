@@ -10,7 +10,7 @@ Steel Mission is an Agent Delivery Plane for governed software delivery. It give
 - Domain Capabilities: DC01-DC13 starter domain capabilities.
 - Delivery Coordinator: the DC13 capability that coordinates mission state, evidence, approvals, and closure.
 - Guarded runner: the only production execution boundary for commands and provider actions.
-- Evidence signer: external signer or customer KMS-equivalent command.
+- Evidence signer: Core local signing, with Enterprise-locked external signer or customer KMS-equivalent custody.
 
 ## Starter Company
 
@@ -20,7 +20,9 @@ Northstar Forge is synthetic demonstration data. It exists so a team can launch 
 
 Steel Mission Core is open source under Apache-2.0. Teams can download, inspect, run, modify, and evaluate the core with the included synthetic starter company.
 
-Steel Mission Enterprise Edition is closed-source, proprietary, commercially licensed functionality gated behind a license key or equivalent entitlement check. Enterprise features include production SSO/OIDC, customer KMS custody, compliance evidence packs, SIEM export, enterprise approval routing, private-cloud templates, and managed integrations.
+Steel Mission Enterprise Edition is closed-source, proprietary, commercially licensed functionality gated behind a license key or equivalent entitlement check in the official distribution. Enterprise features include production SSO/OIDC, customer KMS custody, advanced compliance packs, SIEM export, enterprise approval routing, private-cloud templates, and managed integrations.
+
+The Core runtime technically locks OIDC/JWKS customer identity configuration, customer KMS or equivalent external signing, and SIEM/security-monitoring exports unless an Enterprise entitlement is active.
 
 ## Orchestration
 

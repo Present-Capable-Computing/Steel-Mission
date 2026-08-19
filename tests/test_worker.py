@@ -59,6 +59,16 @@ def run_steel_mission(*args: str) -> tuple[int, dict, dict, str, str]:
     return result.returncode, _parse_json(result.stdout), _parse_json(result.stderr), result.stdout, result.stderr
 
 
+def enable_enterprise_entitlement(monkeypatch: pytest.MonkeyPatch, chat: dict | None = None) -> None:
+    key = "test-enterprise-license"
+    monkeypatch.setenv("STEEL_MISSION_EDITION", "enterprise")
+    monkeypatch.setenv("STEEL_MISSION_LICENSE_KEY", key)
+    monkeypatch.setenv("STEEL_MISSION_LICENSE_KEY_SHA256", hashlib.sha256(key.encode("utf-8")).hexdigest())
+    if chat:
+        monkeypatch.delenv(chat["EVIDENCE_SIGNER_COMMAND_ENV"], raising=False)
+        monkeypatch.delenv("PRESENT_REQUIRE_EXTERNAL_SIGNING", raising=False)
+
+
 def run_broker_result(*args: str, input_text: str | None = None) -> tuple[int, dict, dict, str, str]:
     result = subprocess.run([str(BROKER), *args], input=input_text, capture_output=True, text=True, timeout=120)
     return result.returncode, _parse_json(result.stdout), _parse_json(result.stderr), result.stdout, result.stderr
@@ -6092,6 +6102,8 @@ def test_main_chat_index_is_the_default_steel_mission_page():
     assert "Alpha ${escapeHtml(controlPlaneReadiness.alphaScore" in html
     assert "Save Auth Policy" in html
     assert "Signed sessions for guarded actions" in html
+    assert "Enterprise features locked" in html
+    assert "Configure a valid Enterprise entitlement" in html
     assert "KMS Sign Command" in html
     assert "Require external evidence signing" in html
     assert "Direct commands:" in html
@@ -7089,8 +7101,8 @@ def test_steel_mission_mission_evidence_and_audit_are_signed_in_one_chain(tmp_pa
         audit = chat["read_mission_audit"](mission_id)
         chain = chat["mission_integrity_chain"](mission_id, limit=0)
 
-        assert evidence["integrity"]["signatureScheme"] == "external-kms-or-signer-v1"
-        assert re.fullmatch(r"present-external-hmac-sha256:[a-f0-9]{64}", evidence["integrity"]["signature"])
+        assert evidence["integrity"]["signatureScheme"] == "hmac-sha256-local-alpha"
+        assert re.fullmatch(r"[a-f0-9]{64}", evidence["integrity"]["signature"])
         assert ref["integrityHash"] == chain[0]["chainHash"]
         assert len(chain) == 2
         assert audit[0]["integrity"]["previousHash"] == chain[0]["chainHash"]
@@ -7566,8 +7578,64 @@ def test_steel_mission_control_plane_registry_exposes_policy_integrations_and_co
     assert policy["customerBoundary"]["deployment"] == "customer-vpc-or-private-cloud"
     assert any("sudo" in pattern for pattern in policy["blockedCommandPatterns"])
     assert {item["id"] for item in registry["connectors"]} >= {"github", "gitlab", "jira", "linear", "slack", "ci-cd", "siem"}
+    siem = {item["id"]: item for item in registry["connectors"]}["siem"]
+    assert siem["enabled"] is False
+    assert siem["locked"] is True
+    assert siem["enterpriseFeature"] == "siem-connectors"
     assert {item["id"] for item in registry["modelProviders"]} >= {"claude", "openai", "glimmer", "local"}
     assert set(compliance["standards"]) >= {"SOC 2", "ISO 27001", "ISO 42001"}
+
+
+def test_steel_mission_core_blocks_enterprise_identity_signing_and_siem(tmp_path, monkeypatch):
+    import runpy
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    monkeypatch.delenv("STEEL_MISSION_EDITION", raising=False)
+    monkeypatch.delenv("STEEL_MISSION_LICENSE_KEY", raising=False)
+    monkeypatch.delenv("STEEL_MISSION_LICENSE_KEY_SHA256", raising=False)
+    monkeypatch.delenv(chat["EVIDENCE_SIGNER_COMMAND_ENV"], raising=False)
+    monkeypatch.delenv("PRESENT_REQUIRE_EXTERNAL_SIGNING", raising=False)
+    globals_ = chat["auth_policy"].__globals__
+    original_auth = globals_["AUTH_POLICY_PATH"]
+    original_registry = globals_["INTEGRATION_REGISTRY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
+    globals_["INTEGRATION_REGISTRY_PATH"] = tmp_path / "integration-registry.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    try:
+        with pytest.raises(PermissionError, match="Enterprise license required"):
+            chat["save_auth_policy"]({
+                "oidc": {"enabled": True, "issuer": "https://idp.example.invalid", "jwksUrl": "https://idp.example.invalid/jwks.json"},
+            }, "owner")
+        with pytest.raises(PermissionError, match="Enterprise license required"):
+            chat["save_auth_policy"]({
+                "kms": {"enabled": True, "provider": "aws-kms", "keyId": "arn:aws:kms:example", "requireExternalSigning": True},
+            }, "admin")
+        globals_["AUTH_POLICY_PATH"].write_text(json.dumps({
+            "schemaVersion": 1,
+            "oidc": {"enabled": True, "issuer": "https://idp.example.invalid", "audience": "present-control-plane", "jwksUrl": "https://idp.example.invalid/jwks.json"},
+            "kms": {"enabled": True, "provider": "aws-kms", "keyId": "arn:aws:kms:example", "signCommand": "echo signed", "requireExternalSigning": True},
+        }))
+        policy = chat["auth_policy"]()
+        assert policy["entitlement"]["enterpriseEnabled"] is False
+        assert policy["oidc"]["enabled"] is False
+        assert policy["oidc"]["jwksUrl"] == ""
+        assert policy["kms"]["enabled"] is False
+        assert chat["external_evidence_signer_command"]() == ""
+        assert chat["external_signing_required"](policy) is False
+        assert chat["evidence_signer_health"](policy)["status"] == "locked"
+        with pytest.raises(PermissionError, match="Enterprise license required"):
+            chat["save_integration_registry"]({
+                "connectors": [{"id": "siem", "kind": "security-evidence-export", "enabled": True, "mode": "outbox"}],
+            }, "owner")
+        registry = chat["integration_registry"]("admin")
+        siem = {item["id"]: item for item in registry["connectors"]}["siem"]
+        assert siem["locked"] is True
+        assert siem["enabled"] is False
+        assert chat["mission_siem_jsonl"]("ms-" + "1" * 24, "admin")["status"] == "locked"
+    finally:
+        globals_["AUTH_POLICY_PATH"] = original_auth
+        globals_["INTEGRATION_REGISTRY_PATH"] = original_registry
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
 def test_steel_mission_control_policy_can_be_saved_and_changes_preflight(tmp_path):
@@ -7616,9 +7684,10 @@ def test_steel_mission_control_policy_can_be_saved_and_changes_preflight(tmp_pat
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_steel_mission_auth_policy_sessions_and_guarded_execution_are_signed(tmp_path):
+def test_steel_mission_auth_policy_sessions_and_guarded_execution_are_signed(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    enable_enterprise_entitlement(monkeypatch, chat)
     globals_ = chat["auth_policy"].__globals__
     original_auth = globals_["AUTH_POLICY_PATH"]
     original_mission_root = globals_["MISSION_ROOT"]
@@ -7680,13 +7749,14 @@ def test_steel_mission_auth_policy_sessions_and_guarded_execution_are_signed(tmp
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_steel_mission_oidc_rs256_session_verification_uses_configured_jwks(tmp_path):
+def test_steel_mission_oidc_rs256_session_verification_uses_configured_jwks(tmp_path, monkeypatch):
     import runpy
     from cryptography.hazmat.primitives import hashes as crypto_hashes
     from cryptography.hazmat.primitives.asymmetric import padding as crypto_padding
     from cryptography.hazmat.primitives.asymmetric import rsa as crypto_rsa
 
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    enable_enterprise_entitlement(monkeypatch, chat)
     globals_ = chat["auth_policy"].__globals__
     original_auth = globals_["AUTH_POLICY_PATH"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
@@ -7741,9 +7811,10 @@ def test_steel_mission_oidc_rs256_session_verification_uses_configured_jwks(tmp_
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_steel_mission_external_kms_signer_is_used_for_mission_integrity(tmp_path):
+def test_steel_mission_external_kms_signer_is_used_for_mission_integrity(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    enable_enterprise_entitlement(monkeypatch, chat)
     globals_ = chat["auth_policy"].__globals__
     original_root = globals_["MISSION_ROOT"]
     original_auth = globals_["AUTH_POLICY_PATH"]
@@ -7795,9 +7866,10 @@ def test_steel_mission_external_kms_signer_is_used_for_mission_integrity(tmp_pat
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_steel_mission_required_external_signer_fails_closed(tmp_path):
+def test_steel_mission_required_external_signer_fails_closed(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    enable_enterprise_entitlement(monkeypatch, chat)
     globals_ = chat["auth_policy"].__globals__
     original_root = globals_["MISSION_ROOT"]
     original_auth = globals_["AUTH_POLICY_PATH"]
@@ -7844,25 +7916,52 @@ def test_steel_mission_required_external_signer_fails_closed(tmp_path):
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_steel_mission_control_plane_readiness_meets_alpha_and_production_targets():
+def test_steel_mission_control_plane_readiness_meets_alpha_and_production_targets(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    payload = chat["control_plane_production_readiness"]("admin")
-    assert payload["alphaScore"] >= 95
-    assert payload["productionScore"] == 100
-    assert payload["meetsAlphaTarget"] is True
-    assert payload["meetsProductionTarget"] is True
-    assert payload["guardedEntrypoints"]["requiresSignedSession"] is True
-    assert payload["guardedEntrypoints"]["guardedRunnerRequired"] is True
-    assert payload["guardedEntrypoints"]["directCommandMode"] == "block"
-    assert payload["evidenceSigner"]["ok"] is True
-    assert {item["id"] for item in payload["checks"]} >= {
-        "model-independent",
-        "customer-controlled",
-        "pre-execution-blocking",
-        "tamper-evident-evidence",
-        "enterprise-auth",
-    }
+    enable_enterprise_entitlement(monkeypatch, chat)
+    globals_ = chat["auth_policy"].__globals__
+    original_auth = globals_["AUTH_POLICY_PATH"]
+    original_registry = globals_["INTEGRATION_REGISTRY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
+    globals_["INTEGRATION_REGISTRY_PATH"] = tmp_path / "integration-registry.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    signer = tmp_path / "readiness-signer.py"
+    signer.write_text("import hashlib,json,sys\npayload=json.loads(sys.stdin.read())\nprint(hashlib.sha256(payload['recordHash'].encode()).hexdigest())\n")
+    try:
+        chat["save_auth_policy"]({
+            "acceptedIssuers": ["present-local-alpha", "https://idp.example.invalid"],
+            "acceptedAudiences": ["present-control-plane"],
+            "oidc": {"enabled": True, "issuer": "https://idp.example.invalid", "audience": "present-control-plane", "jwksUrl": "https://idp.example.invalid/jwks.json"},
+            "kms": {"enabled": True, "provider": "local-kms-test", "keyId": "readiness-key", "signCommand": f"python3 {signer}", "requireExternalSigning": True},
+        }, "admin")
+        chat["save_integration_registry"]({
+            "connectors": [
+                {"id": "siem", "label": "SIEM", "kind": "security-evidence-export", "enabled": True, "mode": "outbox", "events": ["audit", "evidence", "control-decision"]},
+            ],
+        }, "owner")
+        payload = chat["control_plane_production_readiness"]("admin")
+        assert payload["alphaScore"] >= 95
+        assert payload["productionScore"] == 100
+        assert payload["meetsAlphaTarget"] is True
+        assert payload["meetsProductionTarget"] is True
+        assert payload["entitlement"]["enterpriseEnabled"] is True
+        assert payload["guardedEntrypoints"]["requiresSignedSession"] is True
+        assert payload["guardedEntrypoints"]["guardedRunnerRequired"] is True
+        assert payload["guardedEntrypoints"]["directCommandMode"] == "block"
+        assert payload["evidenceSigner"]["ok"] is True
+        assert {item["id"] for item in payload["checks"]} >= {
+            "model-independent",
+            "customer-controlled",
+            "pre-execution-blocking",
+            "tamper-evident-evidence",
+            "enterprise-auth",
+        }
+    finally:
+        globals_["AUTH_POLICY_PATH"] = original_auth
+        globals_["INTEGRATION_REGISTRY_PATH"] = original_registry
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
 def test_present_control_plane_cli_executes_only_with_signed_session(tmp_path):
@@ -7921,9 +8020,10 @@ def test_present_control_plane_cli_executes_only_with_signed_session(tmp_path):
     assert (repo / "built.txt").read_text() == "ok"
 
 
-def test_steel_mission_connector_runtime_executes_configured_command_and_outbox(tmp_path):
+def test_steel_mission_connector_runtime_executes_configured_command_and_outbox(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    enable_enterprise_entitlement(monkeypatch, chat)
     globals_ = chat["integration_registry"].__globals__
     original_registry = globals_["INTEGRATION_REGISTRY_PATH"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
@@ -8016,9 +8116,10 @@ def test_steel_mission_github_pr_adapter_builds_native_readiness_without_creatin
     assert payload["changeSet"]["files"][0]["path"] == "feature.txt"
 
 
-def test_steel_mission_delivery_execution_uses_isolated_worktree_and_proof_pack(tmp_path):
+def test_steel_mission_delivery_execution_uses_isolated_worktree_and_proof_pack(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    enable_enterprise_entitlement(monkeypatch, chat)
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__

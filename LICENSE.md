@@ -16,13 +16,13 @@ Enterprise features may include, without limitation:
 
 - production SSO/OIDC and enterprise identity integrations;
 - customer KMS, Vault Transit, HSM, or equivalent external signing custody;
-- compliance evidence packs and managed evidence retention;
+- advanced compliance packs and managed evidence retention;
 - SIEM/security-monitoring export and managed integration connectors;
 - enterprise approval routing and separation-of-duties workflows;
 - private-cloud deployment templates and production hardening services;
 - managed orchestration adapters and hosted operational services.
 
-Enterprise functionality is intended to be gated behind a commercial license key or equivalent entitlement check.
+Enterprise functionality is technically gated behind a commercial license key or equivalent entitlement check in the official distribution. Core source remains Apache-2.0; do not rely on an open-source fork to preserve commercial feature locks.
 
 ## Naming And Marks
 

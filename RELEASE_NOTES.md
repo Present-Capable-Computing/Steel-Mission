@@ -54,16 +54,17 @@ Local:
 - Guarded control-plane execution boundary.
 - Pre-execution blocking for unsafe actions.
 - Signed and hash-chained mission evidence.
-- External signer or customer KMS-equivalent policy.
+- Core local evidence signing with Enterprise-locked customer KMS, Vault Transit, HSM, or equivalent external signing.
 - Compliance evidence mappings for SOC 2, ISO 27001, and ISO 42001.
 - Connector contracts for GitHub/GitHub Actions, GitLab, Jira, Linear, Slack, CI/CD, SIEM, and replaceable orchestration adapters.
+- Technical Enterprise entitlement boundary for OIDC/JWKS, external signing custody, and SIEM/security-monitoring exports.
 - Optional n8n adapter posture; n8n is not a product dependency.
 - CI workflow for Python 3.11 and 3.12.
 
 ## Known Limitations
 
 - The release is a public alpha, not a production support commitment.
-- Enterprise Edition features are described and gated by policy but are proprietary and commercially licensed.
+- Enterprise Edition features are proprietary, commercially licensed, and technically locked in the official runtime distribution.
 - Container deployment is not included yet.
 - The local UI is functional, but not yet packaged as a desktop or hosted distribution.
 - Provider setup is manual.
