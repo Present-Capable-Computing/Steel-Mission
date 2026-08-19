@@ -94,6 +94,9 @@ echo "Adding planned issues to the board"
         --url "https://github.com/$REPO/issues/$issue" >/dev/null
     done
 
+echo "Applying fields, item values and views"
+python3 "$ROOT/tooling/gh-project-fields.py" --number "$number"
+
 echo "Recording the board on the project record"
 python3 "$ROOT/tooling/gh-plan-sync.py" --board-url "$url"
 

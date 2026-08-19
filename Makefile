@@ -45,9 +45,11 @@ private-runner-status:
 plan-check:
 	$(PYTHON) -m pytest tests/test_plan_records.py -q
 	$(PYTHON) tooling/gh-plan-sync.py --dry-run
+	$(PYTHON) tooling/gh-project-fields.py --dry-run
 
 plan-sync:
 	$(PYTHON) tooling/gh-plan-sync.py
+	$(PYTHON) tooling/gh-project-fields.py
 
 release-check:
 	git diff --check

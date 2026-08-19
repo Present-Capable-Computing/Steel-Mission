@@ -46,10 +46,23 @@ def gh_json(*args: str):
     return json.loads(gh(*args) or "null")
 
 
-def api(path: str, *, method: str = "GET", fields: dict | None = None):
+def api(
+    path: str,
+    *,
+    method: str = "GET",
+    fields: dict | None = None,
+    typed_fields: dict | None = None,
+):
+    """`fields` are sent as strings; `typed_fields` keep their JSON type.
+
+    The sub-issue and dependency endpoints take an integer node id and reject a
+    quoted one, so the distinction is not cosmetic.
+    """
     args = ["api", "-X", method, path]
     for key, value in (fields or {}).items():
         args += ["-f", f"{key}={value}"]
+    for key, value in (typed_fields or {}).items():
+        args += ["-F", f"{key}={value}"]
     return json.loads(gh(*args) or "null")
 
 
@@ -177,12 +190,13 @@ def find_issue(repo: str, title: str) -> dict | None:
     return load_issues(repo).get(title)
 
 
-def epic_body(spec: dict, task_refs: list[str]) -> str:
-    tasks = "\n".join(f"- [ ] #{ref}" for ref in task_refs) or "_Tasks are linked as they are created._"
+def epic_body(spec: dict) -> str:
+    # No task list here. The tasks are real sub-issues, so GitHub renders them
+    # with their state and a progress count. A checkbox list beside that is a
+    # second copy of the same relationship, maintained by hand, that goes wrong.
     return (
         f"## Outcome\n\n{spec['outcome']}\n\n"
         f"## Explicitly not in scope\n\n{spec['notInScope']}\n\n"
-        f"## Tasks\n\n{tasks}\n\n"
         f"## How the milestone is judged complete\n\n{spec['done']}\n\n"
         "---\n\n"
         f"Milestone record: `plan/{spec['milestone']}.json` · "
@@ -192,17 +206,16 @@ def epic_body(spec: dict, task_refs: list[str]) -> str:
     )
 
 
-def task_body(spec: dict, epic_number: int | None, dep_numbers: list[int]) -> str:
+def task_body(spec: dict) -> str:
+    # Neither the epic nor the blockers are written here. Both are real GitHub
+    # relationships -- a parent issue and a blocked-by dependency -- so the issue
+    # header shows them and the board can filter on them. Restating them in the
+    # body would be a copy that drifts.
     parts = [
         f"## Requirement\n\n{spec['requirement']}\n",
         f"## Acceptance evidence\n\n{spec['acceptance']}\n",
         f"## Surface\n\n{spec['surface']}\n",
     ]
-    if dep_numbers:
-        deps = ", ".join(f"#{n}" for n in dep_numbers)
-        parts.append(f"## Blocked until\n\n{deps}\n")
-    if epic_number:
-        parts.append(f"## Epic\n\n#{epic_number}\n")
     parts.append(
         "---\n\n"
         f"Milestone record: `plan/{spec['milestone']}.json` · "
@@ -280,6 +293,97 @@ def ensure_issue(
     return number
 
 
+# ------------------------------------------------------------------ relationships
+
+
+def _issue_node_id(repo: str, number: int) -> str:
+    return api(f"repos/{repo}/issues/{number}")["id"]
+
+
+def sync_sub_issues(
+    repo: str,
+    manifest: dict,
+    epic_numbers: dict[str, int],
+    issue_numbers: dict[str, int],
+) -> None:
+    """Attach each task to its epic as a real sub-issue.
+
+    GitHub then renders the epic's children with their state and a progress
+    count, and a task shows its parent in the header. The alternative -- a
+    checkbox list in the epic body -- is a second copy of the same relationship
+    that nothing keeps true.
+    """
+    print("Sub-issues")
+    for epic in manifest["epics"]:
+        parent = epic_numbers.get(epic["key"])
+        if parent is None:
+            continue
+        wanted = [
+            issue_numbers[task["key"]]
+            for task in manifest["issues"]
+            if task.get("epic") == epic["key"] and task["key"] in issue_numbers
+        ]
+        if DRY_RUN:
+            print(f"  would attach {len(wanted)} tasks to #{parent}")
+            continue
+        present = {
+            child["number"]
+            for child in api(f"repos/{repo}/issues/{parent}/sub_issues")
+        }
+        missing = [number for number in wanted if number not in present]
+        if not missing:
+            print(f"  ok: #{parent} has {len(present)} sub-issues")
+            continue
+        for number in missing:
+            say("attach", f"#{number} under #{parent}")
+            api(
+                f"repos/{repo}/issues/{parent}/sub_issues",
+                method="POST",
+                typed_fields={"sub_issue_id": _issue_node_id(repo, number)},
+            )
+
+
+def sync_dependencies(
+    repo: str, manifest: dict, issue_numbers: dict[str, int]
+) -> None:
+    """Record each declared dependency as a blocked-by relationship.
+
+    The sequencing is already asserted in tests/test_plan_records.py, which
+    refuses a dependency on work scheduled later. Recording it here is what makes
+    it visible to the person picking up the task, rather than only to the test.
+    """
+    print("Dependencies")
+    for spec in manifest["issues"]:
+        blocked = issue_numbers.get(spec["key"])
+        wanted = [
+            issue_numbers[key]
+            for key in spec.get("dependsOn", [])
+            if key in issue_numbers
+        ]
+        if blocked is None or not wanted:
+            continue
+        if DRY_RUN:
+            print(f"  would block #{blocked} on {wanted}")
+            continue
+        present = {
+            blocker["number"]
+            for blocker in api(
+                f"repos/{repo}/issues/{blocked}/dependencies/blocked_by"
+            )
+        }
+        missing = [number for number in wanted if number not in present]
+        if not missing:
+            print(f"  ok: #{blocked} blocked by {sorted(present)}")
+            continue
+        for number in missing:
+            say("block", f"#{blocked} on #{number}")
+            api(
+                f"repos/{repo}/issues/{blocked}/dependencies/blocked_by",
+                method="POST",
+                typed_fields={"issue_id": _issue_node_id(repo, number)},
+            )
+
+
 # ---------------------------------------------------------------- plan record write
 
 
@@ -329,21 +433,13 @@ def main() -> int:
     milestone_numbers = sync_milestones(repo, manifest["milestones"])
     print()
 
-    # Epics exist first so tasks can reference them, but their bodies are written
-    # once, at the end, with the task list filled in. Writing an empty task list
-    # here and the real one later would mean every run reported a change.
     print("Epics")
     epic_numbers: dict[str, int] = {}
     for spec in manifest["epics"]:
-        existing = find_issue(repo, spec["title"])
-        if existing is not None:
-            epic_numbers[spec["key"]] = existing["number"]
-            print(f"  ok: #{existing['number']} {spec['title']}")
-            continue
         number = ensure_issue(
             repo,
             spec["title"],
-            epic_body(spec, []),
+            epic_body(spec),
             spec["labels"],
             milestone_numbers.get(spec["milestone"]),
         )
@@ -353,41 +449,21 @@ def main() -> int:
 
     print("Tasks")
     issue_numbers: dict[str, int] = {}
-    # Two passes: dependencies are expressed by key, and a key may refer forward.
-    for _ in range(2):
-        for spec in manifest["issues"]:
-            deps = [
-                issue_numbers[key]
-                for key in spec.get("dependsOn", [])
-                if key in issue_numbers
-            ]
-            number = ensure_issue(
-                repo,
-                spec["title"],
-                task_body(spec, epic_numbers.get(spec.get("epic", "")), deps),
-                spec["labels"],
-                milestone_numbers.get(spec["milestone"]),
-            )
-            if number is not None:
-                issue_numbers[spec["key"]] = number
-        if DRY_RUN:
-            break
-    print()
-
-    print("Epic task lists")
-    for spec in manifest["epics"]:
-        refs = [
-            str(issue_numbers[issue["key"]])
-            for issue in manifest["issues"]
-            if issue.get("epic") == spec["key"] and issue["key"] in issue_numbers
-        ]
-        ensure_issue(
+    for spec in manifest["issues"]:
+        number = ensure_issue(
             repo,
             spec["title"],
-            epic_body(spec, refs),
+            task_body(spec),
             spec["labels"],
             milestone_numbers.get(spec["milestone"]),
         )
+        if number is not None:
+            issue_numbers[spec["key"]] = number
+    print()
+
+    sync_sub_issues(repo, manifest, epic_numbers, issue_numbers)
+    print()
+    sync_dependencies(repo, manifest, issue_numbers)
     print()
 
     write_back(milestone_numbers, args.board_url)

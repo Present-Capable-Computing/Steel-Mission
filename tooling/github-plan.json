@@ -5,28 +5,201 @@
     "recordId": "PRJ-0001",
     "recordFile": "plan/PRJ-0001.json",
     "boardTitle": "Steel-Mission — Durable Core (PRJ-0001)",
-    "boardDescription": "PRJ-0001. Durable broker service and remote pull-runner. Source of truth for the shape of this work is plan/PRJ-0001.json in the repository; this board is the working surface."
+    "boardDescription": "PRJ-0001. Durable broker service and remote pull-runner. Source of truth for the shape of this work is plan/PRJ-0001.json in the repository; this board is the working surface.",
+    "fields": [
+      {
+        "name": "Phase",
+        "dataType": "SINGLE_SELECT",
+        "from": "label",
+        "options": [
+          "P0",
+          "P1",
+          "P2",
+          "P3",
+          "P4",
+          "P5"
+        ],
+        "$comment": "Taken from the P0-P5 label already on every item, so the phase is not stated twice."
+      },
+      {
+        "name": "Area",
+        "dataType": "SINGLE_SELECT",
+        "from": "label:area:",
+        "options": [
+          "store",
+          "runner",
+          "connector",
+          "orchestration",
+          "schema",
+          "ci",
+          "naming",
+          "docs"
+        ],
+        "$comment": "Taken from the area:* label. An item with no area label is left unset rather than guessed."
+      },
+      {
+        "name": "Kind",
+        "dataType": "SINGLE_SELECT",
+        "from": "kind",
+        "options": [
+          "epic",
+          "task",
+          "acceptance criterion"
+        ],
+        "$comment": "An acceptance criterion is a task, but it is the criterion the milestone exists to satisfy, so it is worth seeing separately."
+      }
+    ],
+    "views": [
+      {
+        "name": "By phase",
+        "layout": "TABLE_LAYOUT",
+        "filter": "-label:epic",
+        "visibleFields": [
+          "Title",
+          "Phase",
+          "Area",
+          "Kind",
+          "Status",
+          "Milestone",
+          "Assignees"
+        ],
+        "$comment": "The 52 tasks in phase order, epics filtered out so the list is work someone can pick up. Grouping by Phase is a UI click: the API exposes a view's filter and its visible fields, not its grouping."
+      },
+      {
+        "name": "Epics",
+        "layout": "TABLE_LAYOUT",
+        "filter": "label:epic",
+        "visibleFields": [
+          "Title",
+          "Phase",
+          "Status",
+          "Sub-issues progress",
+          "Milestone"
+        ],
+        "$comment": "Six rows with their sub-issue progress. The rollup is native because the tasks are real sub-issues."
+      },
+      {
+        "name": "Acceptance criteria",
+        "layout": "TABLE_LAYOUT",
+        "filter": "label:acceptance-criterion",
+        "visibleFields": [
+          "Title",
+          "Phase",
+          "Status",
+          "Milestone"
+        ],
+        "$comment": "The tests the project exists to pass, in one place. If these are not green, the project is not done regardless of what else is."
+      },
+      {
+        "name": "Board",
+        "layout": "BOARD_LAYOUT",
+        "filter": "-label:epic",
+        "visibleFields": [
+          "Title",
+          "Phase",
+          "Area",
+          "Assignees"
+        ],
+        "$comment": "Status columns, for whoever is working today."
+      }
+    ]
   },
   "labels": [
-    {"name": "epic", "color": "5319e7", "description": "A milestone-sized outcome that decomposes into tasks"},
-    {"name": "task", "color": "0e8a16", "description": "A unit of delivery work someone can pick up and finish"},
-    {"name": "acceptance-criterion", "color": "b60205", "description": "An automated test that settles a project-level criterion"},
-    {"name": "security-review", "color": "d93f0b", "description": "Touches a trust boundary; needs review before merge"},
-    {"name": "blocked", "color": "6a737d", "description": "Cannot proceed. Say why in the issue the day it happens"},
-    {"name": "P0", "color": "fbca04", "description": "MS-0001 Toolchain and CI baseline"},
-    {"name": "P1", "color": "1d76db", "description": "MS-0002 Durable broker service"},
-    {"name": "P2", "color": "1d76db", "description": "MS-0003 Pull-runner agent and job protocol v2"},
-    {"name": "P3", "color": "1d76db", "description": "MS-0004 Durable connector inbox and outbox"},
-    {"name": "P4", "color": "1d76db", "description": "MS-0005 Single orchestration path"},
-    {"name": "P5", "color": "1d76db", "description": "MS-0006 Steel-Mission naming"},
-    {"name": "area:store", "color": "c5def5", "description": "Transactional store, schema migrations, state machine"},
-    {"name": "area:runner", "color": "c5def5", "description": "Pull-runner agent, gRPC gateway, sandbox"},
-    {"name": "area:connector", "color": "c5def5", "description": "Inbox, outbox, connector delivery"},
-    {"name": "area:orchestration", "color": "c5def5", "description": "Mission lifecycle, controller, approvals"},
-    {"name": "area:schema", "color": "c5def5", "description": "Authority-owned schemas and the registry"},
-    {"name": "area:ci", "color": "c5def5", "description": "Build, test harness, continuous integration"},
-    {"name": "area:naming", "color": "c5def5", "description": "Product naming migration"},
-    {"name": "area:docs", "color": "c5def5", "description": "Documentation that moves with a contract"}
+    {
+      "name": "epic",
+      "color": "5319e7",
+      "description": "A milestone-sized outcome that decomposes into tasks"
+    },
+    {
+      "name": "task",
+      "color": "0e8a16",
+      "description": "A unit of delivery work someone can pick up and finish"
+    },
+    {
+      "name": "acceptance-criterion",
+      "color": "b60205",
+      "description": "An automated test that settles a project-level criterion"
+    },
+    {
+      "name": "security-review",
+      "color": "d93f0b",
+      "description": "Touches a trust boundary; needs review before merge"
+    },
+    {
+      "name": "blocked",
+      "color": "6a737d",
+      "description": "Cannot proceed. Say why in the issue the day it happens"
+    },
+    {
+      "name": "P0",
+      "color": "fbca04",
+      "description": "MS-0001 Toolchain and CI baseline"
+    },
+    {
+      "name": "P1",
+      "color": "1d76db",
+      "description": "MS-0002 Durable broker service"
+    },
+    {
+      "name": "P2",
+      "color": "1d76db",
+      "description": "MS-0003 Pull-runner agent and job protocol v2"
+    },
+    {
+      "name": "P3",
+      "color": "1d76db",
+      "description": "MS-0004 Durable connector inbox and outbox"
+    },
+    {
+      "name": "P4",
+      "color": "1d76db",
+      "description": "MS-0005 Single orchestration path"
+    },
+    {
+      "name": "P5",
+      "color": "1d76db",
+      "description": "MS-0006 Steel-Mission naming"
+    },
+    {
+      "name": "area:store",
+      "color": "c5def5",
+      "description": "Transactional store, schema migrations, state machine"
+    },
+    {
+      "name": "area:runner",
+      "color": "c5def5",
+      "description": "Pull-runner agent, gRPC gateway, sandbox"
+    },
+    {
+      "name": "area:connector",
+      "color": "c5def5",
+      "description": "Inbox, outbox, connector delivery"
+    },
+    {
+      "name": "area:orchestration",
+      "color": "c5def5",
+      "description": "Mission lifecycle, controller, approvals"
+    },
+    {
+      "name": "area:schema",
+      "color": "c5def5",
+      "description": "Authority-owned schemas and the registry"
+    },
+    {
+      "name": "area:ci",
+      "color": "c5def5",
+      "description": "Build, test harness, continuous integration"
+    },
+    {
+      "name": "area:naming",
+      "color": "c5def5",
+      "description": "Product naming migration"
+    },
+    {
+      "name": "area:docs",
+      "color": "c5def5",
+      "description": "Documentation that moves with a contract"
+    }
   ],
   "milestones": [
     {
@@ -71,7 +244,11 @@
       "key": "epic-p0",
       "title": "P0 — Toolchain and CI baseline",
       "milestone": "MS-0001",
-      "labels": ["epic", "P0", "area:ci"],
+      "labels": [
+        "epic",
+        "P0",
+        "area:ci"
+      ],
       "outcome": "Every dependency and runtime jump currently open is landed or explicitly rejected with the full suite green on each. Continuous integration compiles every entrypoint rather than four of them. The test harness has the markers, the requirements split and the fixtures that P1 through P4 need before any of them start writing tests.",
       "notInScope": "No durable store, no runner protocol, no orchestration change, no renaming. This milestone touches build, test and dependency surfaces only.",
       "done": "The four open dependency pull requests are each merged or closed with a written reason. `make release-check` and the CI compile step cover the same six entrypoints. `python -m pytest` reports the full suite green on the supported interpreter matrix."
@@ -80,7 +257,11 @@
       "key": "epic-p1",
       "title": "P1 — Durable broker service",
       "milestone": "MS-0002",
-      "labels": ["epic", "P1", "area:store"],
+      "labels": [
+        "epic",
+        "P1",
+        "area:store"
+      ],
       "outcome": "Broker state lives in one transactional store behind one interface, with a SQLite backend by default and a PostgreSQL backend available. Concurrent writers are serialized rather than overwriting each other. Every lease grant carries a fence token, expiry is swept rather than noticed lazily on the next read, and a daemon drives workflows so that killing the coordinator mid-job resumes the work instead of stranding it.",
       "notInScope": "No remote runner and no gRPC surface; node invocation stays on the local subprocess path. No connector inbox or outbox. No change to mission orchestration beyond routing its reads through the store. The legacy JSON state document is still mirrored and is not retired in this milestone.",
       "done": "The full existing suite passes at every step with the mirror on, proving the storage swap changed no observable behaviour. New unit tests cover the store and the state machine. The coordinator-kill test passes. The parity suite passes against both backends."
@@ -89,7 +270,12 @@
       "key": "epic-p2",
       "title": "P2 — Pull-runner agent and job protocol v2",
       "milestone": "MS-0003",
-      "labels": ["epic", "P2", "area:runner", "security-review"],
+      "labels": [
+        "epic",
+        "P2",
+        "area:runner",
+        "security-review"
+      ],
       "outcome": "A runner process inside customer infrastructure dials out over mutual TLS, claims jobs from the broker, materializes its own source from a pinned commit or bundle digest, executes in a digest-pinned image, and returns a result signed with its own key and bound to the job, the runner, the image and the inputs. Secrets are carried as references and resolved just in time.",
       "notInScope": "No change to the local subprocess execution path, which stays the default so the existing suite keeps exercising it. No connector work. No mission orchestration change. Multi-tenant runner pools and regional placement are later phases; the schema must not preclude them.",
       "done": "An end-to-end test drives the daemon and two agents over loopback mutual TLS to a signed result. The runner-death, secret-materialization and result-binding acceptance tests pass. The sandbox extraction is covered by an argument characterization test."
@@ -98,7 +284,11 @@
       "key": "epic-p3",
       "title": "P3 — Durable connector inbox and outbox",
       "milestone": "MS-0004",
-      "labels": ["epic", "P3", "area:connector"],
+      "labels": [
+        "epic",
+        "P3",
+        "area:connector"
+      ],
       "outcome": "Signed inbound events land in a transactional inbox where a unique deduplication key decides which single transaction starts a mission. Outbound connector actions are written to an outbox in the same transaction as the evidence they record, and delivered by a worker with exponential backoff, jitter, honoured retry hints and an attempt cap that ends in a dead-letter queue.",
       "notInScope": "No change to signature verification on ingress. No new connectors. Exactly-once reply is effective, not absolute, and degrades visibly where a connector cannot be queried for a marker.",
       "done": "The duplicate-webhook and connector-retry acceptance tests pass, including the crash variant. Receipt-file assertions are rewritten to inbox-row assertions, and that rewrite is stated in the pull request rather than absorbed."
@@ -107,7 +297,11 @@
       "key": "epic-p4",
       "title": "P4 — Single orchestration path",
       "milestone": "MS-0005",
-      "labels": ["epic", "P4", "area:orchestration"],
+      "labels": [
+        "epic",
+        "P4",
+        "area:orchestration"
+      ],
       "outcome": "There is one orchestration path. Mission control becomes a client of the broker rather than a parallel engine, approval gates are a first-class waiting state on a job, and a restart resumes missions rather than marking them paused.",
       "notInScope": "No new mission semantics. Node lists translate to a sequential chain, preserving today's ordering. Mission documents and the integrity chain stay authoritative and are referenced by digest.",
       "done": "The per-mission daemon threads are deleted, not bypassed. The startup supervision that marked missions paused is gone along with the field it set. The backup-and-restore acceptance test passes. The rollout flag is removed at the end of the milestone."
@@ -116,7 +310,11 @@
       "key": "epic-p5",
       "title": "P5 — Steel-Mission naming",
       "milestone": "MS-0006",
-      "labels": ["epic", "P5", "area:naming"],
+      "labels": [
+        "epic",
+        "P5",
+        "area:naming"
+      ],
       "outcome": "The repository names one product. Executable names, environment variable prefixes, schema identifier namespaces and prose all read Steel-Mission, with no residual reference to the separate programme this code was extracted from.",
       "notInScope": "No behaviour change of any kind. This milestone renames and shims only.",
       "done": "A search of the tracked tree for the prior product name returns only the migration provenance record and the compatibility shim table, both of which name it deliberately. The suite passes before and after each rename step, and every removed shim is its own recorded decision."
@@ -127,7 +325,11 @@
       "key": "p0-checkout",
       "title": "Resolve actions/checkout v4 to v7 bump",
       "milestone": "MS-0001",
-      "labels": ["task", "P0", "area:ci"],
+      "labels": [
+        "task",
+        "P0",
+        "area:ci"
+      ],
       "epic": "epic-p0",
       "requirement": "The open checkout action bump is merged, or closed with a written reason recorded in the pull request. Workflows run with repository credentials, so an unreviewed action bump is a real change and is reviewed as one.",
       "acceptance": "Pull request #6 is merged or closed with a reason. The CI matrix is green on the resulting main.",
@@ -137,7 +339,11 @@
       "key": "p0-setup-python",
       "title": "Resolve actions/setup-python v5 to v7 bump",
       "milestone": "MS-0001",
-      "labels": ["task", "P0", "area:ci"],
+      "labels": [
+        "task",
+        "P0",
+        "area:ci"
+      ],
       "epic": "epic-p0",
       "requirement": "The open setup-python action bump is merged, or closed with a written reason. A two-major-version jump in the action that provisions the interpreter can change which patch release the matrix actually runs; confirm the resolved versions before merging, do not infer them.",
       "acceptance": "Pull request #8 is merged or closed with a reason. The resolved interpreter versions on both matrix legs are recorded in the pull request. The full suite is green on each.",
@@ -147,7 +353,11 @@
       "key": "p0-deps",
       "title": "Resolve the grouped development dependency bump",
       "milestone": "MS-0001",
-      "labels": ["task", "P0", "area:ci"],
+      "labels": [
+        "task",
+        "P0",
+        "area:ci"
+      ],
       "epic": "epic-p0",
       "requirement": "The open grouped development dependency bump is merged, or closed with a written reason. A grouped bump hides which member broke the suite, so if it fails, split it before diagnosing.",
       "acceptance": "Pull request #9 is merged or closed with a reason. The full suite is green on the resulting main.",
@@ -157,7 +367,12 @@
       "key": "p0-py314",
       "title": "Decide the private-runner base image Python 3.12 to 3.14 jump",
       "milestone": "MS-0001",
-      "labels": ["task", "P0", "area:ci", "security-review"],
+      "labels": [
+        "task",
+        "P0",
+        "area:ci",
+        "security-review"
+      ],
       "epic": "epic-p0",
       "requirement": "The container base image jump is landed or rejected on evidence. The container runtime and the continuous integration interpreter matrix are different runtimes that fail independently: a green matrix says nothing about the container, and a built container says nothing about the matrix. Whichever way this goes, the reason is written down.",
       "acceptance": "The image builds with `make private-runner-image`, `PRESENT_PRIVATE_RUNNER_MODE=docker bin/present-private-runner status` succeeds against it, and a real job runs end to end in the built image — or the bump is closed with the failure recorded. If the image moves to 3.14, the CI matrix gains a leg that runs the suite on 3.14 in the same pull request, or the divergence is stated on the issue.",
@@ -168,7 +383,11 @@
       "key": "p0-compile-drift",
       "title": "Compile every entrypoint in CI, not four of them",
       "milestone": "MS-0001",
-      "labels": ["task", "P0", "area:ci"],
+      "labels": [
+        "task",
+        "P0",
+        "area:ci"
+      ],
       "epic": "epic-p0",
       "requirement": "The CI compile step covers the same entrypoints as `make release-check`. Today CI compiles four files and the local gate compiles five, so the private runner and the lease broker can be pushed with a syntax error that only the local gate would have caught. The two lists come from one place so they cannot drift again.",
       "acceptance": "A deliberate syntax error introduced in bin/present-lease-broker fails CI, and is then reverted. `make release-check` and the CI step name the same files.",
@@ -178,7 +397,11 @@
       "key": "p0-pytest-harness",
       "title": "Add pytest.ini markers and tests/conftest.py",
       "milestone": "MS-0001",
-      "labels": ["task", "P0", "area:ci"],
+      "labels": [
+        "task",
+        "P0",
+        "area:ci"
+      ],
       "epic": "epic-p0",
       "requirement": "A root pytest configuration declares the postgres, docker and slow markers, and a conftest provides the shared fixtures the later phases need: a temporary store, process managers for the daemon and agents, a fake connector server and a crash-point helper. These exist before P1 writes its first test, so that no phase invents its own harness.",
       "acceptance": "`python -m pytest -m 'not postgres and not docker'` selects the default set. The existing 227 tests pass unchanged. `pytest --markers` lists the three markers with descriptions.",
@@ -188,7 +411,11 @@
       "key": "p0-requirements-split",
       "title": "Split runtime, postgres and development requirements",
       "milestone": "MS-0001",
-      "labels": ["task", "P0", "area:ci"],
+      "labels": [
+        "task",
+        "P0",
+        "area:ci"
+      ],
       "epic": "epic-p0",
       "requirement": "Requirements are split into runtime, an optional PostgreSQL extra, and development. The cryptography dependency moves from development to runtime, because P2 signs with it in production. The default SQLite path stays on the standard library plus the runtime file, so an operator who does not want PostgreSQL never installs psycopg.",
       "acceptance": "A clean environment installing only the runtime requirements can run the broker and the worker. The development file includes the runtime file. CI installs both. Installing the PostgreSQL extra is not required for the default suite to pass.",
@@ -198,7 +425,11 @@
       "key": "p1-store-iface",
       "title": "Store interface, portable DDL and the SQLite backend",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store"
+      ],
       "epic": "epic-p1",
       "requirement": "One storage interface exists with a SQLite backend behind it: transactions, job claim, event append, exclusive state for a task, and a factory that opens a store from a URL. SQLite uses write-ahead logging, immediate-mode write transactions, a busy timeout and a durable commit, so that two processes writing at once serialize rather than corrupt. Table definitions are portable, with the dialect differences confined to one shim.",
       "acceptance": "Unit tests in tests/test_store.py cover: two concurrent writers serialize with no lost update; a claim under contention hands one job to exactly one caller; an event append is visible only after its transaction commits. The existing suite is untouched and green.",
@@ -208,7 +439,11 @@
       "key": "p1-statemachine",
       "title": "One authoritative state machine with atomic event append",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store"
+      ],
       "epic": "epic-p1",
       "requirement": "A single transition table governs job and workflow states, with one entry point that applies the transition and appends the event row in the same transaction, so an event and the state it describes can never disagree. A compatibility map covers the legacy status set, so nothing that reads the old statuses breaks.",
       "acceptance": "tests/test_statemachine.py enumerates every legal transition and asserts every illegal one is refused. A test asserts that a failed transition leaves no event row behind. Every legacy status maps to exactly one new status, asserted exhaustively rather than by sampling.",
@@ -218,62 +453,99 @@
       "key": "p1-state-swap",
       "title": "Route broker state through the store behind an environment flag",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store"
+      ],
       "epic": "epic-p1",
       "requirement": "Broker state reads and writes go through the store, with every read-modify-write wrapped in an exclusive state transaction. No command handler is rewritten in this step — the point is to convert last-writer-wins into serialized transactions underneath handlers that do not change, so that any behaviour difference is attributable to the storage swap alone. The legacy JSON document is mirrored after each mutation and auto-migrates on first open.",
       "acceptance": "The full existing suite passes with the flag on and the mirror on, unmodified. A concurrency test runs two broker commands against one state at once and asserts neither update is lost — the same test fails against the pre-change code. Migration from an existing legacy state document round-trips: export, import, compare.",
       "surface": "control plane",
-      "dependsOn": ["p1-store-iface", "p1-statemachine"]
+      "dependsOn": [
+        "p1-store-iface",
+        "p1-statemachine"
+      ]
     },
     {
       "key": "p1-transitions-routed",
       "title": "Route every status change through the single transition entry point",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store"
+      ],
       "epic": "epic-p1",
       "requirement": "No code path sets a status directly. Every status change goes through the transition entry point, which is what makes the event log complete rather than mostly complete.",
       "acceptance": "A test greps the source for direct status assignment outside the state machine module and fails on any hit. The full suite is green.",
       "surface": "control plane",
-      "dependsOn": ["p1-state-swap"]
+      "dependsOn": [
+        "p1-state-swap"
+      ]
     },
     {
       "key": "p1-leases-fencing",
       "title": "Leases table, fence tokens and the expiry sweeper",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store", "security-review"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store",
+        "security-review"
+      ],
       "epic": "epic-p1",
       "requirement": "Leases live in their own table and the broker is authoritative over grant, heartbeat, expiry and reclaim. Every grant increments a per-job fence token; heartbeats and results carry it and a stale fence is refused. A sweeper expires leases on a timer rather than lazily on the next read, so an expired lease is expired whether or not anyone looked. Heartbeat renewal writes the leases table directly and never inside the exclusive state transaction, because a transaction held across a renewal collapses throughput.",
       "acceptance": "A test grants a lease, expires it, grants again, and asserts the second grant carries fence + 1 and that a heartbeat on the first fence is refused. A test asserts a lease expires with no reader present. A throughput test asserts heartbeat renewal does not block on a concurrent state transaction.",
       "surface": "control plane",
-      "dependsOn": ["p1-state-swap"]
+      "dependsOn": [
+        "p1-state-swap"
+      ]
     },
     {
       "key": "p1-controller",
       "title": "Extract the drive loop into a controller module",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store"
+      ],
       "epic": "epic-p1",
       "requirement": "The distributed run loop moves out of the command handler into a controller: admission, topological ready batches, dispatch, collect, retry. Exponential backoff is added behind configuration whose default reproduces today's single retry exactly, so the change is invisible to existing behaviour until someone turns it on. The distributed run command becomes enqueue-then-drive-synchronously and produces identical output.",
       "acceptance": "The existing distributed run tests pass with byte-identical output. A backoff test with the non-default configuration asserts the delays and the attempt cap. A test asserts the default configuration produces exactly today's retry behaviour.",
       "surface": "control plane",
-      "dependsOn": ["p1-leases-fencing"]
+      "dependsOn": [
+        "p1-leases-fencing"
+      ]
     },
     {
       "key": "p1-brokerd",
       "title": "Broker daemon: controller loop, leader lease, operations API, graceful drain",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store", "security-review"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store",
+        "security-review"
+      ],
       "epic": "epic-p1",
       "requirement": "A daemon drives workflows continuously: the controller loop, the lease sweeper, a controller-singleton leader lease so that two daemons cannot co-drive one workflow, an authenticated HTTP operations API replacing the subprocess-per-request broker server, and a graceful drain on SIGTERM. The operations API reads its bearer token from a 0600 file, matching the existing key conventions. The existing broker server becomes a thin authenticated proxy with its response shapes preserved.",
       "acceptance": "tests/test_broker_daemon.py starts two daemons against one store and asserts exactly one drives. A SIGTERM drain test asserts in-flight work completes and no new work is claimed. The existing broker server tests pass with a token header added — the only test change in this milestone. An unauthenticated request to the operations API is refused.",
       "surface": "control plane",
-      "dependsOn": ["p1-controller"]
+      "dependsOn": [
+        "p1-controller"
+      ]
     },
     {
       "key": "p1-schemas",
       "title": "P1 schemas and event types",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:schema"],
+      "labels": [
+        "task",
+        "P1",
+        "area:schema"
+      ],
       "epic": "epic-p1",
       "requirement": "The store archive, lease record and daemon status schemas exist with registry entries, and the event type registry gains job claimed, lease expired, lease reclaimed, workflow resumed after restart, controller elected and controller drained. Schemas land before the code that produces them, per the repository's schema-first discipline.",
       "acceptance": "Every new schema validates its own fixtures. Every new event type is emitted by a test and validated against the event schema on insert. The registry entries are appended rather than the file re-sorted, so the diff shows the additions.",
@@ -283,29 +555,46 @@
       "key": "p1-postgres",
       "title": "PostgreSQL backend and the store parity suite",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:store"],
+      "labels": [
+        "task",
+        "P1",
+        "area:store"
+      ],
       "epic": "epic-p1",
       "requirement": "A PostgreSQL backend passes the same parity suite as SQLite, claiming work by row lock with skip-locked. It is optional: the default path stays on the standard library. A development compose file and a CI service job run the suite against a real server, because a portability layer tested only against one dialect is a portability layer that has not been tested.",
       "acceptance": "`make test-postgres` runs the parity suite green against the compose server. The CI PostgreSQL job is green. The default suite passes with psycopg not installed.",
       "surface": "control plane",
-      "dependsOn": ["p1-store-iface"]
+      "dependsOn": [
+        "p1-store-iface"
+      ]
     },
     {
       "key": "p1-ac-coordinator",
       "title": "Acceptance: coordinator dies mid-job, work resumes with no duplicate side effect",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "acceptance-criterion", "area:store"],
+      "labels": [
+        "task",
+        "P1",
+        "acceptance-criterion",
+        "area:store"
+      ],
       "epic": "epic-p1",
       "requirement": "Killing the coordinator in the middle of a job resumes the work on restart and produces the side effect exactly once. This is the criterion the whole of P1 exists to satisfy; if it does not pass, the durability work is not done regardless of what else is green.",
       "acceptance": "The test SIGKILLs the daemon at an injected crash point, restarts it, and asserts the workflow completes, that the side-effect counter file reads exactly 1, and that exactly one recovery ledger entry exists. Crash points are environment-gated and inert in production.",
       "surface": "control plane",
-      "dependsOn": ["p1-brokerd"]
+      "dependsOn": [
+        "p1-brokerd"
+      ]
     },
     {
       "key": "p1-docs",
       "title": "Document the durable broker in architecture and operations",
       "milestone": "MS-0002",
-      "labels": ["task", "P1", "area:docs"],
+      "labels": [
+        "task",
+        "P1",
+        "area:docs"
+      ],
       "epic": "epic-p1",
       "requirement": "The architecture and operations documents describe the store, the daemon, the leader lease, fencing and the operations API, in the same pull requests as the code where the contract moved. An operator can find how to back up, restore and inspect the store without reading the source.",
       "acceptance": "A person following operations.md alone can start the daemon, inspect a workflow, take a backup and restore it.",
@@ -315,7 +604,11 @@
       "key": "p2-schemas",
       "title": "Job specification v2, job result v2 and runner identity schemas",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:schema"],
+      "labels": [
+        "task",
+        "P2",
+        "area:schema"
+      ],
       "epic": "epic-p2",
       "requirement": "The v2 job specification replaces the host-local workspace path with a source that is a pinned commit, a bundle digest, or none; pins the image by digest; carries the command as an argument vector; carries secrets as references only, never values; and declares an egress profile, resources, an idempotency key, a retry policy, a deadline and its attestation requirements. The v2 result carries the fence token, the runner id, the image digest actually used, the input hashes, the outputs, a log digest, output tails with explicit truncation markers, and a signature with a key id. Truncation is marked because output that stops silently is indistinguishable from output that ended.",
       "acceptance": "Both schemas validate their fixtures and reject a specification carrying a secret value, a specification with an unpinned image, and a result missing its fence token. Registry entries are appended.",
@@ -325,18 +618,29 @@
       "key": "p2-proto",
       "title": "Runner protocol definition, checked-in code generation and a drift gate",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:runner"],
+      "labels": [
+        "task",
+        "P2",
+        "area:runner"
+      ],
       "epic": "epic-p2",
       "requirement": "The gRPC service definition exists with its generated code checked in, a make target regenerates it, and a check target fails CI if the generated code has drifted from the definition. Message bodies are canonical JSON validated against the v2 schemas; the protocol buffer is framing only and never becomes the schema of record.",
       "acceptance": "`make proto` regenerates identical output on a clean tree. `make proto-check` fails on a hand-edited generated file, and is wired into CI. A test asserts that a message body failing schema validation is refused before it reaches a handler.",
       "surface": "schemas (authority-owned)",
-      "dependsOn": ["p2-schemas"]
+      "dependsOn": [
+        "p2-schemas"
+      ]
     },
     {
       "key": "p2-sandbox-extract",
       "title": "Extract the container hardening logic into an importable module",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:runner", "security-review"],
+      "labels": [
+        "task",
+        "P2",
+        "area:runner",
+        "security-review"
+      ],
       "epic": "epic-p2",
       "requirement": "The container hardening logic moves out of the private runner executable into an importable module, and the executable becomes a thin command-line wrapper over it. Its v1 schema and every one of its existing tests are unchanged. This is a pure refactor and ships alone: a regression here weakens an isolation boundary without failing anything, which is why it gets its own pull request and a characterization test rather than being folded into the gateway work.",
       "acceptance": "A characterization test captures the container arguments produced by the pre-change code for a set of representative jobs and asserts the post-change code produces them byte-identically. Every existing private runner test passes unmodified. The pull request contains this change and nothing else.",
@@ -346,7 +650,12 @@
       "key": "p2-runner-registry",
       "title": "Runner registry, enrolment and approval",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:runner", "security-review"],
+      "labels": [
+        "task",
+        "P2",
+        "area:runner",
+        "security-review"
+      ],
       "epic": "epic-p2",
       "requirement": "A runner enrols, presenting its labels and its result-signing public key, and does no work until a person approves it. The public key is pinned at enrolment, so a runner that later presents a different key is a different runner. Shared-secret identity is not extended to remote runners.",
       "acceptance": "An unapproved runner is refused work. An approved runner claims. A result signed by a key that is not the pinned key is rejected. Revoking a runner takes effect on its next claim, and the test asserts the in-flight lease is handled rather than silently orphaned.",
@@ -356,84 +665,141 @@
       "key": "p2-gateway",
       "title": "gRPC gateway service, behind a configuration flag",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:runner", "security-review"],
+      "labels": [
+        "task",
+        "P2",
+        "area:runner",
+        "security-review"
+      ],
       "epic": "epic-p2",
       "requirement": "The daemon exposes a runner-facing gRPC gateway that maps a peer certificate to a runner row and performs claim, heartbeat and result inside store transactions. Streams hold no durable truth: everything lives in the database, a hello re-associates a runner after a reconnect, and leases outlive stream death until their time to live expires. The listener is off by default until the agent exists.",
       "acceptance": "tests/test_runner_protocol.py kills a stream mid-job and asserts the runner re-associates on reconnect and keeps its lease. A heartbeat carrying a stale fence receives the stale-fence refusal rather than an extension. An unauthenticated peer is refused at the transport, not in a handler.",
       "surface": "a network-listening service, or its bind address",
-      "dependsOn": ["p2-proto", "p2-runner-registry", "p1-leases-fencing"]
+      "dependsOn": [
+        "p2-proto",
+        "p2-runner-registry",
+        "p1-leases-fencing"
+      ]
     },
     {
       "key": "p2-agent",
       "title": "Pull-runner agent: claim loop, source materialization, signing",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:runner", "security-review"],
+      "labels": [
+        "task",
+        "P2",
+        "area:runner",
+        "security-review"
+      ],
       "epic": "epic-p2",
       "requirement": "The agent dials out over mutual TLS, claims work, materializes its own source from a pinned commit or a bundle digest, resolves secret references just in time into the sandboxed process environment, executes through the extracted sandbox module, streams artifacts in chunks rather than base64 over standard input and output, and signs its result. It reports the image digest the container runtime actually used, not the one it was asked for.",
       "acceptance": "tests/test_runner_agent.py drives a job end to end against a loopback gateway. A test asserts source materialization refuses a commit that does not match the requested digest. A test asserts artifact streaming handles a payload larger than the old truncation limit without truncating.",
       "surface": "subprocess or container execution",
-      "dependsOn": ["p2-gateway", "p2-sandbox-extract"]
+      "dependsOn": [
+        "p2-gateway",
+        "p2-sandbox-extract"
+      ]
     },
     {
       "key": "p2-mtls-ca",
       "title": "Mutual TLS configuration and a development certificate authority helper",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:runner", "security-review"],
+      "labels": [
+        "task",
+        "P2",
+        "area:runner",
+        "security-review"
+      ],
       "epic": "epic-p2",
       "requirement": "The gateway and the agent authenticate each other with mutual TLS, configured through a daemon configuration block. A development helper issues a local certificate authority and leaf certificates, built on the cryptography dependency already present. The helper is explicitly for development and says so where an operator will read it, so that nobody ships its output.",
       "acceptance": "The end-to-end test runs over loopback mutual TLS with certificates from the helper. A client presenting no certificate, an expired certificate, or one from a different authority is refused in three separate assertions. The documentation states plainly that the helper's output is not for production.",
       "surface": "authentication, authorization, or session handling",
-      "dependsOn": ["p2-gateway"]
+      "dependsOn": [
+        "p2-gateway"
+      ]
     },
     {
       "key": "p2-transport-branch",
       "title": "Branch the worker transport seam to the remote runner path",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:runner"],
+      "labels": [
+        "task",
+        "P2",
+        "area:runner"
+      ],
       "epic": "epic-p2",
       "requirement": "The dormant transport-kind seam branches: the remote runner kind routes node invocation to a job-table enqueue and a wait on the result. The local subprocess kind stays the default and is not touched, so the whole existing suite keeps exercising the unchanged path. The remote artifact store stub becomes real.",
       "acceptance": "An end-to-end test runs the daemon and two agent processes over loopback mutual TLS and completes a workflow. The full existing suite passes on the default transport, unmodified.",
       "surface": "worker",
-      "dependsOn": ["p2-agent"]
+      "dependsOn": [
+        "p2-agent"
+      ]
     },
     {
       "key": "p2-ac-runner-death",
       "title": "Acceptance: runner dies, the lease is reclaimed and the stale result is refused",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "acceptance-criterion", "area:runner"],
+      "labels": [
+        "task",
+        "P2",
+        "acceptance-criterion",
+        "area:runner"
+      ],
       "epic": "epic-p2",
       "requirement": "A runner that dies mid-job has its lease reclaimed by another runner, and if the dead runner comes back and replays its old result, that result is refused. Reclaim without fencing is not safety; it is a second writer.",
       "acceptance": "The test SIGKILLs agent A with a short lease time to live, asserts agent B receives the job with fence + 1, and asserts that replaying agent A's result is rejected as a stale fence rather than accepted or silently ignored.",
       "surface": "control plane",
-      "dependsOn": ["p2-transport-branch"]
+      "dependsOn": [
+        "p2-transport-branch"
+      ]
     },
     {
       "key": "p2-ac-secrets",
       "title": "Acceptance: no secret appears in arguments, logs, store or artifacts",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "acceptance-criterion", "security-review"],
+      "labels": [
+        "task",
+        "P2",
+        "acceptance-criterion",
+        "area:runner",
+        "security-review"
+      ],
       "epic": "epic-p2",
       "requirement": "A secret resolved for a job never appears in process arguments, in the store, in the logs, or in an artifact. The test is a grep for a sentinel across all four, and any path added later that could carry a secret is added to it.",
       "acceptance": "A container shim captures the process arguments. The test greps the arguments, a dump of the store, the log files and the produced artifacts for the sentinel and asserts zero hits. The test is watched to fail with the sentinel deliberately leaked.",
       "surface": "authentication, authorization, or session handling",
-      "dependsOn": ["p2-agent"]
+      "dependsOn": [
+        "p2-agent"
+      ]
     },
     {
       "key": "p2-ac-binding",
       "title": "Acceptance: a result is bound to job, runner, image and inputs",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "acceptance-criterion", "security-review"],
+      "labels": [
+        "task",
+        "P2",
+        "acceptance-criterion",
+        "area:runner",
+        "security-review"
+      ],
       "epic": "epic-p2",
       "requirement": "A result is only accepted if it is bound to the job it was issued for, the runner that claimed it, the image that actually ran, and the inputs that were supplied. A signature that proves who sent a result, without binding what it describes, proves very little.",
       "acceptance": "Three separate assertions: a result with a tampered image digest is rejected; a result with tampered input hashes is rejected; a result signed by an unenrolled key is rejected. Each is watched to pass before the check exists and fail after, confirming the test discriminates.",
       "surface": "authentication, authorization, or session handling",
-      "dependsOn": ["p2-agent"]
+      "dependsOn": [
+        "p2-agent"
+      ]
     },
     {
       "key": "p2-docs",
       "title": "Document the runner protocol, enrolment and operating a remote runner",
       "milestone": "MS-0003",
-      "labels": ["task", "P2", "area:docs"],
+      "labels": [
+        "task",
+        "P2",
+        "area:docs"
+      ],
       "epic": "epic-p2",
       "requirement": "The control-plane protocol document gains the v2 surfaces, the security policy moves remote scheduling out of what is not yet included, and the operations document explains enrolling, approving, revoking and operating a runner in someone else's infrastructure.",
       "acceptance": "A person following the documentation alone can enrol a runner against a local daemon and run a job on it.",
@@ -443,7 +809,11 @@
       "key": "p3-tables",
       "title": "Inbox and outbox tables and modules, unwired",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "area:connector"],
+      "labels": [
+        "task",
+        "P3",
+        "area:connector"
+      ],
       "epic": "epic-p3",
       "requirement": "The inbox and outbox tables and their modules exist and are tested in isolation before anything is wired to them, so that a failure during the swap is attributable to the swap. The outbox delivery worker does exponential backoff with jitter, honours a retry hint on 429 and 503, and caps attempts into a dead-letter queue.",
       "acceptance": "tests/test_inbox_outbox.py covers deduplication under concurrency, the backoff schedule including jitter bounds, retry-hint precedence over the computed backoff, and the transition into the dead-letter queue at the attempt cap. Nothing in the chat server calls these yet.",
@@ -453,172 +823,274 @@
       "key": "p3-ingress-swap",
       "title": "Replace receipt-file ingress deduplication with a transactional insert",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "area:connector", "security-review"],
+      "labels": [
+        "task",
+        "P3",
+        "area:connector",
+        "security-review"
+      ],
       "epic": "epic-p3",
       "requirement": "Workflow ingress deduplicates by a unique key in one transaction that either inserts or does nothing, and the mission starts only for the transaction that inserted and claimed the row. This replaces a receipt file plus a lock released before the work begins, which is a race whose window is exactly the time it takes to start a mission. Signature verification is unchanged.",
       "acceptance": "Tests that asserted on receipt files are rewritten to assert on inbox rows, and the rewrite is called out in the pull request rather than absorbed. The full suite is green. Signature-rejection tests are untouched and still pass.",
       "surface": "authentication, authorization, or session handling",
-      "dependsOn": ["p3-tables"]
+      "dependsOn": [
+        "p3-tables"
+      ]
     },
     {
       "key": "p3-outbox-github",
       "title": "Route GitHub connector delivery through the outbox",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "area:connector"],
+      "labels": [
+        "task",
+        "P3",
+        "area:connector"
+      ],
       "epic": "epic-p3",
       "requirement": "GitHub connector actions are enqueued to the outbox in the same transaction as the evidence write, and delivered by the worker. An idempotency marker is embedded in the body so that an in-flight row can be verified by query after a restart before anything is re-sent. GitHub ships first precisely because its marker can be read back.",
       "acceptance": "A fake-endpoint test asserts one delivery for one enqueue across a retry. A restart test with an in-flight row asserts the marker query runs and no second message is sent. The bare exception that dropped delivery failures is gone.",
       "surface": "control plane",
-      "dependsOn": ["p3-tables"]
+      "dependsOn": [
+        "p3-tables"
+      ]
     },
     {
       "key": "p3-outbox-slack",
       "title": "Route Slack connector delivery through the outbox",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "area:connector"],
+      "labels": [
+        "task",
+        "P3",
+        "area:connector"
+      ],
       "epic": "epic-p3",
       "requirement": "Slack connector actions go through the outbox on the same pattern, using message metadata as the idempotency marker. Where the marker cannot be read back reliably, the behaviour degrades to a retry with a visible duplicate annotation, and the documentation says which of the two applies.",
       "acceptance": "A fake-endpoint test covers delivery, retry and the dead-letter path. The documentation states the actual guarantee for this connector, not the aspiration.",
       "surface": "control plane",
-      "dependsOn": ["p3-outbox-github"]
+      "dependsOn": [
+        "p3-outbox-github"
+      ]
     },
     {
       "key": "p3-outbox-jira",
       "title": "Route Jira connector delivery through the outbox",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "area:connector"],
+      "labels": [
+        "task",
+        "P3",
+        "area:connector"
+      ],
       "epic": "epic-p3",
       "requirement": "Jira connector actions go through the outbox on the same pattern, using an entity property as the idempotency marker, with the same honest degradation rule where it cannot be read back.",
       "acceptance": "A fake-endpoint test covers delivery, retry and the dead-letter path. The documentation states the actual guarantee for this connector.",
       "surface": "control plane",
-      "dependsOn": ["p3-outbox-github"]
+      "dependsOn": [
+        "p3-outbox-github"
+      ]
     },
     {
       "key": "p3-dlq-cli",
       "title": "Dead-letter queue listing and requeue",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "area:connector"],
+      "labels": [
+        "task",
+        "P3",
+        "area:connector"
+      ],
       "epic": "epic-p3",
       "requirement": "An operator can list the dead-letter queue and requeue an entry, with the reason for each entry recorded. A dead letter nobody can see is a dropped message with extra steps.",
       "acceptance": "The list and requeue commands are covered by tests including a requeue that succeeds and a requeue that dead-letters again. The operations document explains when to requeue and when not to.",
       "surface": "control plane",
-      "dependsOn": ["p3-tables"]
+      "dependsOn": [
+        "p3-tables"
+      ]
     },
     {
       "key": "p3-ac-webhook",
       "title": "Acceptance: a duplicate webhook produces one mission",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "acceptance-criterion", "area:connector"],
+      "labels": [
+        "task",
+        "P3",
+        "acceptance-criterion",
+        "area:connector"
+      ],
       "epic": "epic-p3",
       "requirement": "Five identical correctly signed inbound requests arriving concurrently start exactly one mission.",
       "acceptance": "The test posts five concurrent signed requests and asserts exactly one mission directory exists and exactly one inbox row is in the consumed state. The test is watched to fail against the pre-change ingress path.",
       "surface": "control plane",
-      "dependsOn": ["p3-ingress-swap"]
+      "dependsOn": [
+        "p3-ingress-swap"
+      ]
     },
     {
       "key": "p3-ac-retries",
       "title": "Acceptance: connector retries produce exactly one reply",
       "milestone": "MS-0004",
-      "labels": ["task", "P3", "acceptance-criterion", "area:connector"],
+      "labels": [
+        "task",
+        "P3",
+        "acceptance-criterion",
+        "area:connector"
+      ],
       "epic": "epic-p3",
       "requirement": "A connector endpoint that rejects twice with a retry hint and then accepts receives exactly one message. A crash after the post, before the row is marked delivered, also results in exactly one message.",
       "acceptance": "The fake endpoint answers 429 with a retry hint twice then 200, and the test asserts one delivery. The crash variant sets the crash point after the post, restarts, and asserts the marker query prevents the second send. Both are watched to fail without the outbox.",
       "surface": "control plane",
-      "dependsOn": ["p3-outbox-github"]
+      "dependsOn": [
+        "p3-outbox-github"
+      ]
     },
     {
       "key": "p4-mission-bridge",
       "title": "Mission to workflow translation",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "area:orchestration"],
+      "labels": [
+        "task",
+        "P4",
+        "area:orchestration"
+      ],
       "epic": "epic-p4",
       "requirement": "A mission translates into a workflow: the node list becomes a sequential chain, preserving today's ordering exactly. Job kinds are mission-node for the existing control-plane node kinds and sandbox-job for delivery steps under the v2 specification. Parallel execution is possible under the new model and is deliberately not turned on here, so that a behaviour difference in this milestone cannot be attributed to a scheduling change.",
       "acceptance": "A translation test asserts the produced dependency graph is a chain in the mission's node order. Local development still runs the v1 private runner path end to end.",
       "surface": "control plane",
-      "dependsOn": ["p1-controller"]
+      "dependsOn": [
+        "p1-controller"
+      ]
     },
     {
       "key": "p4-embedded-runner",
       "title": "Embedded control-plane runner in the chat server",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "area:orchestration"],
+      "labels": [
+        "task",
+        "P4",
+        "area:orchestration"
+      ],
       "epic": "epic-p4",
       "requirement": "The chat server runs an in-process runner with a mission-control label that claims mission-node jobs and executes the existing mission node bodies unchanged. The bodies are not rewritten in this step; only what invokes them changes. The chat server is loaded by path with module-scope monkeypatching, so no patched module-level function is renamed — wrap instead.",
       "acceptance": "A grep-based test asserts the module-level names the suite patches still exist. The full suite is green with the rollout flag on legacy, and green again with it on broker.",
       "surface": "control plane",
-      "dependsOn": ["p4-mission-bridge"]
+      "dependsOn": [
+        "p4-mission-bridge"
+      ]
     },
     {
       "key": "p4-approvals",
       "title": "Approval gates become a first-class waiting job state",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "area:orchestration", "security-review"],
+      "labels": [
+        "task",
+        "P4",
+        "area:orchestration",
+        "security-review"
+      ],
       "epic": "epic-p4",
       "requirement": "An approval gate is a waiting state on a job, and approving or resuming a mission signals that job through the shared command module. Separation of duties is retained at the point of signalling. The approval evidence is written before any successor is dispatched, in the same transaction, so that a crash between the two cannot produce work whose authorization was never recorded.",
       "acceptance": "A test asserts a successor is not dispatched until the approval evidence is committed, using a crash point between the two. Separation-of-duties tests pass unchanged. The thread-exits-and-is-relaunched path is gone.",
       "surface": "authentication, authorization, or session handling",
-      "dependsOn": ["p4-embedded-runner"]
+      "dependsOn": [
+        "p4-embedded-runner"
+      ]
     },
     {
       "key": "p4-resume",
       "title": "Missions resume after restart instead of being marked paused",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "area:orchestration"],
+      "labels": [
+        "task",
+        "P4",
+        "area:orchestration"
+      ],
       "epic": "epic-p4",
       "requirement": "Startup supervision is replaced: the sweeper reclaims dead mission-node leases and missions resume automatically. The field that recorded orphaned-at-startup is removed along with the tests that assert it, because a field that reports a failure to resume is not needed once the work resumes. Enumerate the affected tests by grepping for that field, the orchestrator launcher and the supervision entrypoint before writing any code.",
       "acceptance": "A restart test asserts a running mission continues rather than pausing. The removed field appears nowhere in the tree. The per-mission daemon threads are deleted, not bypassed.",
       "surface": "control plane",
-      "dependsOn": ["p4-approvals"]
+      "dependsOn": [
+        "p4-approvals"
+      ]
     },
     {
       "key": "p4-evidence-archive",
       "title": "Evidence table and a restorable archive export",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "area:orchestration", "area:schema"],
+      "labels": [
+        "task",
+        "P4",
+        "area:orchestration",
+        "area:schema"
+      ],
       "epic": "epic-p4",
       "requirement": "Evidence is mirrored into a table carrying its digest, chain hashes and signature, so that an archive export captures workflow, approvals and evidence in one restorable artifact. Mission documents and the integrity chain stay authoritative and are referenced by digest — the table is an index, never a replacement.",
       "acceptance": "An export and import round-trip preserves the hash chain and verifies. A test asserts the table is not read as authority: corrupting a row is detected against the authoritative document rather than trusted.",
       "surface": "schemas (authority-owned)",
-      "dependsOn": ["p4-resume"]
+      "dependsOn": [
+        "p4-resume"
+      ]
     },
     {
       "key": "p4-flag-removal",
       "title": "Flip the orchestrator flag and delete the legacy path",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "area:orchestration"],
+      "labels": [
+        "task",
+        "P4",
+        "area:orchestration"
+      ],
       "epic": "epic-p4",
       "requirement": "The rollout flag defaults to legacy while tests migrate, flips to broker mid-phase, and the legacy orchestrator code and the flag itself are deleted at the end of the phase. A rollout flag left in place is a permanent fork with two code paths and one set of tests.",
       "acceptance": "The flag and the legacy orchestrator are absent from the tree. The full suite is green. The pull request states what was deleted and how a rollback would be performed if the flip proves wrong.",
       "surface": "control plane",
-      "dependsOn": ["p4-evidence-archive"]
+      "dependsOn": [
+        "p4-evidence-archive"
+      ]
     },
     {
       "key": "p4-ac-backup",
       "title": "Acceptance: backup and restore preserve integrity mid-approval",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "acceptance-criterion", "area:orchestration"],
+      "labels": [
+        "task",
+        "P4",
+        "acceptance-criterion",
+        "area:orchestration"
+      ],
       "epic": "epic-p4",
       "requirement": "An archive taken while a mission is waiting on an approval restores to a state where the hash chain verifies, the approval can still be completed, and no connector delivery is duplicated by the restore.",
       "acceptance": "The test round-trips an archive taken mid-approval, verifies the chain, completes the approval after restore, and asserts the connector delivery count is unchanged.",
       "surface": "control plane",
-      "dependsOn": ["p4-evidence-archive", "p3-outbox-github"]
+      "dependsOn": [
+        "p4-evidence-archive",
+        "p3-outbox-github"
+      ]
     },
     {
       "key": "p4-ac-coordinator-mission",
       "title": "Acceptance: coordinator dies mid-mission, the mission resumes with no duplicate side effect",
       "milestone": "MS-0005",
-      "labels": ["task", "P4", "acceptance-criterion", "area:orchestration"],
+      "labels": [
+        "task",
+        "P4",
+        "acceptance-criterion",
+        "area:orchestration"
+      ],
       "epic": "epic-p4",
       "requirement": "The P1 coordinator-death criterion holds for missions, not only for broker workflows. Missions were the path that previously stranded work on restart, so passing it at the broker level does not settle it.",
       "acceptance": "The mission variant of the coordinator-kill test passes: SIGKILL at a crash point, restart, mission completes, side-effect counter reads exactly 1, exactly one recovery ledger entry.",
       "surface": "control plane",
-      "dependsOn": ["p4-resume"]
+      "dependsOn": [
+        "p4-resume"
+      ]
     },
     {
       "key": "p5-inventory",
       "title": "Inventory every surface carrying the prior product name",
       "milestone": "MS-0006",
-      "labels": ["task", "P5", "area:naming"],
+      "labels": [
+        "task",
+        "P5",
+        "area:naming"
+      ],
       "epic": "epic-p5",
       "requirement": "A written inventory of every surface carrying the prior product name: executable names, environment variable prefixes, schema identifier namespaces, configuration keys, documentation and prose. Each entry says whether it is externally visible, because an externally visible name cannot simply be changed.",
       "acceptance": "The inventory is committed and counts match a fresh search of the tracked tree. Nothing is renamed in this issue.",
@@ -628,56 +1100,90 @@
       "key": "p5-decision",
       "title": "Record the naming migration decision and the shim policy",
       "milestone": "MS-0006",
-      "labels": ["task", "P5", "area:naming"],
+      "labels": [
+        "task",
+        "P5",
+        "area:naming"
+      ],
       "epic": "epic-p5",
       "requirement": "A decision record states the target names, which compatibility shims are provided, how long each survives, and what removing one requires. A published schema identifier that has already been consumed is not renamed on a whim; the record says which ones those are.",
       "acceptance": "The decision record is committed and linked from the milestone record. Every subsequent rename issue cites it.",
       "surface": "docs",
-      "dependsOn": ["p5-inventory"]
+      "dependsOn": [
+        "p5-inventory"
+      ]
     },
     {
       "key": "p5-binaries",
       "title": "Rename the executables with compatibility names",
       "milestone": "MS-0006",
-      "labels": ["task", "P5", "area:naming"],
+      "labels": [
+        "task",
+        "P5",
+        "area:naming"
+      ],
       "epic": "epic-p5",
       "requirement": "Executables are renamed to the Steel-Mission names, each keeping a working compatibility name for one release. The suite drives these as subprocesses by name, so this is a test-visible change in roughly two hundred places at once: land the shim first, migrate the call sites second, remove the shim third, with the suite green between each.",
       "acceptance": "The suite is green after each of the three steps. The compatibility names work and emit a deprecation notice. No behaviour changed: the pull request contains renames and shims only.",
       "surface": "worker",
-      "dependsOn": ["p5-decision"]
+      "dependsOn": [
+        "p5-decision"
+      ]
     },
     {
       "key": "p5-env",
       "title": "Migrate the environment variable prefix with dual reads",
       "milestone": "MS-0006",
-      "labels": ["task", "P5", "area:naming"],
+      "labels": [
+        "task",
+        "P5",
+        "area:naming"
+      ],
       "epic": "epic-p5",
       "requirement": "Environment variables move to the Steel-Mission prefix, reading both prefixes for one release with the new one taking precedence and the old one emitting a deprecation notice. An operator whose deployment sets the old names does not have a broken deployment on upgrade day.",
       "acceptance": "A test asserts both prefixes are read, that the new one wins where both are set, and that the old one warns. The suite is green.",
       "surface": "control plane",
-      "dependsOn": ["p5-decision"]
+      "dependsOn": [
+        "p5-decision"
+      ]
     },
     {
       "key": "p5-schema-ids",
       "title": "Migrate the schema identifier namespace",
       "milestone": "MS-0006",
-      "labels": ["task", "P5", "area:naming", "security-review"],
+      "labels": [
+        "task",
+        "P5",
+        "area:naming",
+        "security-review"
+      ],
       "epic": "epic-p5",
       "requirement": "Schema identifiers move to the Steel-Mission namespace, following the decision record on which already-published identifiers may move and which must not. An identifier is a contract with whoever validates against it; changing one silently breaks them.",
       "acceptance": "Every schema validates its fixtures after the change. The registry is consistent. Any identifier deliberately left on the old namespace is listed with the reason.",
       "surface": "schemas (authority-owned)",
-      "dependsOn": ["p5-decision"]
+      "dependsOn": [
+        "p5-decision"
+      ]
     },
     {
       "key": "p5-docs-sweep",
       "title": "Documentation and prose sweep",
       "milestone": "MS-0006",
-      "labels": ["task", "P5", "area:naming", "area:docs"],
+      "labels": [
+        "task",
+        "P5",
+        "area:naming",
+        "area:docs"
+      ],
       "epic": "epic-p5",
       "requirement": "The README, architecture, operations, security, install, quickstart and protocol documents name one product. The only remaining references to the prior name are the migration provenance record and the compatibility shim table, both of which name it deliberately.",
       "acceptance": "A search of the tracked tree returns only those two deliberate references. A reader arriving at the README learns what Steel-Mission is without encountering a second product name.",
       "surface": "docs",
-      "dependsOn": ["p5-binaries", "p5-env", "p5-schema-ids"]
+      "dependsOn": [
+        "p5-binaries",
+        "p5-env",
+        "p5-schema-ids"
+      ]
     }
   ]
 }
