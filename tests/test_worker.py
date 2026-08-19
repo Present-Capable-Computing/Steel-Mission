@@ -9849,3 +9849,75 @@ def test_oversize_bundle_is_refused_before_it_is_parsed():
         assert not (common.TASKS_DIR / task_id).exists(), "nothing may be staged"
     finally:
         purge_task(task_id)
+
+
+def test_project_and_milestone_schemas_are_registered_and_coherent():
+    """The delivery-planning records must be real contracts, not loose files.
+
+    A schema that exists but is unregistered validates nothing, and a registry
+    entry whose file is missing is worse: it claims a contract that cannot be
+    enforced. Both directions are checked.
+    """
+    registry = json.loads((WORKER_DIR / "schemas" / "schema-registry.json").read_text())
+    entries = {entry["id"]: entry for entry in registry["schemas"]}
+
+    for schema_id in ("project-v1", "milestone-v1"):
+        assert schema_id in entries, f"{schema_id} is not in the schema registry"
+        entry = entries[schema_id]
+        path = WORKER_DIR / "schemas" / "canonical" / entry["schemaFile"]
+        assert path.exists(), f"{schema_id} is registered but {entry['schemaFile']} is absent"
+        schema = json.loads(path.read_text())
+        assert schema["additionalProperties"] is False, f"{schema_id} must be closed"
+
+    # Every registered schema resolves, not only the two added here.
+    for entry in registry["schemas"]:
+        assert (WORKER_DIR / "schemas" / "canonical" / entry["schemaFile"]).exists(), entry["id"]
+
+
+def test_milestone_schedules_work_without_acquiring_authority():
+    """A milestone organises tasks; it never becomes evidence about them.
+
+    Membership is scheduling. If a milestone could imply verification or
+    completion, closing one would silently upgrade the state of every task in
+    it -- the same collapse the verifier exists to prevent.
+    """
+    milestone = {
+        "schemaVersion": 1, "milestoneId": "MS-0001", "title": "Alpha hardening",
+        "state": "ACTIVE", "createdAt": "2026-08-19T00:00:00Z",
+        "projectId": "PRJ-0001", "targetDate": "2026-09-30",
+        "outcome": "Trust boundaries are enforced and evidenced.",
+        "notInScope": "Production deployment.",
+        "taskIds": ["DEV-000123"], "completionEvidence": "All linked tasks closed.",
+    }
+    assert schema_check.validate(milestone, "canonical/milestone-v1.json") == []
+
+    schema = json.loads(
+        (WORKER_DIR / "schemas" / "canonical" / "milestone-v1.json").read_text())
+    states = set(schema["properties"]["state"]["enum"])
+    assert "PASS" not in states and "VERIFIED" not in states, (
+        "a milestone state must never read as a verification outcome")
+
+    for label, bad in {
+        "a task id in the milestone id field": {**milestone, "milestoneId": "DEV-000123"},
+        "an unknown property": {**milestone, "gateEligible": True},
+        "a task id that is not DEV-NNNNNN": {**milestone, "taskIds": ["MS-0001"]},
+        "an invented state": {**milestone, "state": "PASSED"},
+    }.items():
+        assert schema_check.validate(bad, "canonical/milestone-v1.json"), (
+            f"a milestone with {label} must be rejected")
+
+
+def test_project_owns_milestones_and_stays_closed():
+    project = {
+        "schemaVersion": 1, "projectId": "PRJ-0001", "title": "Steel Mission alpha",
+        "state": "ACTIVE", "createdAt": "2026-08-19T00:00:00Z",
+        "summary": "Governed agent delivery plane.", "milestoneIds": ["MS-0001"],
+    }
+    assert schema_check.validate(project, "canonical/project-v1.json") == []
+    for label, bad in {
+        "a milestone id in the project id field": {**project, "projectId": "MS-0001"},
+        "a task id where a milestone belongs": {**project, "milestoneIds": ["DEV-000123"]},
+        "an unknown property": {**project, "gateEligible": True},
+    }.items():
+        assert schema_check.validate(bad, "canonical/project-v1.json"), (
+            f"a project with {label} must be rejected")

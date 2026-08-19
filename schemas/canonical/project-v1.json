@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/project-v1.json",
+  "title": "Project v1",
+  "description": "A named body of delivery work that owns milestones. Infrastructure record only; a project organises work and carries no authority over evidence, verification, or gates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "projectId", "title", "state", "createdAt"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "projectId": {"type": "string", "pattern": "^PRJ-[0-9]{4}$"},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "control-plain", "mock-adapter", "control-plane"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "title": {"type": "string", "minLength": 1, "maxLength": 200},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "state": {"enum": ["ACTIVE", "PAUSED", "COMPLETE", "ABANDONED"]},
+    "summary": {"type": "string", "description": "What the project is for, in one paragraph."},
+    "milestoneIds": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"type": "string", "pattern": "^MS-[0-9]{4}$"}
+    },
+    "repository": {"type": "string", "maxLength": 512},
+    "metadata": {"type": "object"}
+  }
+}

@@ -1,0 +1,56 @@
+name: Task
+description: A unit of delivery work that a person or an agent can pick up and finish.
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A task states what must be true when it is done. It is never a
+        placeholder: the control plane refuses a requirement a human has not
+        written, so an empty task cannot enter the pipeline.
+  - type: input
+    id: milestone
+    attributes:
+      label: Milestone
+      description: Which milestone this belongs to, if any. Leave blank if unscheduled.
+      placeholder: alpha-v0.1
+  - type: textarea
+    id: requirement
+    attributes:
+      label: Requirement
+      description: What must be true when this is finished. Write it as an outcome, not a plan.
+      placeholder: present-worker verify DEV-000123 returns PASS against the produced commit.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: What evidence settles it. Name the check, not the intention.
+      placeholder: |
+        - `make test` passes
+        - a non-mock verification result bound to the produced commit
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      description: Which boundary this touches. Anything on a trust boundary needs review before merge.
+      options:
+        - control plane
+        - worker
+        - chat / UI
+        - schemas (authority-owned)
+        - CI / tooling
+        - docs
+    validations:
+      required: true
+  - type: checkboxes
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - label: Touches authentication, authorization, or a network boundary
+        - label: Changes an authority-owned schema and may need ratification
+        - label: Is hard to reverse once deployed
