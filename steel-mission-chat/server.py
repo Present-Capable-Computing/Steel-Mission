@@ -9556,7 +9556,13 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             json_response(self, 400, {"ok": False, "error": str(exc)})
             return
-        json_response(self, 202, {"ok": True, "jobId": job_id, "state": "running"})
+        # Tell the caller who the job was recorded against. The console polls with
+        # this rather than re-deriving its identity, because the two only have to
+        # disagree once -- a session that expires, a cookie discarded mid-run, an
+        # edited actor field -- for the poll to be refused a job the same person
+        # just created.
+        json_response(self, 202, {"ok": True, "jobId": job_id, "state": "running",
+                                  "actorUserId": actor["actorId"], "operatorRole": actor["role"]})
 
     def log_message(self, format: str, *args: Any) -> None:
         print(f"{self.address_string()} - {format % args}")

@@ -10123,4 +10123,33 @@ def test_chat_poll_carries_the_identity_that_created_the_job():
     html = chat["chat_index"]()
     poll = html[html.index("/api/chat/${started.jobId}"):]
     poll = poll[:poll.index("\n\n")] if "\n\n" in poll[:600] else poll[:600]
-    assert "actorHeaders()" in poll, "the chat poll does not send the creating actor's identity"
+    assert "jobActorHeaders(started)" in poll, (
+        "the chat poll does not send the creating actor's identity. It is sent as the "
+        "actor the server recorded the job against, which is stronger than re-deriving "
+        "it: the two only have to disagree once for the poll to be refused."
+    )
+
+
+def test_chat_start_reports_the_actor_the_job_was_recorded_against():
+    """The console should not have to re-derive who owns a job it just created.
+
+    A job is owned by whoever posted it, and the poll is refused if it arrives as
+    anyone else. Making the console resolve its identity a second time means the
+    two only have to disagree once -- a session that expires, a cookie discarded
+    mid-run, an edited actor field -- for the server to refuse someone the chat
+    they are looking at. The server states the owner instead.
+    """
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    source = (WORKER_DIR / "steel-mission-chat" / "server.py").read_text()
+    start = source.index('"jobId": job_id, "state": "running"')
+    response = source[start:start + 240]
+    assert '"actorUserId"' in response and '"operatorRole"' in response, (
+        "the chat start response does not say which actor the job was recorded against"
+    )
+
+    html = chat["chat_index"]()
+    poll = html[html.index("/api/chat/${started.jobId}"):][:400]
+    assert "jobActorHeaders(started)" in poll, "the poll does not use the recorded owner"
+    assert "started.actorUserId" in html, "the recorded owner is never read"
