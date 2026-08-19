@@ -47,25 +47,43 @@ MSG
   exit 2
 fi
 
-number="$(gh project list --owner "$OWNER" --format json \
-  | python3 -c "import json,sys;t=sys.argv[1];print(next((str(p['number']) for p in json.load(sys.stdin)['projects'] if p['title']==t),''))" "$TITLE")"
+# gh has wrapped project listings in a {"projects": [...]} envelope in some
+# versions and returned a bare array in others. Read either rather than pinning
+# a gh version this script cannot check for.
+unwrap() {
+  python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+items = doc["projects"] if isinstance(doc, dict) and "projects" in doc else doc
+if isinstance(items, dict):
+    items = [items]
+key, want = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else None)
+for item in items:
+    if want is None or item.get("title") == want:
+        print(item[key])
+        break
+' "$@"
+}
+
+number="$(gh project list --owner "$OWNER" --format json | unwrap number "$TITLE")"
 
 if [ -z "$number" ]; then
   echo "Creating board: $TITLE"
-  number="$(gh project create --owner "$OWNER" --title "$TITLE" --format json \
-    | python3 -c "import json,sys;print(json.load(sys.stdin)['number'])")"
+  number="$(gh project create --owner "$OWNER" --title "$TITLE" --format json | unwrap number)"
 else
   echo "Reusing board #$number"
 fi
 
-url="$(gh project view "$number" --owner "$OWNER" --format json \
-  | python3 -c "import json,sys;print(json.load(sys.stdin)['url'])")"
+url="$(gh project view "$number" --owner "$OWNER" --format json | unwrap url)"
 
 echo "Adding planned issues to the board"
-gh issue list --repo "$REPO" --state open --limit 200 \
-  --label task --label epic --json number \
-  | python3 -c "import json,sys;[print(i['number']) for i in json.load(sys.stdin)]" \
-  | while read -r issue; do
+# One request per label. Repeated --label flags are an AND, not an OR, and no
+# issue carries both task and epic, so filtering on both at once returns nothing.
+{
+  gh issue list --repo "$REPO" --state open --limit 200 --label task --json number --jq '.[].number'
+  gh issue list --repo "$REPO" --state open --limit 200 --label epic --json number --jq '.[].number'
+} | sort -un | while read -r issue; do
+      [ -n "$issue" ] || continue
       gh project item-add "$number" --owner "$OWNER" \
         --url "https://github.com/$REPO/issues/$issue" >/dev/null
     done

@@ -193,6 +193,15 @@ Prose does not bind anyone. These do:
 If you find a way to land a change that skips one of these, that is a defect in the
 setup. Report it rather than using it.
 
+One caveat, stated because a rule everyone quietly bypasses is worse than no rule.
+While there is a single code owner, that person cannot approve their own pull
+request, so their own changes can only land through the repository admin bypass —
+which is deliberately left available, or the repository would be unmergeable. The
+review requirement therefore binds contributors immediately and the sole maintainer
+only once there is a second reviewer. Every other gate in the table above applies to
+everyone, including the maintainer: the status checks, the conversation resolution
+and the templates do not have a bypass in normal use.
+
 ## 7. Working agreement
 
 - **Branches** are named `<milestone>/<short-slug>`, for example `ms-0002/store-interface`.
