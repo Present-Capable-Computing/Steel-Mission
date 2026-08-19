@@ -99,6 +99,57 @@ def test_org_dir_is_redirectable_without_touching_the_tree():
     assert result.stdout.strip() == "/tmp/some-installation"
 
 
+APPLICATION_DOCKERFILE = REPO_DIR / "Dockerfile"
+
+# What must never be inside a published application image. Secrets because the
+# image is pushed to a registry and pulled by strangers; the plan layer because
+# effort figures and internal scheduling are not product.
+MUST_NOT_SHIP = (".env", "plan", "tooling")
+
+
+@pytest.mark.skipif(
+    not APPLICATION_DOCKERFILE.exists(),
+    reason="no application Dockerfile in this tree yet",
+)
+def test_the_application_image_excludes_secrets_and_the_plan_layer():
+    """Guards the build the moment someone adds one.
+
+    This is written against a file that does not exist yet on purpose. An
+    application image is built with a broad copy of the tree, so the exclusion
+    list is what decides whether a local .env ends up inside something published
+    to a registry. Catching that when the Dockerfile lands is much cheaper than
+    catching it after an image is pushed.
+    """
+    dockerfile = APPLICATION_DOCKERFILE.read_text(encoding="utf-8")
+    copies_tree = any(
+        line.strip().startswith(("COPY", "ADD")) and " . " in line
+        for line in dockerfile.splitlines()
+    )
+    if not copies_tree:
+        pytest.skip("the image does not copy the tree wholesale")
+
+    ignore_path = REPO_DIR / ".dockerignore"
+    assert ignore_path.exists(), (
+        "the image copies the whole tree and there is no .dockerignore; a local "
+        ".env would be built into a published image"
+    )
+    entries = {
+        line.strip()
+        for line in ignore_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+    missing = [
+        name
+        for name in MUST_NOT_SHIP
+        if not any(entry.rstrip("/") == name for entry in entries)
+    ]
+    assert not missing, (
+        f".dockerignore does not exclude {missing}. The image copies the tree "
+        "wholesale, so anything not excluded is published to whoever pulls it. "
+        "Keep '!.env.example' if the sample file should still ship."
+    )
+
+
 def test_no_config_file_hardcodes_a_path_into_the_shipped_directory():
     # Config refers to ${ORG_DIR}. A literal path under the product tree would
     # silently ignore an installation's redirect, which is what made overwriting
