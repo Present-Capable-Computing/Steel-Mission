@@ -18,6 +18,7 @@
   "metadata": {
     "stage": "U0",
     "focusedDaysBudget": 2.0,
-    "risk": "Refusing what was previously coerced is a behaviour change on a shipped product. Each refusal ships with the migration that keeps the shipped default files loadable, and every existing test that relies on a coercion is changed deliberately in the same pull request rather than deleted. The order inside this milestone matters more than usual: the loader must accept both registry shapes before anything can call the writer, or building the assignment interface arms a destructive flip that is currently unreachable from a browser."
+    "risk": "Refusing what was previously coerced is a behaviour change on a shipped product. Each refusal ships with the migration that keeps the shipped default files loadable, and every existing test that relies on a coercion is changed deliberately in the same pull request rather than deleted. The order inside this milestone matters more than usual: the loader must accept both registry shapes before anything can call the writer, or building the assignment interface arms a destructive flip that is currently unreachable from a browser.",
+    "githubMilestone": 7
   }
 }

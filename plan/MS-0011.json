@@ -18,6 +18,7 @@
   "metadata": {
     "stage": "U4",
     "focusedDaysBudget": 0.5,
-    "risk": "A rollout flag left in place is a permanent fork with two surfaces and one set of tests. The same rule PRJ-0001 applies to its orchestrator flag applies here: the flag and the superseded page are deleted, not parked."
+    "risk": "A rollout flag left in place is a permanent fork with two surfaces and one set of tests. The same rule PRJ-0001 applies to its orchestrator flag applies here: the flag and the superseded page are deleted, not parked.",
+    "githubMilestone": 11
   }
 }

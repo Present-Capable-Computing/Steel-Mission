@@ -19,6 +19,7 @@
     "stage": "U3",
     "focusedDaysBudget": 5.0,
     "risk": "This is the milestone where scope grows, because a settings dialog invites a redesign without end. The boundary is parity plus the named defects, and anything else becomes a new milestone rather than a larger this one. The second risk is a green suite testing nothing: deleting an implementation pin is permitted only where a named contract assertion already covers it.",
-    "migrationRule": "The function the router calls keeps its name and gains a selector; the legacy and application renderers are new names, which are safe. The head-request handler reports a length taken from the file on disk and will be wrong the moment the served page is not that file, so it is corrected in the same pull request as the selector."
+    "migrationRule": "The function the router calls keeps its name and gains a selector; the legacy and application renderers are new names, which are safe. The head-request handler reports a length taken from the file on disk and will be wrong the moment the served page is not that file, so it is corrected in the same pull request as the selector.",
+    "githubMilestone": 10
   }
 }

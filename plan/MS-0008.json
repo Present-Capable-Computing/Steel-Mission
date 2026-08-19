@@ -19,6 +19,7 @@
     "stage": "U1",
     "focusedDaysBudget": 1.5,
     "risk": "This milestone exists partly to buy safety for a later one. The contract test written here is what makes the 231 implementation-pinning assertions in the existing suite retirable at the interface flip; without it those assertions are deleted under pressure with nothing replacing them.",
-    "why": "The vocabulary lands before the rebuild so the rebuild is not translating two vocabularies at once."
+    "why": "The vocabulary lands before the rebuild so the rebuild is not translating two vocabularies at once.",
+    "githubMilestone": 8
   }
 }

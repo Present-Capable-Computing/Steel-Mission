@@ -19,6 +19,7 @@
     "stage": "U2",
     "focusedDaysBudget": 2.0,
     "risk": "Two existing tests discriminate between bundlers and their output. The suite matches a bare script element, so a module-typed script matches nothing; and it runs a syntax check on the extracted script as an ordinary script file, where a top-level import is a syntax error. The bundle must therefore be emitted in the immediately-invoked format. Verify against real build output as the first commit of this milestone, before a single component is written - not after, and never quietly at the flip.",
-    "whySingleFile": "Emitting one self-contained committed file avoids adding the product's first static-asset handler, which would be a new route on the trust boundary and the usual place traversal defects appear. It also avoids a container build stage, which would reintroduce the platform-specific package problem the image already works around."
+    "whySingleFile": "Emitting one self-contained committed file avoids adding the product's first static-asset handler, which would be a new route on the trust boundary and the usual place traversal defects appear. It also avoids a container build stage, which would reintroduce the platform-specific package problem the image already works around.",
+    "githubMilestone": 9
   }
 }

@@ -84,7 +84,32 @@ def sync_fields(number: str, owner: str, specs: list[dict]) -> dict[str, dict]:
     for spec in specs:
         name = spec["name"]
         if name in existing:
-            print(f"  ok: {name}")
+            # A single-select that has gained options in the manifest is updated in
+            # place. Skipping it here used to be silent: the field stayed as it was,
+            # and every item wanting a new option was then edited with a null option
+            # id, which fails. A field that exists is not the same as a field that
+            # is correct.
+            missing = [
+                option for option in spec.get("options", [])
+                if option not in {o["name"] for o in existing[name].get("options", [])}
+            ]
+            if not missing:
+                print(f"  ok: {name}")
+                continue
+            say("add options", f"{name}: {', '.join(missing)}")
+            if DRY_RUN:
+                continue
+            kept = [o["name"] for o in existing[name].get("options", [])]
+            args = ["api", "graphql", "-f", f"query={UPDATE_FIELD}",
+                    "-f", f"field={existing[name]['id']}"]
+            for option in kept + missing:
+                args += ["-f", "opts[][name]=" + option, "-f", "opts[][color]=GRAY",
+                         "-f", "opts[][description]="]
+            gh(*args)
+            existing[name] = json.loads(gh(
+                "project", "field-list", number, "--owner", owner, "--format", "json"
+            ))
+            existing = {f["name"]: f for f in unwrap(existing[name])}
             continue
         say("create field", f"{name} ({spec['dataType']})")
         if DRY_RUN:
@@ -200,6 +225,14 @@ query($owner: String!, $number: Int!) {
 }
 """
 
+UPDATE_FIELD = """
+mutation($field: ID!, $opts: [ProjectV2SingleSelectFieldOptionInput!]!) {
+  updateProjectV2Field(input: {fieldId: $field, singleSelectOptions: $opts}) {
+    projectV2Field { ... on ProjectV2SingleSelectField { id name } }
+  }
+}
+"""
+
 CREATE_VIEW = """
 mutation($project: ID!, $name: String!, $layout: ProjectV2ViewLayout!) {
   createProjectV2View(input: {projectId: $project, name: $name, layout: $layout}) {
@@ -280,9 +313,11 @@ def main() -> int:
     project = manifest["project"]
     print(f"Board: {project['boardTitle']}{' (dry run)' if DRY_RUN else ''}\n")
 
-    project_id = sync_views(owner, args.number, project["views"])
-    print()
+    # Fields before views: a view names the fields it shows, so creating it first
+    # silently drops any column whose field does not exist yet.
     fields = sync_fields(args.number, owner, project["fields"])
+    print()
+    project_id = sync_views(owner, args.number, project["views"])
     print()
     sync_values(args.number, owner, project_id, project["fields"], fields)
     print("\nDone." if not DRY_RUN else "\nDry run complete. Nothing changed.")
