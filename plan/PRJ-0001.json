@@ -22,7 +22,7 @@
   "metadata": {
     "planDocument": "docs/workplan.md",
     "technicalPlan": "docs/durable-core-plan.md",
-    "githubProject": "UNSET — the Projects v2 board is created by tooling/gh-project-bootstrap.sh and its URL is recorded here once it exists.",
+    "githubProject": "https://github.com/orgs/Present-Capable-Computing/projects/1",
     "estimate": {
       "rule": "PW-EST focused-effort, mid-range stance, security-sensitive and novel-integration at the cautious half of their ranges, empirical time at 1x",
       "conventionalPersonDays": 140,

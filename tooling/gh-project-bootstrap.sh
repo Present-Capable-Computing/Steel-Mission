@@ -76,6 +76,12 @@ fi
 
 url="$(gh project view "$number" --owner "$OWNER" --format json | unwrap url)"
 
+# The board carries its record id, so that someone who arrives at the board first
+# can find the record that governs it. plan/README.md states this link; setting it
+# here is what makes the statement true.
+description="$(python3 -c "import json;print(json.load(open('$ROOT/tooling/github-plan.json'))['project']['boardDescription'])")"
+gh project edit "$number" --owner "$OWNER" --description "$description" >/dev/null
+
 echo "Adding planned issues to the board"
 # One request per label. Repeated --label flags are an AND, not an OR, and no
 # issue carries both task and epic, so filtering on both at once returns nothing.
