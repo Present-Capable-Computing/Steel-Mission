@@ -10106,3 +10106,21 @@ def test_stale_session_cookie_does_not_lock_out_a_loopback_developer(tmp_path, m
     finally:
         globals_["AUTH_POLICY_PATH"] = original_auth
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
+
+
+def test_chat_poll_carries_the_identity_that_created_the_job():
+    """A job is owned by whoever posted it, so the poll must say who that is.
+
+    The create sent actor headers and the poll sent none, so the poll arrived as
+    the default identity while the job belonged to the signed-in one. The server
+    correctly refused to show one actor another actor's chat, and the console
+    reported it as the server being unreachable -- sending people to restart a
+    server that was working.
+    """
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["chat_index"]()
+    poll = html[html.index("/api/chat/${started.jobId}"):]
+    poll = poll[:poll.index("\n\n")] if "\n\n" in poll[:600] else poll[:600]
+    assert "actorHeaders()" in poll, "the chat poll does not send the creating actor's identity"
