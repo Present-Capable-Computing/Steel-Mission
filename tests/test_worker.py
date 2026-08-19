@@ -9927,3 +9927,114 @@ def test_project_owns_milestones_and_stays_closed():
     }.items():
         assert schema_check.validate(bad, "canonical/project-v1.json"), (
             f"a project with {label} must be rejected")
+
+
+def test_container_client_gets_a_login_path_that_can_actually_complete(tmp_path, monkeypatch):
+    """A published container port makes every browser non-loopback.
+
+    The peer is the container network gateway, never 127.0.0.1, so development
+    identity is refused for the first API call. The 401 used to advertise
+    /auth/login unconditionally; in development-local mode that route began an
+    OIDC flow with no provider configured, so the browser was sent to a route
+    that could only report OIDC disabled. The page loaded and nothing worked.
+    """
+    import runpy
+    from types import SimpleNamespace
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["auth_policy"].__globals__
+    original_auth = globals_["AUTH_POLICY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutations.jsonl"
+    monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+    try:
+        chat["save_auth_policy"]({
+            "identityBoundary": {"mode": "development-local", "allowLoopbackDevelopmentIdentity": True},
+        }, "owner")
+
+        # The refusal names the address it saw. Behind a container port that
+        # address is the whole diagnosis, and it used to be absent.
+        bridge = SimpleNamespace(headers={"X-Present-Role": "admin"}, client_address=("172.18.0.1", 51000))
+        with pytest.raises(PermissionError) as refused:
+            chat["authenticate_http_request"](bridge, "/api/knowledge", "GET")
+        assert "172.18.0.1" in str(refused.value)
+
+        # In development-local mode the advertised path is one that can complete.
+        assert chat["development_login_available"]() is True
+        assert chat["login_path_for"]() == "/auth/login"
+        assert chat["unauthenticated_payload"]("denied")["loginPath"] == "/auth/login"
+
+        # With OIDC required and no provider enabled, no path can complete, so
+        # none is advertised. Sending a browser to a dead end is worse than
+        # telling it there is nowhere to go.
+        chat["save_auth_policy"]({"identityBoundary": {"mode": "oidc-required"}}, "owner")
+        assert chat["development_login_available"]() is False
+        assert chat["login_path_for"]() is None
+        assert "loginPath" not in chat["unauthenticated_payload"]("denied")
+    finally:
+        globals_["AUTH_POLICY_PATH"] = original_auth
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
+
+
+def test_development_session_authenticates_a_non_loopback_client(tmp_path, monkeypatch):
+    """The signed session is what makes a containerised browser work.
+
+    It is verified exactly as a bearer token is, so the sign-in page grants no
+    authority of its own: it turns a token the operator already had into a
+    browser cookie.
+    """
+    import runpy
+    from types import SimpleNamespace
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["auth_policy"].__globals__
+    original_auth = globals_["AUTH_POLICY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    globals_["AUTH_POLICY_PATH"] = tmp_path / "auth-policy.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutations.jsonl"
+    monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+    try:
+        chat["save_auth_policy"]({
+            "identityBoundary": {"mode": "development-local", "allowLoopbackDevelopmentIdentity": True},
+        }, "owner")
+        issued = chat["issue_control_plane_session"]("riley-chen", "admin")
+        token = str(issued["accessToken"])
+
+        # Same non-loopback peer as above, now carrying the session cookie.
+        signed_in = SimpleNamespace(
+            headers={"Cookie": f"present_session={token}"},
+            client_address=("172.18.0.1", 51000),
+        )
+        actor = chat["authenticate_http_request"](signed_in, "/api/knowledge", "GET")
+        assert actor["actorId"] == "riley-chen"
+        assert actor["sessionVerified"] is True
+
+        # A token that was not issued here is refused, from any address.
+        forged = SimpleNamespace(
+            headers={"Cookie": "present_session=not-a-real-token"},
+            client_address=("172.18.0.1", 51000),
+        )
+        with pytest.raises(PermissionError):
+            chat["authenticate_http_request"](forged, "/api/knowledge", "GET")
+    finally:
+        globals_["AUTH_POLICY_PATH"] = original_auth
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
+
+
+def test_the_development_sign_in_page_actually_renders():
+    """Rendering, not just the helpers that decide to render it.
+
+    The first version of this page was built with %-formatting and it embeds a
+    stylesheet. A stylesheet is full of characters % reads as conversion
+    specifiers, so the route raised ValueError and the browser got no response at
+    all -- while every helper around it tested green.
+    """
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    page = chat["DEVELOPMENT_LOGIN_PAGE"].replace("__CONTAINER__", "steel-mission")
+    assert "__CONTAINER__" not in page
+    assert 'action="/auth/login"' in page and 'name="token"' in page
+    assert "present-control-plane session" in page
+    page.encode("utf-8")
