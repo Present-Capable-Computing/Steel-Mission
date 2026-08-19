@@ -94,6 +94,17 @@ echo "Adding planned issues to the board"
         --url "https://github.com/$REPO/issues/$issue" >/dev/null
     done
 
+# An organisation project does not appear in a repository's Projects tab until it
+# is linked. Creating the board and adding every issue to it is not enough: without
+# this, someone looking for the project where it belongs does not find it.
+echo "Linking the board to the repository"
+project_id="$(gh api graphql -F n="$number" \
+  -f query='query($n:Int!){organization(login:"'"$OWNER"'"){projectV2(number:$n){id}}}' \
+  -q .data.organization.projectV2.id)"
+repo_id="$(gh api "repos/$REPO" -q .node_id)"
+gh api graphql -f query='mutation($p:ID!,$r:ID!){linkProjectV2ToRepository(input:{projectId:$p,repositoryId:$r}){repository{name}}}' \
+  -f p="$project_id" -f r="$repo_id" >/dev/null 2>&1 || echo "  already linked"
+
 echo "Applying fields, item values and views"
 python3 "$ROOT/tooling/gh-project-fields.py" --number "$number"
 
