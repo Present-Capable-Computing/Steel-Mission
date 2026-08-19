@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "steel-mission",
+  "activeOrganizationId": "northstar-forge",
+  "organizations": [
+    {
+      "id": "northstar-forge",
+      "name": "Northstar Forge",
+      "slug": "northstar-forge",
+      "identifiers": {
+        "legalName": "Northstar Forge Ltd.",
+        "domain": "northstar.example",
+        "country": "CH",
+        "environment": "starter",
+        "dataClassification": "synthetic-starter"
+      },
+      "knowledgeDomainKeys": ["KD01", "KD02", "KD03"],
+      "domainCapabilityKeys": [
+        "DC01",
+        "DC02",
+        "DC03",
+        "DC04",
+        "DC05",
+        "DC06",
+        "DC07",
+        "DC08",
+        "DC09",
+        "DC10",
+        "DC11",
+        "DC12",
+        "DC13"
+      ],
+      "knowledgeSources": {
+        "repositories": [
+          {
+            "name": "steel-mission-product",
+            "path": "${WORKER_DIR}"
+          },
+          {
+            "name": "starter-company",
+            "path": "${WORKER_DIR}/starter-company"
+          }
+        ],
+        "documents": [
+          {
+            "title": "Starter Organization Operating Context",
+            "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"
+          },
+          {
+            "title": "Starter Organization Team Doctrine",
+            "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"
+          },
+          {
+            "title": "Starter Organization Team Roster and Workflow",
+            "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"
+          },
+          {
+            "title": "Starter Organization Capability Map",
+            "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"
+          }
+        ]
+      },
+      "notes": "Synthetic starter organization for first-run demonstrations. Owners and admins can rename it or create additional organizations."
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 {
-  "id": "CLOSED-CLAW-ROLE-REGISTRY",
+  "id": "STEEL-MISSION-ROLE-REGISTRY",
   "revision": "starter-r01",
   "corpusRelease": "synthetic-starter",
-  "corpusStamp": "closed-claw-starter",
+  "corpusStamp": "steel-mission-starter",
   "rule": "Knowledge domains are organizational documents. Domain Capabilities are the roles and workflows the organization can assign. Role keys use the DC sequence and can be cloned or renamed by owners and admins.",
   "epoch": {
     "state": "starter",

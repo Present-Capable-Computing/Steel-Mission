@@ -24,7 +24,7 @@
     "nodeId": {"type": "string", "minLength": 1},
     "kind": {"type": "string", "minLength": 1},
     "producedAt": {"type": "string", "minLength": 1},
-    "producer": {"const": "closed-claw-chat mission-orchestrator"},
+    "producer": {"const": "steel-mission-chat mission-orchestrator"},
     "payload": {"type": "object"}
   }
 }

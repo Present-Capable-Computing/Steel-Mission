@@ -690,7 +690,7 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
         return _credential_refusal(meta)
     prompt = (
         "You are acting as DC13 Delivery Coordinator, answering the operator question "
-        "'Where are we?' for the Closed-Claw pipeline. Binding rules from the domain capability canon:\n"
+        "'Where are we?' for the Steel Mission pipeline. Binding rules from the domain capability canon:\n"
         "1. Current-state retrieval only: classify and reconcile the STATE snapshot below. Never report "
         "from memory or inference; the snapshot is the entire retrievable surface of this run.\n"
         "2. Anything material that the snapshot does not establish is status 'UNKNOWN / UNVERIFIED' and "

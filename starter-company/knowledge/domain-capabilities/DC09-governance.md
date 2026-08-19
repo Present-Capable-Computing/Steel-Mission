@@ -33,4 +33,4 @@ DC09 provides governance analysis and flags required professional review. It doe
 
 ## Starter Scenario
 
-Northstar Forge asks DC09 whether Community Edition can be downloadable while Enterprise controls remain commercial. DC09 separates source-available community terms from paid enterprise capabilities.
+Northstar Forge asks DC09 whether the core can be Apache-2.0 open source while Enterprise controls remain proprietary and commercially licensed. DC09 separates core open-source rights from paid Enterprise capabilities.

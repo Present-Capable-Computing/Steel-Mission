@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic local fixture provisioner for Control Plain broker tests."""
+"""Deterministic local fixture provisioner for Control Plane broker tests."""
 from __future__ import annotations
 
 import argparse

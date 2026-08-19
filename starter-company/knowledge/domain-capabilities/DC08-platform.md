@@ -33,4 +33,4 @@ DC08 does not own program sequencing or commercial packaging. It identifies plat
 
 ## Starter Scenario
 
-Northstar Forge asks DC08 to make Closed-Claw run as a self-contained repo rather than depending on a developer workstation layout. DC08 verifies local paths, command availability, and runtime folders.
+Northstar Forge asks DC08 to make Steel Mission run as a self-contained repo rather than depending on a developer workstation layout. DC08 verifies local paths, command availability, and runtime folders.

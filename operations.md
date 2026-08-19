@@ -1,16 +1,16 @@
-# Closed-Claw Operations
+# Steel Mission Operations
 
 ## Local Run
 
 ```bash
-python3 closed-claw-chat/server.py --host 127.0.0.1 --port 8765 --profile dc13.local
+python3 steel-mission-chat/server.py --host 127.0.0.1 --port 8765 --profile dc13.local
 ```
 
 Open `http://127.0.0.1:8765/`.
 
 ## First-Run Setup
 
-Closed-Claw starts with the synthetic Northstar Forge organization:
+Steel Mission starts with the synthetic Northstar Forge organization:
 
 - starter users;
 - knowledge domains;

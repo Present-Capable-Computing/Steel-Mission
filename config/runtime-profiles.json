@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "producedAt": "2026-08-18T00:00:00Z",
-  "producer": "closed-claw",
+  "producer": "steel-mission",
   "profiles": [
     {
       "id": "dc13.auto",
@@ -10,7 +10,7 @@
       "modelRole": "dc13.coordination-report",
       "modelProvider": "auto",
       "snapshotProfile": "worker-local-default",
-      "defaultFor": ["closed-claw-chat"],
+      "defaultFor": ["steel-mission-chat"],
       "editableBy": ["owner", "admin", "publisher"],
       "visibilityRoleKeys": [
         "DC13",
@@ -60,10 +60,10 @@
           {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
         ],
         "documentPaths": [
-          {"title": "Northstar Forge Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Northstar Forge Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Northstar Forge Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Northstar Forge Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Starter Organization Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
         ]
       }
     },
@@ -122,10 +122,10 @@
           {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
         ],
         "documentPaths": [
-          {"title": "Northstar Forge Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Northstar Forge Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Northstar Forge Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Northstar Forge Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Starter Organization Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
         ]
       }
     },
@@ -186,10 +186,10 @@
           {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"}
         ],
         "documentPaths": [
-          {"title": "Northstar Forge Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-          {"title": "Northstar Forge Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Northstar Forge Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-          {"title": "Northstar Forge Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
+          {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+          {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+          {"title": "Starter Organization Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
         ]
       }
     }

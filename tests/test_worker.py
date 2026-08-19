@@ -83,6 +83,12 @@ def purge_task(task_id: str) -> None:
     (common.TEST_RESULTS_DIR / f"{task_id}-verify.json").unlink(missing_ok=True)
 
 
+def current_git_branch(repo: Path = WORKER_DIR) -> str:
+    result = subprocess.run(["git", "branch", "--show-current"], cwd=repo, capture_output=True, text=True, timeout=10)
+    branch = result.stdout.strip()
+    return branch or "main"
+
+
 def test_version():
     code, payload = run_worker("version")
     assert code == 0
@@ -1481,7 +1487,7 @@ def test_lease_broker_operational_surfaces_export_replay_runbook_and_window(tmp_
         assert code == 0, stderr
         assert narrative["status"] == "JOB_NARRATIVE"
         assert schema_check.validate(narrative["narrative"], "canonical/job-narrative-v1.json") == []
-        assert "control plain" in narrative["plainText"]
+        assert "control plane" in narrative["plainText"]
         assert "dispatched node" in narrative["plainText"]
         assert "Worker" in narrative["plainText"]
         assert "Deterministic acceptance" in narrative["plainText"]
@@ -1662,13 +1668,13 @@ def test_lease_broker_provisioner_replay_stress_fixture_and_broker_server(tmp_pa
         monkeypatch.setenv("PRESENT_BROKER_STATE", str(state_path))
         monkeypatch.setenv("PRESENT_WORKER_POOL", str(pool))
         monkeypatch.setenv("PRESENT_PROVISIONER_REGISTRY", str(registry))
-        closed_claw_server = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
-        closed_claw_overview = closed_claw_server["broker_overview"]()
-        assert closed_claw_overview["workflows"][0]["taskId"] == task_id
-        assert closed_claw_overview["workers"][0]["workerId"] == "cloud-ephemeral:fixture"
-        narratives = closed_claw_server["broker_narratives"]()
+        steel_mission_server = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+        steel_mission_overview = steel_mission_server["broker_overview"]()
+        assert steel_mission_overview["workflows"][0]["taskId"] == task_id
+        assert steel_mission_overview["workers"][0]["workerId"] == "cloud-ephemeral:fixture"
+        narratives = steel_mission_server["broker_narratives"]()
         assert narratives[0]["taskId"] == task_id
-        assert "control plain" in narratives[0]["plainText"]
+        assert "control plane" in narratives[0]["plainText"]
     finally:
         purge_task(task_id)
 
@@ -4564,7 +4570,7 @@ def test_model_binding_registry_validates_and_resolves_local_dc13_instance():
     assert policy["provider"] == "glimmer"
     assert policy["selectedModel"] == "qwen2.5-coder:14b"
     assert policy["transport"] == "ollama"
-    assert policy["snapshotProfile"] == "closed-claw-starter"
+    assert policy["snapshotProfile"] == "steel-mission-starter"
     assert policy["fallbackReason"] == "provider-override"
 
 
@@ -4689,7 +4695,7 @@ def test_model_binding_manager_is_admin_only_and_updates_dc13_binding(tmp_path, 
 PLACEHOLDER_REQUIREMENT = (
     "# DEV-900010 - worker credential degradation acceptance\n\n"
     "_Infrastructure task. State the requirement here._\n\n"
-    "This file is authored by a human. The control plain never invents requirements.\n"
+    "This file is authored by a human. The control plane never invents requirements.\n"
 )
 
 
@@ -5032,7 +5038,7 @@ def test_coordinator_snapshot_policy_attached_to_job_controls_snapshot_roots(tmp
         "schemaVersion": 1,
         "taskId": task_id,
         "producedAt": common.utc_now(),
-        "producer": "closed-claw-chat-local",
+        "producer": "steel-mission-chat-local",
         "provenance": {"source": "worker-local-advisory-client"},
         "verb": "coordination-report",
         "advisory": True,
@@ -5869,7 +5875,7 @@ def test_coordinator_report_budget_is_caller_supplied():
 def test_waiting_page_shows_progress_and_survives_a_bare_job():
     """The wait must be legible, and never break on a missing nicety."""
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     assert chat["format_elapsed"](7) == "7s"
     assert chat["format_elapsed"](165) == "2m 45s"
 
@@ -5913,10 +5919,10 @@ def test_waiting_page_shows_progress_and_survives_a_bare_job():
     assert chat["snapshot_scope"]() is not None
 
 
-def test_main_chat_index_is_the_default_closed_claw_page():
+def test_main_chat_index_is_the_default_steel_mission_page():
     """The normal browser entrypoint should be the JS chat window."""
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     html = chat["chat_index"]()
     assert 'id="feed"' in html
     assert 'id="form"' in html
@@ -5931,10 +5937,23 @@ def test_main_chat_index_is_the_default_closed_claw_page():
     assert 'id="profileDialog"' in html
     assert 'id="chatUploads"' in html
     assert 'id="userPanel"' in html
+    assert 'id="organizationPanel"' in html
+    assert "Organization Management" in html
+    assert "Active Organization" in html
+    assert "Create Organization" in html
+    assert "Save Organization" in html
+    assert "Basic Organizational Identifiers" in html
+    assert "Organization ID" in html
+    assert "Display Name" in html
+    assert "Legal Name" in html
+    assert "Primary Domain" in html
+    assert "Data Classification" in html
+    assert "Snapshot Bindings" in html
+    assert "/organizations" in html
     assert "The Present Guage" not in html
     assert 'class="gauge-mark"' in html
     assert html.count("gauge-circle") >= 3
-    assert "Closed-Claw Agentic Delivery Plain" in html
+    assert "Steel Mission Agent Delivery Plane" in html
     assert 'id="normalMode"' in html
     assert 'id="domainCapabilityMode"' in html
     assert "Normal" in html
@@ -6017,6 +6036,8 @@ def test_main_chat_index_is_the_default_closed_claw_page():
     assert "Delivery Coordinator Model Binding" in html
     assert "Knowledge" in html
     assert "Knowledge System" in html
+    assert "Shared Knowledge Source Pool" in html
+    assert "Effective Source Registry" in html
     assert "Organizational Documents" in html
     assert "Organizational Capabilities" in html
     assert "Source Registry" in html
@@ -6100,7 +6121,7 @@ def test_main_chat_index_is_the_default_closed_claw_page():
     assert "render({preserveScroll: true})" in html
     assert "render({forceScroll: true})" in html
     assert "modelState" in html
-    assert "closed-claw-runtime-profile" in html
+    assert "steel-mission-runtime-profile" in html
     assert "Update Delivery Coordinator" in html
     assert "steeringEvents" in html
     assert "decisionRequest" in html
@@ -6116,18 +6137,18 @@ def test_main_chat_index_is_the_default_closed_claw_page():
 
 
 def test_main_chat_index_script_is_parseable(tmp_path):
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     html = chat["chat_index"]()
     scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
     assert len(scripts) == 1
-    script = tmp_path / "closed-claw-index-script.js"
+    script = tmp_path / "steel-mission-index-script.js"
     script.write_text(scripts[0])
     result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
 
 
-def test_closed_claw_page_routes_cover_work_settings_and_missions():
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_page_routes_cover_work_settings_and_missions():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     assert chat["is_page_path"]("/")
     assert chat["is_page_path"]("/index.html")
     assert not chat["is_page_path"]("/owner")
@@ -6138,8 +6159,8 @@ def test_closed_claw_page_routes_cover_work_settings_and_missions():
     assert not chat["is_page_path"]("/api/admin/settings")
 
 
-def test_closed_claw_knowledge_registry_loads_foundations_and_project_roles():
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_knowledge_registry_loads_foundations_and_project_roles():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     payload = chat["knowledge_registry"]()
 
     assert payload["ok"] is True
@@ -6157,10 +6178,13 @@ def test_closed_claw_knowledge_registry_loads_foundations_and_project_roles():
     assert roles["DC13"]["displayName"] == "Delivery Coordinator"
     assert capabilities["DC13"]["fNumber"] == "DC13"
     assert capabilities["DC13"]["displayName"] == "Delivery Coordinator"
+    assert payload["activeOrganization"]["id"] == "northstar-forge"
+    assert set(payload["activeOrganization"]["knowledgeDomainKeys"]) >= {"KD01", "KD02", "KD03"}
+    assert set(payload["activeOrganization"]["domainCapabilityKeys"]) >= expected_capabilities
 
 
-def test_closed_claw_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     role_registry = tmp_path / "role-registry.json"
     knowledge_registry = tmp_path / "role-knowledge-registry.json"
     assignment_registry = tmp_path / "domain-capabilities.json"
@@ -6239,8 +6263,8 @@ def test_closed_claw_corporate_workspace_filters_by_user_domain_capability_acces
         chat["save_user_registry"]({"users": []}, "publisher")
 
 
-def test_closed_claw_general_knowledge_accepts_repositories_and_documents(tmp_path):
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_general_knowledge_accepts_repositories_and_documents(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     registry_path = tmp_path / "general-knowledge.json"
     globals_ = chat["general_knowledge_registry"].__globals__
     globals_["GENERAL_KNOWLEDGE_PATH"] = registry_path
@@ -6264,10 +6288,64 @@ def test_closed_claw_general_knowledge_accepts_repositories_and_documents(tmp_pa
         chat["save_general_knowledge_registry"]({"repositories": [], "documents": []}, "publisher")
 
 
-def test_closed_claw_org_knowledge_upload_stores_files_and_starts_prepare_snapshot(tmp_path):
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_organization_registry_manages_identity_sources_and_bindings(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["save_organization_registry"].__globals__
+    original_orgs = globals_["ORGANIZATION_REGISTRY_PATH"]
+    original_ledger = globals_["MUTATION_LEDGER_PATH"]
+    globals_["ORGANIZATION_REGISTRY_PATH"] = tmp_path / "organizations.json"
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    try:
+        saved = chat["save_organization_registry"]({
+            "activeOrganizationId": "acme-delivery",
+            "organizations": [
+                {
+                    "id": "Acme Delivery",
+                    "name": "Acme Delivery",
+                    "slug": "acme-delivery",
+                    "identifiers": {
+                        "legalName": "Acme Delivery AG",
+                        "domain": "acme.example",
+                        "country": "CH",
+                        "environment": "starter",
+                        "dataClassification": "synthetic"
+                    },
+                    "knowledgeDomainKeys": ["KD01", "KD02", "BAD"],
+                    "domainCapabilityKeys": ["DC03", "DC13", "BAD"],
+                    "knowledgeSources": {
+                        "repositories": [{"name": "acme-product", "path": str(tmp_path / "repo")}],
+                        "documents": [{"title": "Acme Handbook", "path": str(tmp_path / "handbook.md")}],
+                    },
+                    "notes": "Synthetic customer starter."
+                }
+            ],
+        }, "admin")
+
+        organization = saved["organizations"][0]
+        assert saved["activeOrganizationId"] == "acme-delivery"
+        assert organization["id"] == "acme-delivery"
+        assert organization["identifiers"]["legalName"] == "Acme Delivery AG"
+        assert organization["knowledgeDomainKeys"] == ["KD01", "KD02"]
+        assert organization["domainCapabilityKeys"] == ["DC03", "DC13"]
+        assert organization["knowledgeSources"]["repositories"][0]["name"] == "acme-product"
+        assert json.loads((tmp_path / "organizations.json").read_text())["organizations"][0]["id"] == "acme-delivery"
+        workspace = chat["corporate_workspace"]("admin")
+        assert workspace["activeOrganization"]["name"] == "Acme Delivery"
+        assert workspace["canManageOrganizations"] is True
+        ledger = chat["read_mutation_ledger"]("admin")
+        assert ledger["mutations"][0]["action"] == "organizations-saved"
+        with pytest.raises(ValueError, match="only owner and admin"):
+            chat["save_organization_registry"]({"organizations": []}, "publisher")
+    finally:
+        globals_["ORGANIZATION_REGISTRY_PATH"] = original_orgs
+        globals_["MUTATION_LEDGER_PATH"] = original_ledger
+
+
+def test_steel_mission_org_knowledge_upload_stores_files_and_starts_prepare_snapshot(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["upload_organization_knowledge"].__globals__
     original_general = globals_["GENERAL_KNOWLEDGE_PATH"]
+    original_orgs = globals_["ORGANIZATION_REGISTRY_PATH"]
     original_upload_root = globals_["ORG_KNOWLEDGE_UPLOAD_ROOT"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
     original_starter = globals_["start_orchestrated_mission"]
@@ -6278,6 +6356,12 @@ def test_closed_claw_org_knowledge_upload_stores_files_and_starts_prepare_snapsh
         return {"ok": True, "missionId": "ms-" + "8" * 24, "jobId": "JOB-knowledge", "taskId": "DEV-900188"}
 
     globals_["GENERAL_KNOWLEDGE_PATH"] = tmp_path / "general-knowledge.json"
+    globals_["ORGANIZATION_REGISTRY_PATH"] = tmp_path / "organizations.json"
+    globals_["ORGANIZATION_REGISTRY_PATH"].write_text(json.dumps({
+        "schemaVersion": 1,
+        "activeOrganizationId": "acme",
+        "organizations": [{"id": "acme", "name": "Acme", "knowledgeDomainKeys": ["KD01"], "domainCapabilityKeys": ["DC13"], "knowledgeSources": {"repositories": [], "documents": []}}],
+    }))
     globals_["ORG_KNOWLEDGE_UPLOAD_ROOT"] = tmp_path / "org-knowledge-uploads"
     globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
     globals_["start_orchestrated_mission"] = fake_start_orchestrated_mission
@@ -6302,6 +6386,8 @@ def test_closed_claw_org_knowledge_upload_stores_files_and_starts_prepare_snapsh
         assert (stored_root / "docs" / "guide.md").read_text() == "Use this project as org knowledge."
         assert result["registry"]["repositories"][0]["name"] == "Project-Alpha"
         assert result["registry"]["repositories"][0]["path"] == str(stored_root)
+        assert result["organizationId"] == "acme"
+        assert result["organizationRegistry"]["organizations"][0]["knowledgeSources"]["repositories"][0]["path"] == str(stored_root)
         assert started["templateId"] == "prepare-knowledge"
         assert started["profile"] == "dc13.alpha"
         assert "Project Alpha" in started["objective"]
@@ -6310,39 +6396,65 @@ def test_closed_claw_org_knowledge_upload_stores_files_and_starts_prepare_snapsh
             chat["upload_organization_knowledge"](payload, "publisher")
     finally:
         globals_["GENERAL_KNOWLEDGE_PATH"] = original_general
+        globals_["ORGANIZATION_REGISTRY_PATH"] = original_orgs
         globals_["ORG_KNOWLEDGE_UPLOAD_ROOT"] = original_upload_root
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
         globals_["start_orchestrated_mission"] = original_starter
 
 
-def test_closed_claw_prepare_knowledge_snapshot_payload_records_source_health(tmp_path):
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_prepare_knowledge_snapshot_payload_records_source_health(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["prepare_knowledge_snapshot_payload"].__globals__
     original_general = globals_["GENERAL_KNOWLEDGE_PATH"]
+    original_orgs = globals_["ORGANIZATION_REGISTRY_PATH"]
     repo = tmp_path / "repo"
+    org_repo = tmp_path / "org-repo"
     repo.mkdir()
+    org_repo.mkdir()
     doc = tmp_path / "handbook.md"
+    org_doc = tmp_path / "org-handbook.md"
     (repo / "guide.md").write_text("repo knowledge\n")
+    (org_repo / "guide.md").write_text("organization repo knowledge\n")
     doc.write_text("document knowledge\n")
+    org_doc.write_text("organization document knowledge\n")
     globals_["GENERAL_KNOWLEDGE_PATH"] = tmp_path / "general-knowledge.json"
     globals_["GENERAL_KNOWLEDGE_PATH"].write_text(json.dumps({
         "repositories": [{"name": "alpha", "path": str(repo)}],
         "documents": [{"title": "Handbook", "path": str(doc)}],
     }))
+    globals_["ORGANIZATION_REGISTRY_PATH"] = tmp_path / "organizations.json"
+    globals_["ORGANIZATION_REGISTRY_PATH"].write_text(json.dumps({
+        "schemaVersion": 1,
+        "activeOrganizationId": "acme",
+        "organizations": [
+            {
+                "id": "acme",
+                "name": "Acme",
+                "knowledgeDomainKeys": ["KD01"],
+                "domainCapabilityKeys": ["DC13"],
+                "knowledgeSources": {
+                    "repositories": [{"name": "org-alpha", "path": str(org_repo)}],
+                    "documents": [{"title": "Organization Handbook", "path": str(org_doc)}],
+                },
+            }
+        ],
+    }))
     try:
         payload = chat["prepare_knowledge_snapshot_payload"]("dc13.local")
-        assert payload["sourceCount"] == 2
-        assert payload["availableSourceCount"] == 2
+        assert payload["organization"]["id"] == "acme"
+        assert payload["sourceCount"] == 4
+        assert payload["availableSourceCount"] == 4
         assert payload["missingSourceCount"] == 0
-        assert payload["fileCount"] == 2
+        assert payload["fileCount"] == 4
         assert payload["registryHash"]
         assert payload["sources"][0]["sample"][0]["sha256"]
     finally:
         globals_["GENERAL_KNOWLEDGE_PATH"] = original_general
+        globals_["ORGANIZATION_REGISTRY_PATH"] = original_orgs
 
 
-def test_closed_claw_user_registry_is_owner_admin_managed(tmp_path):
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_user_registry_is_owner_admin_managed(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["save_user_registry"].__globals__
     original_users = globals_["USER_REGISTRY_PATH"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
@@ -6375,8 +6487,8 @@ def test_closed_claw_user_registry_is_owner_admin_managed(tmp_path):
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_closed_claw_chat_uploads_are_inline_context_not_organization_knowledge(tmp_path):
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_chat_uploads_are_inline_context_not_organization_knowledge(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     summaries, context = chat["chat_upload_context"]([
         {
             "name": "meeting-notes.txt",
@@ -6397,8 +6509,8 @@ def test_closed_claw_chat_uploads_are_inline_context_not_organization_knowledge(
     assert "Organization Knowledge" not in context
 
 
-def test_closed_claw_work_mode_frames_request_while_preserving_transcript():
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+def test_steel_mission_work_mode_frames_request_while_preserving_transcript():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     assert chat["normalize_work_mode"]("normal") == "normal"
     assert chat["normalize_work_mode"]("domain-capabilities") == "domain-capabilities"
     assert chat["normalize_work_mode"]("unexpected") == "domain-capabilities"
@@ -6443,7 +6555,16 @@ def test_general_knowledge_documents_flow_into_dc13_snapshot_policy(tmp_path, mo
         "repositories": [{"name": "external-project", "path": str(tmp_path)}],
         "documents": [{"title": "Publisher Handbook", "path": str(document)}],
     }))
+    organization_path = tmp_path / "organizations.json"
+    organization_path.write_text(json.dumps({
+        "schemaVersion": 1,
+        "activeOrganizationId": "empty-org",
+        "organizations": [
+            {"id": "empty-org", "name": "Empty Org", "knowledgeSources": {"repositories": [], "documents": []}}
+        ],
+    }))
     monkeypatch.setenv("PRESENT_GENERAL_KNOWLEDGE_REGISTRY", str(knowledge_path))
+    monkeypatch.setenv("PRESENT_ORGANIZATION_REGISTRY", str(organization_path))
     profile = {
         "schemaVersion": 1,
         "id": "dc13.knowledge",
@@ -6490,9 +6611,74 @@ def test_general_knowledge_documents_flow_into_dc13_snapshot_policy(tmp_path, mo
     assert collections["generalDocuments"]["returned"] == 1
 
 
-def test_closed_claw_follow_up_steers_active_job_and_persists_event(tmp_path):
+def test_active_organization_sources_flow_into_runtime_snapshot_policy(tmp_path, monkeypatch):
+    cli = _load_cli_module()
+    organization_repo = tmp_path / "organization-repo"
+    organization_repo.mkdir()
+    organization_doc = tmp_path / "organization-handbook.md"
+    organization_doc.write_text("Organization-specific delivery context.\n")
+    knowledge_path = tmp_path / "general-knowledge.json"
+    knowledge_path.write_text(json.dumps({"schemaVersion": 1, "repositories": [], "documents": []}))
+    organization_path = tmp_path / "organizations.json"
+    organization_path.write_text(json.dumps({
+        "schemaVersion": 1,
+        "activeOrganizationId": "acme-delivery",
+        "organizations": [
+            {
+                "id": "acme-delivery",
+                "name": "Acme Delivery",
+                "knowledgeSources": {
+                    "repositories": [{"name": "organization-repo", "path": str(organization_repo)}],
+                    "documents": [{"title": "Organization Handbook", "path": str(organization_doc)}],
+                },
+            }
+        ],
+    }))
+    monkeypatch.setenv("PRESENT_GENERAL_KNOWLEDGE_REGISTRY", str(knowledge_path))
+    monkeypatch.setenv("PRESENT_ORGANIZATION_REGISTRY", str(organization_path))
+    profile = {
+        "schemaVersion": 1,
+        "id": "dc13.organization",
+        "label": "DC13 Organization",
+        "status": "active",
+        "modelRole": "dc13.coordination-report",
+        "modelProvider": "glimmer",
+        "snapshotProfile": "organization-fixture",
+        "defaultFor": [],
+        "editableBy": ["owner", "admin"],
+        "visibilityRoleKeys": ["DC13"],
+        "includeCollections": ["generalDocuments"],
+        "limits": {
+            "tasks": 0,
+            "advisoryTasks": 0,
+            "buildJobs": 0,
+            "verifyResults": 0,
+            "distributedWorkflows": 0,
+            "brokerStateSources": 0,
+            "brokerArtifacts": 0,
+            "operatorAudit": 0,
+            "generalDocuments": 4,
+        },
+        "taskSelector": {"mode": "latest"},
+        "sources": {
+            "taskRoots": [],
+            "logRoots": [],
+            "buildJobRoots": [],
+            "verifyResultRoots": [],
+            "brokerStatePaths": [],
+            "repositoryRoots": [],
+            "documentPaths": [],
+        },
+    }
+
+    policy = cli._runtime_profile_to_snapshot_policy(profile)
+    assert policy["sources"]["repositoryRoots"][0]["name"] == "organization-repo"
+    assert policy["sources"]["documentPaths"][0]["title"] == "Organization Handbook"
+
+
+def test_steel_mission_follow_up_steers_active_job_and_persists_event(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     job_id = "JOB-follow-up"
@@ -6521,7 +6707,7 @@ def test_closed_claw_follow_up_steers_active_job_and_persists_event(tmp_path):
             assert job["restartRequested"] is True
             assert job["steeringRevision"] == 1
             assert job["followUps"][0]["content"] == "Narrow this to acceptance blockers only."
-        persisted = json.loads((common.TASKS_DIR / task_id / "closed-claw-steering-events.json").read_text())
+        persisted = json.loads((common.TASKS_DIR / task_id / "steel-mission-steering-events.json").read_text())
         assert persisted["taskId"] == task_id
         assert persisted["events"][0]["revision"] == 1
 
@@ -6544,9 +6730,9 @@ def test_closed_claw_follow_up_steers_active_job_and_persists_event(tmp_path):
         purge_task(task_id)
 
 
-def test_closed_claw_follow_up_intents_handle_status_and_cancellation(monkeypatch):
+def test_steel_mission_follow_up_intents_handle_status_and_cancellation(monkeypatch):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     task_id = "DEV-900025"
@@ -6666,9 +6852,9 @@ def test_closed_claw_follow_up_intents_handle_status_and_cancellation(monkeypatc
         purge_task(task_id)
 
 
-def test_closed_claw_decision_request_exposes_options_default_and_free_text():
+def test_steel_mission_decision_request_exposes_options_default_and_free_text():
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     task_id = "DEV-900026"
@@ -6727,7 +6913,7 @@ def test_closed_claw_decision_request_exposes_options_default_and_free_text():
             assert "decisionRequest" not in job
             assert job["restartRequested"] is True
             assert job["steeringRevision"] == 2
-        persisted = json.loads((common.TASKS_DIR / task_id / "closed-claw-steering-events.json").read_text())
+        persisted = json.loads((common.TASKS_DIR / task_id / "steel-mission-steering-events.json").read_text())
         assert persisted["events"][0]["selectedOptionId"] == "rerun-verify"
     finally:
         with lock:
@@ -6735,9 +6921,9 @@ def test_closed_claw_decision_request_exposes_options_default_and_free_text():
         purge_task(task_id)
 
 
-def test_closed_claw_follow_up_can_invoke_demo_decision_request():
+def test_steel_mission_follow_up_can_invoke_demo_decision_request():
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     task_id = "DEV-900027"
@@ -6774,9 +6960,9 @@ def test_closed_claw_follow_up_can_invoke_demo_decision_request():
         purge_task(task_id)
 
 
-def test_closed_claw_initial_question_can_open_decision_panel_without_racing_mock_job():
+def test_steel_mission_initial_question_can_open_decision_panel_without_racing_mock_job():
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     job_id = chat["start_job"]("ask me to decide", [], True)
@@ -6801,9 +6987,9 @@ def test_closed_claw_initial_question_can_open_decision_panel_without_racing_moc
             purge_task(task_id)
 
 
-def test_closed_claw_mission_control_persists_records_and_audit(tmp_path):
+def test_steel_mission_mission_control_persists_records_and_audit(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -6844,9 +7030,9 @@ def test_closed_claw_mission_control_persists_records_and_audit(tmp_path):
             purge_task(task_id)
 
 
-def test_closed_claw_mission_evidence_and_audit_are_signed_in_one_chain(tmp_path):
+def test_steel_mission_mission_evidence_and_audit_are_signed_in_one_chain(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["mission_dir"].__globals__
     original_root = globals_["MISSION_ROOT"]
     globals_["MISSION_ROOT"] = tmp_path / "missions"
@@ -6856,7 +7042,7 @@ def test_closed_claw_mission_evidence_and_audit_are_signed_in_one_chain(tmp_path
             mission_id,
             jobId="JOB-signed",
             taskId="DEV-900030",
-            producer="closed-claw-chat mission-control",
+            producer="steel-mission-chat mission-control",
             state="running",
             operatorRole="admin",
             profile="dc13.local",
@@ -6893,9 +7079,9 @@ def test_closed_claw_mission_evidence_and_audit_are_signed_in_one_chain(tmp_path
         globals_["MISSION_ROOT"] = original_root
 
 
-def test_closed_claw_orchestrated_mission_runs_template_and_records_evidence(tmp_path):
+def test_steel_mission_orchestrated_mission_runs_template_and_records_evidence(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -6985,9 +7171,9 @@ def test_closed_claw_orchestrated_mission_runs_template_and_records_evidence(tmp
             purge_task(task_id)
 
 
-def test_closed_claw_orchestrated_mission_waits_for_approval_and_resumes(tmp_path):
+def test_steel_mission_orchestrated_mission_waits_for_approval_and_resumes(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -7058,9 +7244,9 @@ def test_closed_claw_orchestrated_mission_waits_for_approval_and_resumes(tmp_pat
             purge_task(task_id)
 
 
-def test_closed_claw_approval_request_emits_configured_connector_evidence(tmp_path):
+def test_steel_mission_approval_request_emits_configured_connector_evidence(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -7120,9 +7306,9 @@ def test_closed_claw_approval_request_emits_configured_connector_evidence(tmp_pa
             purge_task(task_id)
 
 
-def test_closed_claw_delivery_execution_mission_records_lifecycle_evidence(tmp_path):
+def test_steel_mission_delivery_execution_mission_records_lifecycle_evidence(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -7150,11 +7336,11 @@ def test_closed_claw_delivery_execution_mission_records_lifecycle_evidence(tmp_p
             domain_capability_keys=["DC13", "DC03"],
             delivery_context={
                 "repositoryPath": str(WORKER_DIR),
-                "branch": "main",
-                "buildCommand": "python3 -m py_compile closed-claw-chat/server.py",
+                "branch": current_git_branch(),
+                "buildCommand": "python3 -m py_compile steel-mission-chat/server.py",
                 "testCommand": "pytest -q tests/test_worker.py",
                 "inspectCommand": "curl -fsS http://127.0.0.1:8765/api/health",
-                "prTarget": "northstar-forge/closed-claw-demo",
+                "prTarget": "northstar-forge/steel-mission-demo",
                 "deployTarget": "local alpha",
                 "repairBudget": 3,
             },
@@ -7209,9 +7395,9 @@ def test_closed_claw_delivery_execution_mission_records_lifecycle_evidence(tmp_p
             purge_task(task_id)
 
 
-def test_closed_claw_delivery_step_requires_guarded_runner_for_configured_build_command(tmp_path):
+def test_steel_mission_delivery_step_requires_guarded_runner_for_configured_build_command(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -7264,9 +7450,9 @@ def test_closed_claw_delivery_step_requires_guarded_runner_for_configured_build_
     assert (repo / "built.txt").read_text() == "ok"
 
 
-def test_closed_claw_delivery_preflight_blocks_unsafe_command_before_execution(tmp_path):
+def test_steel_mission_delivery_preflight_blocks_unsafe_command_before_execution(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -7299,9 +7485,9 @@ def test_closed_claw_delivery_preflight_blocks_unsafe_command_before_execution(t
     assert not (repo / "should-not-exist").exists()
 
 
-def test_closed_claw_delivery_preflight_requires_approval_for_production_deploy(tmp_path):
+def test_steel_mission_delivery_preflight_requires_approval_for_production_deploy(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -7346,9 +7532,9 @@ def test_closed_claw_delivery_preflight_requires_approval_for_production_deploy(
     assert (repo / "deployed.txt").read_text() == "ok"
 
 
-def test_closed_claw_control_plane_registry_exposes_policy_integrations_and_compliance():
+def test_steel_mission_control_plane_registry_exposes_policy_integrations_and_compliance():
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
 
     policy = chat["control_policy"]()
     registry = chat["integration_registry"]("admin")
@@ -7362,9 +7548,9 @@ def test_closed_claw_control_plane_registry_exposes_policy_integrations_and_comp
     assert set(compliance["standards"]) >= {"SOC 2", "ISO 27001", "ISO 42001"}
 
 
-def test_closed_claw_control_policy_can_be_saved_and_changes_preflight(tmp_path):
+def test_steel_mission_control_policy_can_be_saved_and_changes_preflight(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["control_policy"].__globals__
     original_policy = globals_["CONTROL_POLICY_PATH"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
@@ -7408,9 +7594,9 @@ def test_closed_claw_control_policy_can_be_saved_and_changes_preflight(tmp_path)
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_closed_claw_auth_policy_sessions_and_guarded_execution_are_signed(tmp_path):
+def test_steel_mission_auth_policy_sessions_and_guarded_execution_are_signed(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["auth_policy"].__globals__
     original_auth = globals_["AUTH_POLICY_PATH"]
     original_mission_root = globals_["MISSION_ROOT"]
@@ -7472,13 +7658,13 @@ def test_closed_claw_auth_policy_sessions_and_guarded_execution_are_signed(tmp_p
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_closed_claw_oidc_rs256_session_verification_uses_configured_jwks(tmp_path):
+def test_steel_mission_oidc_rs256_session_verification_uses_configured_jwks(tmp_path):
     import runpy
     from cryptography.hazmat.primitives import hashes as crypto_hashes
     from cryptography.hazmat.primitives.asymmetric import padding as crypto_padding
     from cryptography.hazmat.primitives.asymmetric import rsa as crypto_rsa
 
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["auth_policy"].__globals__
     original_auth = globals_["AUTH_POLICY_PATH"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
@@ -7533,9 +7719,9 @@ def test_closed_claw_oidc_rs256_session_verification_uses_configured_jwks(tmp_pa
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_closed_claw_external_kms_signer_is_used_for_mission_integrity(tmp_path):
+def test_steel_mission_external_kms_signer_is_used_for_mission_integrity(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["auth_policy"].__globals__
     original_root = globals_["MISSION_ROOT"]
     original_auth = globals_["AUTH_POLICY_PATH"]
@@ -7558,7 +7744,7 @@ def test_closed_claw_external_kms_signer_is_used_for_mission_integrity(tmp_path)
             mission_id,
             jobId="JOB-kms",
             taskId="DEV-900031",
-            producer="closed-claw-chat mission-control",
+            producer="steel-mission-chat mission-control",
             state="running",
             operatorRole="admin",
             profile="dc13.local",
@@ -7587,9 +7773,9 @@ def test_closed_claw_external_kms_signer_is_used_for_mission_integrity(tmp_path)
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_closed_claw_required_external_signer_fails_closed(tmp_path):
+def test_steel_mission_required_external_signer_fails_closed(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["auth_policy"].__globals__
     original_root = globals_["MISSION_ROOT"]
     original_auth = globals_["AUTH_POLICY_PATH"]
@@ -7612,7 +7798,7 @@ def test_closed_claw_required_external_signer_fails_closed(tmp_path):
             mission_id,
             jobId="JOB-kms-required",
             taskId="DEV-900032",
-            producer="closed-claw-chat mission-control",
+            producer="steel-mission-chat mission-control",
             state="running",
             operatorRole="admin",
             profile="dc13.local",
@@ -7636,9 +7822,9 @@ def test_closed_claw_required_external_signer_fails_closed(tmp_path):
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_closed_claw_control_plane_readiness_meets_alpha_and_production_targets():
+def test_steel_mission_control_plane_readiness_meets_alpha_and_production_targets():
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     payload = chat["control_plane_production_readiness"]("admin")
     assert payload["alphaScore"] >= 95
     assert payload["productionScore"] == 100
@@ -7713,9 +7899,9 @@ def test_present_control_plane_cli_executes_only_with_signed_session(tmp_path):
     assert (repo / "built.txt").read_text() == "ok"
 
 
-def test_closed_claw_connector_runtime_executes_configured_command_and_outbox(tmp_path):
+def test_steel_mission_connector_runtime_executes_configured_command_and_outbox(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["integration_registry"].__globals__
     original_registry = globals_["INTEGRATION_REGISTRY_PATH"]
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
@@ -7761,15 +7947,15 @@ def test_closed_claw_connector_runtime_executes_configured_command_and_outbox(tm
         globals_["MISSION_ROOT"] = original_mission_root
 
 
-def test_closed_claw_github_pr_adapter_builds_native_readiness_without_creating_pr(tmp_path):
+def test_steel_mission_github_pr_adapter_builds_native_readiness_without_creating_pr(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
-    subprocess.run(["git", "remote", "add", "origin", "git@github.com:northstar-forge/closed-claw-demo.git"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:northstar-forge/steel-mission-demo.git"], cwd=repo, check=True)
     (repo / "README.md").write_text("native pr adapter\n")
     subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
@@ -7800,7 +7986,7 @@ def test_closed_claw_github_pr_adapter_builds_native_readiness_without_creating_
     assert payload["ok"] is True
     assert payload["adapter"]["kind"] == "github.pr"
     assert payload["prReadiness"]["provider"] == "github"
-    assert payload["prReadiness"]["githubRepository"] == "northstar-forge/closed-claw-demo"
+    assert payload["prReadiness"]["githubRepository"] == "northstar-forge/steel-mission-demo"
     assert payload["prReadiness"]["github"]["mode"] == "readiness"
     assert payload["prReadiness"]["github"]["commandPreview"][:3] == ["gh", "pr", "create"]
     assert payload["ciReadiness"]["provider"] == "github-actions"
@@ -7808,9 +7994,9 @@ def test_closed_claw_github_pr_adapter_builds_native_readiness_without_creating_
     assert payload["changeSet"]["files"][0]["path"] == "feature.txt"
 
 
-def test_closed_claw_delivery_execution_uses_isolated_worktree_and_proof_pack(tmp_path):
+def test_steel_mission_delivery_execution_uses_isolated_worktree_and_proof_pack(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -7850,7 +8036,7 @@ def test_closed_claw_delivery_execution_uses_isolated_worktree_and_proof_pack(tm
                 "inspectCommand": "python3 -c \"print('inspect ok')\"",
                 "prProvider": "github",
                 "prMode": "readiness",
-                "prTarget": "northstar-forge/closed-claw-demo",
+                "prTarget": "northstar-forge/steel-mission-demo",
                 "prTitle": "Isolated delivery proof",
                 "ciProvider": "github-actions",
                 "ciRequired": False,
@@ -7931,9 +8117,9 @@ def test_closed_claw_delivery_execution_uses_isolated_worktree_and_proof_pack(tm
             purge_task(task_id)
 
 
-def test_closed_claw_delivery_closure_proofs_work_in_two_consecutive_runs(tmp_path):
+def test_steel_mission_delivery_closure_proofs_work_in_two_consecutive_runs(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -7971,7 +8157,7 @@ def test_closed_claw_delivery_closure_proofs_work_in_two_consecutive_runs(tmp_pa
                 "buildCommand": f"python3 -c \"from pathlib import Path; Path('{build_file}').write_text('ok')\"",
                 "testCommand": f"python3 -c \"from pathlib import Path; assert Path('{build_file}').read_text() == 'ok'\"",
                 "inspectCommand": "python3 -c \"print('inspect ok')\"",
-                "prTarget": "northstar-forge/closed-claw-demo",
+                "prTarget": "northstar-forge/steel-mission-demo",
                 "deployTarget": "local alpha",
                 "repairBudget": 1,
             },
@@ -8003,7 +8189,7 @@ def test_closed_claw_delivery_closure_proofs_work_in_two_consecutive_runs(tmp_pa
         assert proof["proof"]["payload"]["closureGate"]["status"] == "ready_for_deploy"
         assert proof["proof"]["payload"]["missionId"] == mission_id
         assert proof["proof"]["payload"]["adapterManifest"]
-        assert proof["proof"]["payload"]["prReadiness"]["target"] == "northstar-forge/closed-claw-demo"
+        assert proof["proof"]["payload"]["prReadiness"]["target"] == "northstar-forge/steel-mission-demo"
         report = chat["mission_report_markdown"](mission_id, "publisher")
         assert report["ok"] is True
         assert "Agentic Software Delivery Proof" in report["markdown"]
@@ -8034,9 +8220,9 @@ def test_closed_claw_delivery_closure_proofs_work_in_two_consecutive_runs(tmp_pa
             purge_task(task_id)
 
 
-def test_closed_claw_delivery_repair_budget_reruns_failed_build(tmp_path):
+def test_steel_mission_delivery_repair_budget_reruns_failed_build(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     jobs = chat["JOBS"]
     lock = chat["JOBS_LOCK"]
     globals_ = chat["mission_dir"].__globals__
@@ -8072,7 +8258,7 @@ def test_closed_claw_delivery_repair_budget_reruns_failed_build(tmp_path):
                 "testCommand": "python3 -c \"from pathlib import Path; assert Path('fixed.txt').read_text() == 'yes'\"",
                 "inspectCommand": "python3 -c \"print('inspect ok')\"",
                 "repairCommand": "python3 -c \"from pathlib import Path; Path('fixed.txt').write_text('yes')\"",
-                "prTarget": "northstar-forge/closed-claw-demo",
+                "prTarget": "northstar-forge/steel-mission-demo",
                 "deployTarget": "local alpha",
                 "repairBudget": 1,
             },
@@ -8110,9 +8296,9 @@ def test_closed_claw_delivery_repair_budget_reruns_failed_build(tmp_path):
             purge_task(task_id)
 
 
-def test_closed_claw_mutation_ledger_records_config_changes(tmp_path):
+def test_steel_mission_mutation_ledger_records_config_changes(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["mutation_ledger_path"].__globals__
     original_ledger = globals_["MUTATION_LEDGER_PATH"]
     globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
@@ -8135,9 +8321,9 @@ def test_closed_claw_mutation_ledger_records_config_changes(tmp_path):
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_closed_claw_startup_supervisor_marks_running_orchestrated_mission_resumable(tmp_path):
+def test_steel_mission_startup_supervisor_marks_running_orchestrated_mission_resumable(tmp_path):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["mission_dir"].__globals__
     original_root = globals_["MISSION_ROOT"]
     globals_["MISSION_ROOT"] = tmp_path / "missions"
@@ -8163,7 +8349,7 @@ def test_closed_claw_startup_supervisor_marks_running_orchestrated_mission_resum
                 "sourceCounts": {"missionRoots": 1},
             },
             nodes=[{
-                "nodeId": "closed-claw-readout",
+                "nodeId": "steel-mission-readout",
                 "title": "Delivery Coordinator readout",
                 "kind": "coordination-report",
                 "capability": "dc13.coordination-report",
@@ -8197,7 +8383,7 @@ def test_coordinator_state_snapshot_includes_mission_control_audit(tmp_path):
         "missionId": mission_id,
         "jobId": "JOB-mission",
         "taskId": task_id,
-        "producer": "closed-claw-chat mission-control",
+        "producer": "steel-mission-chat mission-control",
         "createdAt": common.utc_now(),
         "updatedAt": common.utc_now(),
         "state": "running",
@@ -8294,9 +8480,9 @@ def test_coordinator_state_snapshot_includes_mission_control_audit(tmp_path):
         "tasks", "advisoryTasks", "buildJobs", "verifyResults", "distributedWorkflows", "generalDocuments"}
 
 
-def test_closed_claw_final_answer_renders_as_copyable_plain_text():
+def test_steel_mission_final_answer_renders_as_copyable_plain_text():
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     report = {
         "summary": "The broker hardening slice is implemented.",
         "packIdentity": {"probe": "ok", "corpusGeneration": "test"},
@@ -8314,8 +8500,8 @@ def test_closed_claw_final_answer_renders_as_copyable_plain_text():
         "jobNarratives": [{
             "summary": "DEV-900143: 4 recorded steps, status SUCCEEDED.",
             "plainText": "\n".join([
-                "1. The control plain admitted workflow wf-ops for task DEV-900143.",
-                "2. The control plain placed node plan on worker macbook-local:ops.",
+                "1. The control plane admitted workflow wf-ops for task DEV-900143.",
+                "2. The control plane placed node plan on worker macbook-local:ops.",
                 "3. Worker macbook-local:ops ran node verify and reported SUCCEEDED.",
                 "4. Deterministic acceptance finished with decision PASS: evidence accepted.",
             ]),
@@ -8347,7 +8533,7 @@ def test_closed_claw_final_answer_renders_as_copyable_plain_text():
     assert "- Broker state [VERIFIED]. The query API returns workflow status. Source: broker-state.json." in text
     assert "- Cloud credentials: not configured" in text
     assert "What happened in the background:" in text
-    assert "The control plain placed node plan on worker macbook-local:ops." in text
+    assert "The control plane placed node plan on worker macbook-local:ops." in text
     assert "Deterministic acceptance finished with decision PASS" in text
     assert "Acceptance status:" in text
     assert "rerun the workflow without --mock" in text
@@ -8364,7 +8550,7 @@ def test_closed_claw_final_answer_renders_as_copyable_plain_text():
     assert '<section class="panel">' not in html
     assert "The broker hardening slice is implemented." in html
     assert "What happened in the background:" in html
-    assert "The control plain placed node plan on worker macbook-local:ops." in html
+    assert "The control plane placed node plan on worker macbook-local:ops." in html
     assert "Acceptance status:" in html
     assert "Follow-up updates:" in html
 
@@ -8372,7 +8558,7 @@ def test_closed_claw_final_answer_renders_as_copyable_plain_text():
 def test_chat_api_payload_includes_live_progress():
     """The JS chat poller should see the same progress as the HTML job page."""
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["job_api_payload"].__globals__
     original = globals_["read_progress"]
     original_narratives = globals_["broker_narratives"]
@@ -8380,7 +8566,7 @@ def test_chat_api_payload_includes_live_progress():
     narrative = {
         "summary": "DEV-900143: 2 live recorded steps, status DISTRIBUTED_RUNNING.",
         "plainText": "\n".join([
-            "1. The control plain dispatched node plan to worker macbook-local:ops.",
+            "1. The control plane dispatched node plan to worker macbook-local:ops.",
             "2. Worker macbook-local:ops finished node plan with status SUCCEEDED.",
         ]),
     }
@@ -8420,7 +8606,7 @@ def test_chat_api_payload_includes_live_progress():
             "state": "running", "taskId": "DEV-900022", "startedEpoch": time.time() - 20,
         })
         assert "What Is Happening In The Background" in html
-        assert "The control plain dispatched node plan" in html
+        assert "The control plane dispatched node plan" in html
         assert "Acceptance Status" in html
         assert "rerun without --mock" in html
     finally:
@@ -8429,9 +8615,9 @@ def test_chat_api_payload_includes_live_progress():
         globals_["broker_acceptance_diagnostics"] = original_diagnostics
 
 
-def test_closed_claw_chat_routes_coordinator_report_to_configured_role(monkeypatch):
+def test_steel_mission_chat_routes_coordinator_report_to_configured_role(monkeypatch):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     captured: dict = {}
 
     class FakeProcess:
@@ -8521,9 +8707,9 @@ def test_closed_claw_chat_routes_coordinator_report_to_configured_role(monkeypat
     assert captured["bundle"]["contract"]["snapshotPolicy"]["sourceProfile"] == "worker-local-glimmer-fallback"
 
 
-def test_closed_claw_health_summary_reports_configured_glimmer_model(monkeypatch):
+def test_steel_mission_health_summary_reports_configured_glimmer_model(monkeypatch):
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
 
     def fake_run(cmd, **kwargs):
         class FakeCompleted:
@@ -8627,10 +8813,10 @@ def test_failed_probe_report_is_canonical_and_makes_no_model_call():
     assert schema_check.validate(report, "canonical/coordination-report-v1.json") == []
 
 
-def test_closed_claw_request_uses_the_command_free_authority_contract():
+def test_steel_mission_request_uses_the_command_free_authority_contract():
     """`task-contract-v1` is frozen; command-free requests use the additive one."""
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     model_policy = {
         "schemaVersion": 1,
         "role": "dc13.coordination-report",
@@ -8698,9 +8884,9 @@ def test_closed_claw_request_uses_the_command_free_authority_contract():
             raise AssertionError(f"{verb} must not accept the advisory request contract")
 
 
-def test_closed_claw_request_snapshot_policy_rejects_unknown_sources():
+def test_steel_mission_request_snapshot_policy_rejects_unknown_sources():
     import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "closed-claw-chat" / "server.py"))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     contract = chat["build_bundle"]("DEV-900033", "Where are we?", {
         "schemaVersion": 1,
         "includeCollections": ["tasks", "gmail"],

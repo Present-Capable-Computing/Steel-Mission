@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "taskId": "DEV-000089",
   "producedAt": "2026-08-17T19:15:00Z",
-  "producer": "closed-claw-chat-local",
+  "producer": "steel-mission-chat-local",
   "provenance": {
     "source": "worker-local-advisory-client"
   },

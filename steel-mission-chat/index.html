@@ -1231,7 +1231,7 @@
           <span class="gauge-circle middle"></span>
           <span class="gauge-circle inner"></span>
         </div>
-        <div class="product-line">Closed-Claw Agentic Delivery Plain</div>
+        <div class="product-line">Steel Mission Agent Delivery Plane</div>
         <div class="version-line">Alpha control surface</div>
       </div>
       <p class="sub">Delivery Coordinator keeps the working view focused on status, reconciliation, missions, and decisions.</p>
@@ -1282,6 +1282,7 @@
             <nav id="profileList" class="profile-list"></nav>
             <section class="manager-panel">
               <div id="managerMessage" class="manager-message"></div>
+              <section id="organizationPanel" class="knowledge-panel settings-section" data-settings-section="organizations"></section>
               <section id="userPanel" class="assignment-panel settings-section" data-settings-section="people"></section>
               <section id="assignmentPanel" class="assignment-panel settings-section" data-settings-section="people"></section>
               <section id="missionSettingsPanel" class="knowledge-panel settings-section" data-settings-section="missions">
@@ -1347,6 +1348,7 @@
     const closeProfiles = document.querySelector("#closeProfiles");
     const profileList = document.querySelector("#profileList");
     const profileEditor = document.querySelector("#profileEditor");
+    const organizationPanel = document.querySelector("#organizationPanel");
     const roleAdmin = document.querySelector("#roleAdmin");
     const knowledgePanel = document.querySelector("#knowledgePanel");
     const assignmentPanel = document.querySelector("#assignmentPanel");
@@ -1365,21 +1367,22 @@
     const missionTemplateSelect = document.querySelector("#missionTemplateSelect");
     const missionObjective = document.querySelector("#missionObjective");
     const missionBindingPanel = document.querySelector("#missionBindingPanel");
-    const storageKey = "closed-claw-chat-messages-v1";
-    const workModeKey = "closed-claw-work-mode";
+    const storageKey = "steel-mission-chat-messages-v1";
+    const workModeKey = "steel-mission-work-mode";
     let messages = JSON.parse(localStorage.getItem(storageKey) || "[]");
     let busy = false;
     let activeJobId = null;
     let activeWorkMode = localStorage.getItem(workModeKey) === "normal" ? "normal" : "domain-capabilities";
-    let activeProfile = localStorage.getItem("closed-claw-runtime-profile") || "";
-    let activeOperatorRole = localStorage.getItem("closed-claw-operator-role") || "user";
-    let activeActorUserId = localStorage.getItem("closed-claw-actor-user") || "local-user";
-    let activeSettingsSection = localStorage.getItem("closed-claw-settings-section") || "knowledge";
+    let activeProfile = localStorage.getItem("steel-mission-runtime-profile") || "";
+    let activeOperatorRole = localStorage.getItem("steel-mission-operator-role") || "user";
+    let activeActorUserId = localStorage.getItem("steel-mission-actor-user") || "local-user";
+    let activeSettingsSection = localStorage.getItem("steel-mission-settings-section") || "knowledge";
     let runtimeRegistry = {profiles: []};
     let modelRoleRegistry = {models: [], roles: []};
     let knowledgeRegistry = {foundations: [], roles: []};
     let userRegistry = {users: []};
     let organizationWorkspace = {visibleRoles: [], assignments: [], foundations: []};
+    let organizationRegistry = {activeOrganizationId: "", organizations: []};
     let missionRegistry = {missions: []};
     let missionTemplates = {templates: []};
     let mutationLedger = {mutations: []};
@@ -1390,6 +1393,7 @@
     let selectedKnowledgeRole = "DC13";
     let selectedManagerProfile = "";
     let selectedManagedUser = "";
+    let selectedOrganizationId = "";
 
     const starterPrompts = {
       normal: [
@@ -1471,7 +1475,7 @@
 
     function currentActorUserId() {
       activeActorUserId = actorUserId ? actorUserId.value.trim() || activeOperatorRole : activeActorUserId || activeOperatorRole;
-      localStorage.setItem("closed-claw-actor-user", activeActorUserId);
+      localStorage.setItem("steel-mission-actor-user", activeActorUserId);
       return activeActorUserId;
     }
 
@@ -1543,7 +1547,7 @@
         const data = await response.json();
         if (response.ok && data.ok) knowledgeRegistry = data;
       } catch {
-        knowledgeRegistry = {foundations: [], roles: [], generalKnowledge: {repositories: [], documents: []}};
+        knowledgeRegistry = {foundations: [], roles: [], generalKnowledge: {repositories: [], documents: []}, effectiveKnowledge: {repositories: [], documents: []}};
       }
     }
 
@@ -1551,11 +1555,30 @@
       try {
         const response = await fetch(new URL(`/api/${activeOperatorRole}/workspace`, window.location.href), {cache: "no-store"});
         const data = await response.json();
-        if (response.ok && data.ok) organizationWorkspace = data;
+        if (response.ok && data.ok) {
+          organizationWorkspace = data;
+          if (data.organizationRegistry) organizationRegistry = data.organizationRegistry;
+          if (!selectedOrganizationId && data.activeOrganization) selectedOrganizationId = data.activeOrganization.id || "";
+        }
       } catch {
         organizationWorkspace = {visibleRoles: [], assignments: [], foundations: []};
       }
       renderEndpointShell();
+    }
+
+    async function loadOrganizations() {
+      try {
+        const response = await fetch(new URL(`/api/${activeOperatorRole}/organizations`, window.location.href), {cache: "no-store"});
+        const data = await response.json();
+        if (response.ok && data.ok && data.payload) {
+          organizationRegistry = data.payload;
+          selectedOrganizationId = organizationRegistry.activeOrganizationId || selectedOrganizationId;
+          organizationWorkspace.activeOrganization = data.activeOrganization || organizationWorkspace.activeOrganization;
+          organizationWorkspace.canManageOrganizations = Boolean(data.canManageOrganizations);
+        }
+      } catch {
+        organizationRegistry = {activeOrganizationId: "", organizations: []};
+      }
     }
 
     async function loadUsers() {
@@ -1687,11 +1710,14 @@
     function renderEndpointShell() {
       if (!workspaceSummary) return;
       const roles = Array.isArray(organizationWorkspace.visibleRoles) ? organizationWorkspace.visibleRoles : [];
+      const organization = organizationWorkspace.activeOrganization || {};
+      const identifiers = organization.identifiers || {};
       const label = activeOperatorRole === "owner" ? "Owner" : activeOperatorRole === "admin" ? "Admin" : activeOperatorRole === "publisher" ? "Publisher" : "User";
       workspaceSummary.innerHTML = `
         <div class="broker-mini">
           <strong>${escapeHtml(label)} Endpoint</strong>
-          <p>${roles.length} capabilit${roles.length === 1 ? "y" : "ies"} visible · ${organizationWorkspace.canAssign ? "knowledge and capability control" : organizationWorkspace.canPublish ? "publishing workspace" : "use workspace"}</p>
+          <p>${escapeHtml(organization.name || "Organization not selected")} · ${escapeHtml(identifiers.environment || "environment")} · ${roles.length} capabilit${roles.length === 1 ? "y" : "ies"} visible</p>
+          <p>${organizationWorkspace.canAssign ? "organization, knowledge, and capability control" : organizationWorkspace.canPublish ? "publishing workspace" : "use workspace"}</p>
         </div>`;
     }
 
@@ -1700,12 +1726,13 @@
       activeOperatorRole = organizationRole(activeOperatorRole);
       if (operatorRole) operatorRole.value = activeOperatorRole;
       if (actorUserId) actorUserId.value = activeActorUserId || activeOperatorRole;
-      localStorage.setItem("closed-claw-operator-role", activeOperatorRole);
-      localStorage.setItem("closed-claw-actor-user", activeActorUserId || activeOperatorRole);
+      localStorage.setItem("steel-mission-operator-role", activeOperatorRole);
+      localStorage.setItem("steel-mission-actor-user", activeActorUserId || activeOperatorRole);
       setManagerMessage("");
       await loadRuntimeProfiles();
       await loadKnowledgeRegistry();
       await loadOrganizationWorkspace();
+      await loadOrganizations();
       await loadUsers();
       await loadMutations();
       await loadIntegrations();
@@ -1782,8 +1809,9 @@
         {id: "profiles", label: "Runtime Profiles", hint: "Snapshot policy and model binding"}
       ];
       if (["owner", "admin"].includes(activeOperatorRole)) {
-        sections.unshift({id: "people", label: "Users", hint: "Create users and capability access"});
-        sections.splice(1, 0, {id: "missions", label: "Missions", hint: "Delivery scope and mission starts"});
+        sections.unshift({id: "organizations", label: "Organizations", hint: "Identity, KB/KD bindings, and DC sets"});
+        sections.splice(1, 0, {id: "people", label: "Users", hint: "Create users and capability access"});
+        sections.splice(2, 0, {id: "missions", label: "Missions", hint: "Delivery scope and mission starts"});
         sections.push({id: "integrations", label: "Control Plane", hint: "Policy, evidence, and integrations"});
         sections.push({id: "models", label: "Model Roles", hint: "Provider and role registry"});
         sections.push({id: "audit", label: "Audit", hint: "Configuration mutations"});
@@ -1799,7 +1827,7 @@
       if (!sections.some(section => section.id === activeSettingsSection)) {
         activeSettingsSection = sections[0]?.id || "knowledge";
       }
-      localStorage.setItem("closed-claw-settings-section", activeSettingsSection);
+      localStorage.setItem("steel-mission-settings-section", activeSettingsSection);
       return sections;
     }
 
@@ -1836,7 +1864,7 @@
       profileList.querySelectorAll("[data-settings-target]").forEach(button => {
         button.addEventListener("click", () => {
           activeSettingsSection = button.getAttribute("data-settings-target") || activeSettingsSection;
-          localStorage.setItem("closed-claw-settings-section", activeSettingsSection);
+          localStorage.setItem("steel-mission-settings-section", activeSettingsSection);
           renderProfileManager();
         });
       });
@@ -2073,6 +2101,183 @@
       }
     }
 
+    function allKnowledgeDomains() {
+      return Array.isArray(knowledgeRegistry.knowledgeDomains) ? knowledgeRegistry.knowledgeDomains : Array.isArray(knowledgeRegistry.foundations) ? knowledgeRegistry.foundations : [];
+    }
+
+    function organizations() {
+      return Array.isArray(organizationRegistry.organizations) ? organizationRegistry.organizations : [];
+    }
+
+    function slugValue(value, fallback = "organization") {
+      const text = String(value || "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+      return text.slice(0, 80) || fallback;
+    }
+
+    function organizationTemplate() {
+      const capabilityKeys = allCapabilities().map(item => item.roleKey || item.capabilityKey).filter(Boolean);
+      const domainKeys = allKnowledgeDomains().map(item => item.domainKey || item.role_key).filter(Boolean);
+      return {
+        id: "new-organization",
+        name: "New Organization",
+        slug: "new-organization",
+        identifiers: {
+          legalName: "",
+          domain: "example.test",
+          country: "",
+          environment: "starter",
+          dataClassification: "internal"
+        },
+        knowledgeDomainKeys: domainKeys,
+        domainCapabilityKeys: capabilityKeys,
+        knowledgeSources: {repositories: [], documents: []},
+        notes: ""
+      };
+    }
+
+    function currentOrganization() {
+      const items = organizations();
+      if (selectedOrganizationId === "__new__") return organizationTemplate();
+      if (!selectedOrganizationId) selectedOrganizationId = organizationRegistry.activeOrganizationId || (items[0] && items[0].id) || "";
+      return items.find(item => item.id === selectedOrganizationId) || organizationTemplate();
+    }
+
+    function renderKnowledgeDomainChecks(name, domains, selected) {
+      const selectedSet = new Set(Array.isArray(selected) ? selected : []);
+      return `<div class="check-grid">${domains.map(item => {
+        const key = item.domainKey || item.role_key || "";
+        const label = [key, item.displayName || item.display_name].filter(Boolean).join(" · ");
+        return `<label><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(key)}" ${selectedSet.has(key) ? "checked" : ""}> ${escapeHtml(label || key)}</label>`;
+      }).join("")}</div>`;
+    }
+
+    function renderOrganizationManager() {
+      if (!organizationPanel) return;
+      if (!["owner", "admin"].includes(activeOperatorRole)) {
+        organizationPanel.innerHTML = "";
+        return;
+      }
+      const items = organizations();
+      const current = currentOrganization();
+      const existing = items.some(item => item.id === current.id);
+      const identifiers = current.identifiers || {};
+      const sources = current.knowledgeSources || {repositories: [], documents: []};
+      const domains = allKnowledgeDomains();
+      const capabilities = allCapabilities();
+      const activeId = organizationRegistry.activeOrganizationId || current.id || "";
+      organizationPanel.innerHTML = `
+        <h2>Organization Management</h2>
+        <div class="form-hint">Owners/Admins manage the active organization identity, basic identifiers, and the KB/KD plus DC sets available to that organization.</div>
+        <div class="user-management-grid">
+          <div class="user-list">
+            <button id="newOrganization" class="primary" type="button">Create Organization</button>
+            ${items.map(item => `
+              <button type="button" class="user-item ${item.id === current.id ? "active" : ""}" data-organization-id="${escapeHtml(item.id || "")}">
+                <strong>${escapeHtml(item.name || item.id || "organization")}</strong>
+                <span>${escapeHtml(item.id || "")} · ${escapeHtml((item.identifiers || {}).environment || "environment")} · ${(item.domainCapabilityKeys || []).length} DCs</span>
+              </button>
+            `).join("")}
+          </div>
+          <div class="source-list">
+            <label class="form-field">Active Organization
+              <select id="activeOrganizationId">
+                ${items.map(item => `<option value="${escapeHtml(item.id || "")}" ${item.id === activeId ? "selected" : ""}>${escapeHtml(item.name || item.id || "organization")}</option>`).join("")}
+                ${existing ? "" : `<option value="${escapeHtml(current.id)}" selected>${escapeHtml(current.name || current.id)}</option>`}
+              </select>
+            </label>
+            <h3>Basic Organizational Identifiers</h3>
+            <div class="manager-grid">
+              <label class="form-field">Organization ID <input id="organizationId" value="${escapeHtml(current.id || "")}" ${existing ? "readonly" : ""}></label>
+              <label class="form-field">Display Name <input id="organizationName" value="${escapeHtml(current.name || "")}"></label>
+              <label class="form-field">Slug <input id="organizationSlug" value="${escapeHtml(current.slug || "")}"></label>
+              <label class="form-field">Legal Name <input id="organizationLegalName" value="${escapeHtml(identifiers.legalName || "")}"></label>
+              <label class="form-field">Primary Domain <input id="organizationDomain" value="${escapeHtml(identifiers.domain || "")}"></label>
+              <label class="form-field">Country <input id="organizationCountry" value="${escapeHtml(identifiers.country || "")}"></label>
+              <label class="form-field">Environment <input id="organizationEnvironment" value="${escapeHtml(identifiers.environment || "")}"></label>
+              <label class="form-field">Data Classification <input id="organizationDataClassification" value="${escapeHtml(identifiers.dataClassification || "")}"></label>
+            </div>
+            <label class="form-field">Notes <textarea id="organizationNotes">${escapeHtml(current.notes || "")}</textarea></label>
+            <label class="form-field">Knowledge Bases / Domains ${renderKnowledgeDomainChecks("organizationKnowledgeDomains", domains, current.knowledgeDomainKeys)}</label>
+            <label class="form-field">Domain Capabilities ${renderCapabilityChecks("organizationDomainCapabilities", capabilities, current.domainCapabilityKeys)}</label>
+            <div class="manager-grid">
+              <label class="form-field">Organization Repositories And Folders <textarea id="organizationRepositories">${escapeHtml(repositoryLines(sources.repositories || []))}</textarea><span class="form-hint">One name=path per line. These are added to active organization snapshots.</span></label>
+              <label class="form-field">Organization Documents <textarea id="organizationDocuments">${escapeHtml(documentLines(sources.documents || []))}</textarea><span class="form-hint">One title=path per line. Use starter documents first, then add customer-owned files.</span></label>
+            </div>
+            <div class="source-row">
+              <strong>Snapshot Bindings</strong>
+              <span>${(current.knowledgeDomainKeys || []).length} KDs · ${(current.domainCapabilityKeys || []).length} DCs · ${(sources.repositories || []).length} repositories/folders · ${(sources.documents || []).length} documents</span>
+            </div>
+            <div class="manager-actions"><button id="saveOrganization" class="primary" type="button">Save Organization</button></div>
+          </div>
+        </div>`;
+      organizationPanel.querySelector("#newOrganization").addEventListener("click", () => {
+        selectedOrganizationId = "__new__";
+        renderOrganizationManager();
+      });
+      organizationPanel.querySelectorAll("[data-organization-id]").forEach(button => {
+        button.addEventListener("click", () => {
+          selectedOrganizationId = button.getAttribute("data-organization-id") || "";
+          renderOrganizationManager();
+        });
+      });
+      const nameInput = organizationPanel.querySelector("#organizationName");
+      const idInput = organizationPanel.querySelector("#organizationId");
+      const slugInput = organizationPanel.querySelector("#organizationSlug");
+      if (nameInput && idInput && slugInput && !existing) {
+        nameInput.addEventListener("input", () => {
+          idInput.value = slugValue(nameInput.value);
+          slugInput.value = slugValue(nameInput.value);
+        });
+      }
+      organizationPanel.querySelector("#saveOrganization").addEventListener("click", saveOrganization);
+    }
+
+    function readOrganizationForm() {
+      return {
+        id: slugValue(document.querySelector("#organizationId")?.value || document.querySelector("#organizationName")?.value || "organization"),
+        name: formValue("#organizationName") || "Organization",
+        slug: slugValue(document.querySelector("#organizationSlug")?.value || document.querySelector("#organizationName")?.value || "organization"),
+        identifiers: {
+          legalName: formValue("#organizationLegalName"),
+          domain: formValue("#organizationDomain"),
+          country: formValue("#organizationCountry"),
+          environment: formValue("#organizationEnvironment") || "starter",
+          dataClassification: formValue("#organizationDataClassification") || "internal"
+        },
+        knowledgeDomainKeys: checkedValues("organizationKnowledgeDomains"),
+        domainCapabilityKeys: checkedValues("organizationDomainCapabilities"),
+        knowledgeSources: {
+          repositories: parseRepositoryLines(document.querySelector("#organizationRepositories")?.value || ""),
+          documents: parseDocumentLines(document.querySelector("#organizationDocuments")?.value || "")
+        },
+        notes: document.querySelector("#organizationNotes")?.value.trim() || ""
+      };
+    }
+
+    async function saveOrganization() {
+      try {
+        const next = readOrganizationForm();
+        const items = [...organizations()];
+        const index = items.findIndex(item => item.id === next.id);
+        if (index >= 0) items[index] = next;
+        else items.push(next);
+        const activeId = document.querySelector("#activeOrganizationId")?.value || next.id;
+        const payload = await postJson(`/api/${activeOperatorRole}/organizations`, {
+          activeOrganizationId: items.some(item => item.id === activeId) ? activeId : next.id,
+          organizations: items
+        });
+        organizationRegistry = payload;
+        selectedOrganizationId = next.id;
+        await loadKnowledgeRegistry();
+        await loadOrganizationWorkspace();
+        await loadMutations();
+        setManagerMessage("Organization saved.", "good");
+        renderProfileManager();
+      } catch (error) {
+        setManagerMessage(error.message, "bad");
+      }
+    }
+
     function renderAssignmentPanel() {
       if (!assignmentPanel) return;
       const visible = Array.isArray(organizationWorkspace.visibleRoles) ? organizationWorkspace.visibleRoles : [];
@@ -2206,8 +2411,12 @@
       const roles = Array.isArray(knowledgeRegistry.capabilities) ? knowledgeRegistry.capabilities : Array.isArray(knowledgeRegistry.roles) ? knowledgeRegistry.roles : [];
       const foundations = Array.isArray(knowledgeRegistry.knowledgeDomains) ? knowledgeRegistry.knowledgeDomains : Array.isArray(knowledgeRegistry.foundations) ? knowledgeRegistry.foundations : [];
       const general = knowledgeRegistry.generalKnowledge || {repositories: [], documents: []};
-      const repositories = Array.isArray(general.repositories) ? general.repositories : [];
-      const documents = Array.isArray(general.documents) ? general.documents : [];
+      const effective = knowledgeRegistry.effectiveKnowledge || general;
+      const repositories = Array.isArray(effective.repositories) ? effective.repositories : [];
+      const documents = Array.isArray(effective.documents) ? effective.documents : [];
+      const sharedRepositories = Array.isArray(general.repositories) ? general.repositories : [];
+      const sharedDocuments = Array.isArray(general.documents) ? general.documents : [];
+      const organization = knowledgeRegistry.activeOrganization || organizationWorkspace.activeOrganization || {};
       const canManageKnowledge = knowledgeRegistry.canManageGeneralKnowledge || activeOperatorRole === "owner" || activeOperatorRole === "admin";
       if (!roles.length && !foundations.length && !repositories.length && !documents.length && !canManageKnowledge) {
         knowledgePanel.innerHTML = `<h2>Knowledge System</h2><div class="form-hint">Canon knowledge registry unavailable.</div>`;
@@ -2223,11 +2432,11 @@
       const organizationKnowledge = canManageKnowledge ? `
         <div class="source-list">
           <div class="source-row">
-            <strong>Organization Knowledge Sources</strong>
-            <span>Durable repositories, folders, and documents that can be included by snapshot policies.</span>
+            <strong>Shared Knowledge Source Pool</strong>
+            <span>Global fallback sources. Manage organization-specific sources and KD/DC bindings in Organizations.</span>
           </div>
-          <label class="form-field">Repositories And Folders <textarea id="knowledgeRepositories">${escapeHtml(repositoryLines(repositories))}</textarea><span class="form-hint">One name=path per line. Use this for repos and durable folders.</span></label>
-          <label class="form-field">Documents <textarea id="knowledgeDocuments">${escapeHtml(documentLines(documents))}</textarea><span class="form-hint">One title=path per line. PDFs, Markdown, docs exports, specs, and other files are valid organization knowledge.</span></label>
+          <label class="form-field">Repositories And Folders <textarea id="knowledgeRepositories">${escapeHtml(repositoryLines(sharedRepositories))}</textarea><span class="form-hint">One name=path per line. Use this for sources shared across organizations.</span></label>
+          <label class="form-field">Documents <textarea id="knowledgeDocuments">${escapeHtml(documentLines(sharedDocuments))}</textarea><span class="form-hint">One title=path per line. PDFs, Markdown, docs exports, specs, and other files are valid knowledge.</span></label>
           <div class="manager-actions">
             <button id="saveKnowledgeSources" class="primary" type="button">Save Sources</button>
             <button id="previewKnowledgeSnapshot" type="button">Preview Prepared Snapshot</button>
@@ -2250,7 +2459,7 @@
         <h2>${canManageKnowledge ? "Knowledge System" : "Assigned Knowledge System"}</h2>
         <div class="form-hint">${canManageKnowledge ? "KD01-KD03 are organizational document domains. DC01-DC13 are Domain Capabilities: the roles and workflows the organization can assign. Owners/Admins manage durable sources and prepare snapshots; missions and profiles decide which sources become job context." : "Your endpoint can use assigned capabilities and organization knowledge allowed by the active profile. Chat uploads add temporary job context only."}</div>
         <div class="role-row">
-          <div><strong>Source Registry</strong><span>${repositories.length} repositories/folders · ${documents.length} documents · ${sourceRows.filter(item => item.exists).length} available</span></div>
+          <div><strong>Effective Source Registry</strong><span>${escapeHtml(organization.name || "active organization")} · ${repositories.length} repositories/folders · ${documents.length} documents · ${sourceRows.filter(item => item.exists).length} available</span></div>
         </div>
         ${organizationKnowledge}
         <div class="knowledge-layout">
@@ -2321,10 +2530,12 @@
         const payload = await postJson(`/api/${activeOperatorRole}/knowledge/upload`, {
           label,
           sourceKind,
+          organizationId: organizationRegistry.activeOrganizationId || selectedOrganizationId || "",
           profile: activeProfile || "",
           files: uploads
         });
         await loadKnowledgeRegistry();
+        await loadOrganizations();
         await loadMutations();
         await checkMissions();
         const missionId = payload && payload.mission && payload.mission.missionId ? ` Mission ${payload.mission.missionId} started.` : "";
@@ -2615,6 +2826,7 @@
     function renderProfileManager() {
       renderProfileList();
       const profile = selectedProfile();
+      renderOrganizationManager();
       renderUserManager();
       renderAssignmentPanel();
       renderMissionSettings();
@@ -3287,7 +3499,7 @@
         profileSelect.value = profiles.some(profile => profile.id === activeProfile) ? activeProfile : fallback;
         activeProfile = profileSelect.value;
         if (!selectedManagerProfile) selectedManagerProfile = activeProfile;
-        localStorage.setItem("closed-claw-runtime-profile", activeProfile);
+        localStorage.setItem("steel-mission-runtime-profile", activeProfile);
         if (profileDialog && profileDialog.open) renderProfileManager();
       } catch {
         profileSelect.innerHTML = `<option value="${escapeHtml(activeProfile || "dc13.auto")}">${escapeHtml(activeProfile || "dc13.auto")}</option>`;
@@ -3461,7 +3673,7 @@
       profileSelect.addEventListener("change", () => {
         activeProfile = profileSelect.value;
         selectedManagerProfile = activeProfile;
-        localStorage.setItem("closed-claw-runtime-profile", activeProfile);
+        localStorage.setItem("steel-mission-runtime-profile", activeProfile);
         checkServer();
       });
     }
@@ -3475,8 +3687,9 @@
       activeOperatorRole = operatorRole.value;
       operatorRole.addEventListener("change", async () => {
         activeOperatorRole = organizationRole(operatorRole.value);
-        localStorage.setItem("closed-claw-operator-role", activeOperatorRole);
+        localStorage.setItem("steel-mission-operator-role", activeOperatorRole);
         await loadOrganizationWorkspace();
+        await loadOrganizations();
         await loadKnowledgeRegistry();
         await loadUsers();
         await loadMutations();
@@ -3494,7 +3707,7 @@
       actorUserId.value = activeActorUserId || activeOperatorRole;
       actorUserId.addEventListener("change", () => {
         activeActorUserId = actorUserId.value.trim() || activeOperatorRole;
-        localStorage.setItem("closed-claw-actor-user", activeActorUserId);
+        localStorage.setItem("steel-mission-actor-user", activeActorUserId);
       });
     }
 
@@ -3527,6 +3740,7 @@
     loadRuntimeProfiles();
     loadKnowledgeRegistry();
     loadOrganizationWorkspace();
+    loadOrganizations();
     loadIntegrations();
     loadControlPolicy();
     loadAuthPolicy();

@@ -34,4 +34,4 @@ DC04 does not treat philosophical agreement as demand. It does not override secu
 
 ## Starter Scenario
 
-Northstar Forge asks DC04 to define the first buyer for Closed-Claw Community Edition and what must stay Enterprise-only. DC04 turns the licensing posture into product packaging and acceptance criteria.
+Northstar Forge asks DC04 to define the first buyer for Steel Mission Core and what must stay Enterprise-only. DC04 turns the Apache-2.0 core and proprietary Enterprise boundary into product packaging and acceptance criteria.

@@ -1,4 +1,4 @@
-"""Shared helpers for Closed-Claw adapters.
+"""Shared helpers for Steel Mission adapters.
 
 Stdlib only. This tool must keep working even if a venv goes stale, since
 this machine is ephemeral compute -- it can disappear and reappear with no
@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_WORKER_DIR = Path(__file__).resolve().parents[1]
-PRESENT_DEV = Path(os.environ.get("CLOSED_CLAW_DEV") or os.environ.get("PRESENT_DEV", DEFAULT_WORKER_DIR.parent))
-WORKER_DIR = Path(os.environ.get("CLOSED_CLAW_WORKER_DIR") or os.environ.get("PRESENT_WORKER_DIR", DEFAULT_WORKER_DIR))
+PRESENT_DEV = Path(os.environ.get("STEEL_MISSION_DEV") or os.environ.get("PRESENT_DEV", DEFAULT_WORKER_DIR.parent))
+WORKER_DIR = Path(os.environ.get("STEEL_MISSION_WORKER_DIR") or os.environ.get("PRESENT_WORKER_DIR", DEFAULT_WORKER_DIR))
 LOGS_DIR = Path(os.environ.get("PRESENT_LOGS_DIR", WORKER_DIR / "logs"))
 TASKS_DIR = Path(os.environ.get("PRESENT_TASKS_DIR", WORKER_DIR / "tasks"))
 WORKTREES_DIR = Path(os.environ.get("PRESENT_WORKTREES_DIR", WORKER_DIR / "worktrees"))
@@ -28,7 +28,7 @@ REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR", WORKER_DIR / "repos"))
 TEST_RESULTS_DIR = Path(os.environ.get("PRESENT_TEST_RESULTS_DIR", WORKER_DIR / "test-results"))
 JOBS_DIR = Path(os.environ.get("PRESENT_JOBS_DIR", WORKER_DIR / "jobs"))
 
-DEFAULT_REPO = Path(os.environ.get("CLOSED_CLAW_DEFAULT_REPO", WORKER_DIR))
+DEFAULT_REPO = Path(os.environ.get("STEEL_MISSION_DEFAULT_REPO", WORKER_DIR))
 
 SCHEMA_AUTHORITY = "present-control"
 MAX_BUNDLE_BYTES = 1024 * 1024
@@ -60,7 +60,7 @@ WORKFLOW_NODE_STATUSES = {"SUCCEEDED", "WAITING", "FAILED", "BLOCKED"}
 # filters on it cannot drift apart. Identity is the contract's producer, never
 # the task-id range: DEV-999996/999997 are real pipeline tasks carrying verify
 # PASS evidence, and an id-range heuristic would silently evict them.
-ADVISORY_TASK_PRODUCER = "closed-claw-chat-local"
+ADVISORY_TASK_PRODUCER = "steel-mission-chat-local"
 SAFE_PATH = os.pathsep.join(
     str(path)
     for path in (
@@ -368,7 +368,7 @@ def load_requirement(task_id: str) -> str:
 # on 2026-08-16 that produced 325 lines of content authored from a task title.
 REQUIREMENT_PLACEHOLDER_MARKERS = (
     "_Infrastructure task. State the requirement here._",
-    "The control plain never invents requirements.",
+    "The control plane never invents requirements.",
 )
 
 

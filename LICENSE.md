@@ -1,13 +1,41 @@
-# Closed-Claw Community License Notice
+# Steel Mission Licensing
 
 Copyright (c) Andrew Hermann, Switzerland.
 
-Closed-Claw Community Edition is source-available for download, inspection, modification, and internal evaluation.
+## Core Software
 
-Commercial use of Enterprise Edition features requires a separate commercial license. Enterprise Edition features include, without limitation, production SSO/OIDC, customer KMS or external signing custody, compliance evidence packs, SIEM/security-monitoring export, enterprise approval routing, private-cloud deployment templates, and managed integrations.
+The core Steel Mission software in this repository is open source under the Apache License, Version 2.0. See `LICENSE` for the full license text.
 
-The names Closed-Claw, Present, and associated marks are not granted for commercial branding use by access to this repository.
+The Apache-2.0 license applies to the code, schemas, starter synthetic data, and documentation committed to this repository unless a file states otherwise.
 
-Contributions are welcome under the published contribution policy.
+## Enterprise Edition
 
-This notice is a product-release placeholder and should be replaced with a reviewed license before public distribution.
+Steel Mission Enterprise Edition features and services are proprietary and commercially licensed. They are not open source merely because the core repository is open source.
+
+Enterprise features may include, without limitation:
+
+- production SSO/OIDC and enterprise identity integrations;
+- customer KMS, Vault Transit, HSM, or equivalent external signing custody;
+- compliance evidence packs and managed evidence retention;
+- SIEM/security-monitoring export and managed integration connectors;
+- enterprise approval routing and separation-of-duties workflows;
+- private-cloud deployment templates and production hardening services;
+- managed orchestration adapters and hosted operational services.
+
+Enterprise functionality is intended to be gated behind a commercial license key or equivalent entitlement check.
+
+## Naming And Marks
+
+The names Steel Mission, Present, and associated marks are not granted for commercial branding use by access to this repository.
+
+## Contributions
+
+Contributions to the core repository are accepted under the Apache-2.0 contribution terms described in `LICENSE`, unless a separate written agreement says otherwise.
+
+## Plain-Language Boundary
+
+Steel Mission Core is open source under Apache-2.0.
+
+Steel Mission Enterprise Edition is closed-source, proprietary, commercially licensed software and service capability.
+
+Do not describe proprietary Enterprise Edition code or services as open source.

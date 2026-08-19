@@ -71,6 +71,6 @@
     "required": true
   },
   "policyId": "present.delivery-control.ga-boundary",
-  "producer": "closed-claw-chat control-plane",
+  "producer": "steel-mission-chat control-plane",
   "schemaVersion": 1
 }

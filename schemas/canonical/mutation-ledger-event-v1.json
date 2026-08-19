@@ -23,7 +23,7 @@
     "schemaVersion": {"const": 1},
     "mutationId": {"type": "string", "pattern": "^mu-[a-f0-9]{24}$"},
     "producedAt": {"type": "string", "minLength": 1},
-    "producer": {"const": "closed-claw-chat mutation-ledger"},
+    "producer": {"const": "steel-mission-chat mutation-ledger"},
     "actorRole": {"enum": ["owner", "admin", "publisher", "user"]},
     "action": {"type": "string", "minLength": 1},
     "status": {"enum": ["applied", "rejected", "failed"]},

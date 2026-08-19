@@ -24,7 +24,7 @@
     "missionId": {"type": "string", "pattern": "^ms-[a-f0-9]{24}$"},
     "jobId": {"type": "string", "minLength": 1},
     "taskId": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
-    "producer": {"const": "closed-claw-chat mission-control"},
+    "producer": {"const": "steel-mission-chat mission-control"},
     "createdAt": {"type": "string", "minLength": 1},
     "updatedAt": {"type": "string", "minLength": 1},
     "startedAt": {"type": "string", "minLength": 1},

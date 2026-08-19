@@ -36,6 +36,8 @@ RUNTIME_PROFILE_REGISTRY_ENV = "PRESENT_RUNTIME_PROFILE_REGISTRY"
 RUNTIME_PROFILE_REGISTRY_DEFAULT = WORKER_DIR / "config" / "runtime-profiles.json"
 GENERAL_KNOWLEDGE_ENV = "PRESENT_GENERAL_KNOWLEDGE_REGISTRY"
 GENERAL_KNOWLEDGE_DEFAULT = WORKER_DIR / "config" / "general-knowledge.json"
+ORGANIZATION_REGISTRY_ENV = "PRESENT_ORGANIZATION_REGISTRY"
+ORGANIZATION_REGISTRY_DEFAULT = WORKER_DIR / "config" / "organizations.json"
 MISSIONS_DIR_ENV = "PRESENT_MISSIONS_DIR"
 MISSIONS_DIR_DEFAULT = WORKER_DIR / "missions"
 DEFAULT_COORDINATOR_ROLE = "dc13.coordination-report"
@@ -357,8 +359,8 @@ def _resolve_model_policy(
 
 
 def _coordinator_role_from_args(args) -> tuple[str, str | None]:
-    role = getattr(args, "role", None) or os.environ.get("CLOSED_CLAW_COORDINATOR_ROLE")
-    provider = getattr(args, "provider", None) or os.environ.get("CLOSED_CLAW_COORDINATOR_PROVIDER")
+    role = getattr(args, "role", None) or os.environ.get("STEEL_MISSION_COORDINATOR_ROLE")
+    provider = getattr(args, "provider", None) or os.environ.get("STEEL_MISSION_COORDINATOR_PROVIDER")
     return role or DEFAULT_COORDINATOR_ROLE, provider if provider in PROVIDER_RUNTIME_PROFILES else None
 
 
@@ -370,6 +372,11 @@ def _runtime_profile_registry_path() -> Path:
 def _general_knowledge_registry_path() -> Path:
     configured = os.environ.get(GENERAL_KNOWLEDGE_ENV)
     return Path(configured).expanduser() if configured else GENERAL_KNOWLEDGE_DEFAULT
+
+
+def _organization_registry_path() -> Path:
+    configured = os.environ.get(ORGANIZATION_REGISTRY_ENV)
+    return Path(configured).expanduser() if configured else ORGANIZATION_REGISTRY_DEFAULT
 
 
 def _normalize_general_knowledge_registry(payload: object) -> dict:
@@ -410,9 +417,33 @@ def _load_general_knowledge_registry() -> dict:
     return _normalize_general_knowledge_registry(payload)
 
 
+def _safe_org_id(value: str, fallback: str = "organization") -> str:
+    cleaned = re.sub(r"[^a-z0-9-]+", "-", value.strip().lower()).strip("-")
+    return cleaned[:80] or fallback
+
+
+def _load_active_organization_knowledge_registry() -> dict:
+    try:
+        payload = json.loads(_organization_registry_path().read_text())
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        return _normalize_general_knowledge_registry({})
+    organizations = [item for item in payload.get("organizations", []) if isinstance(item, dict)]
+    active_id = _safe_org_id(str(payload.get("activeOrganizationId") or ""), "")
+    selected = next((item for item in organizations if _safe_org_id(str(item.get("id") or ""), "") == active_id), None)
+    if selected is None and organizations:
+        selected = organizations[0]
+    sources = selected.get("knowledgeSources") if isinstance(selected, dict) and isinstance(selected.get("knowledgeSources"), dict) else {}
+    return _normalize_general_knowledge_registry(sources)
+
+
 def _merge_general_knowledge_sources(sources: dict) -> dict:
     merged = {key: (list(value) if isinstance(value, list) else value) for key, value in sources.items()}
-    knowledge = _load_general_knowledge_registry()
+    knowledge = _normalize_general_knowledge_registry({})
+    for source_registry in (_load_general_knowledge_registry(), _load_active_organization_knowledge_registry()):
+        knowledge["repositories"].extend(source_registry.get("repositories", []))
+        knowledge["documents"].extend(source_registry.get("documents", []))
     repo_keys = {
         (item.get("name"), item.get("path"))
         for item in merged.get("repositoryRoots", [])
@@ -598,9 +629,9 @@ def _runtime_registry_with_updated_profile(registry: dict, profile: dict, operat
 
 
 def _coordinator_profile_from_args(args) -> str:
-    profile = getattr(args, "profile", None) or os.environ.get("CLOSED_CLAW_RUNTIME_PROFILE")
-    provider = getattr(args, "provider", None) or os.environ.get("CLOSED_CLAW_COORDINATOR_PROVIDER")
-    role = getattr(args, "role", None) or os.environ.get("CLOSED_CLAW_COORDINATOR_ROLE")
+    profile = getattr(args, "profile", None) or os.environ.get("STEEL_MISSION_RUNTIME_PROFILE")
+    provider = getattr(args, "provider", None) or os.environ.get("STEEL_MISSION_COORDINATOR_PROVIDER")
+    role = getattr(args, "role", None) or os.environ.get("STEEL_MISSION_COORDINATOR_ROLE")
     if profile:
         return profile
     if provider in PROVIDER_RUNTIME_PROFILES:
@@ -1047,10 +1078,10 @@ def cmd_doctor(_args) -> int:
         if binary in ("git", "python3") and not found:
             ok = False
     release_checks = {
-        "closed_claw_tree": common.WORKER_DIR.exists(),
+        "steel_mission_tree": common.WORKER_DIR.exists(),
         "schemas": (common.WORKER_DIR / "schemas").exists(),
         "starter_company": (common.WORKER_DIR / "starter-company").exists(),
-        "closed_claw_chat": (common.WORKER_DIR / "closed-claw-chat").exists(),
+        "steel_mission_chat": (common.WORKER_DIR / "steel-mission-chat").exists(),
         "config": (common.WORKER_DIR / "config").exists(),
     }
     for name, exists in release_checks.items():
@@ -4836,7 +4867,7 @@ def build_parser() -> argparse.ArgumentParser:
     model_role_delete.add_argument("--force", action="store_true", default=False)
     model_role_delete.set_defaults(func=cmd_model_role_delete)
     model_role_resolve = sub.add_parser("model-role-resolve")
-    model_role_resolve.add_argument("role", nargs="?", default=os.environ.get("CLOSED_CLAW_COORDINATOR_ROLE", DEFAULT_COORDINATOR_ROLE))
+    model_role_resolve.add_argument("role", nargs="?", default=os.environ.get("STEEL_MISSION_COORDINATOR_ROLE", DEFAULT_COORDINATOR_ROLE))
     model_role_resolve.add_argument("--provider", choices=["claude", "glimmer"], default=None)
     model_role_resolve.add_argument("--ignore-readiness", action="store_true", default=False)
     model_role_resolve.set_defaults(func=cmd_model_role_resolve)
@@ -4857,7 +4888,7 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_profile_resolve.add_argument(
         "profile",
         nargs="?",
-        default=os.environ.get("CLOSED_CLAW_RUNTIME_PROFILE", DEFAULT_RUNTIME_PROFILE),
+        default=os.environ.get("STEEL_MISSION_RUNTIME_PROFILE", DEFAULT_RUNTIME_PROFILE),
     )
     runtime_profile_resolve.add_argument("--ignore-readiness", action="store_true", default=False)
     runtime_profile_resolve.set_defaults(func=cmd_runtime_profile_resolve)
@@ -4888,8 +4919,8 @@ def build_parser() -> argparse.ArgumentParser:
                 default=None,
                 help="Compatibility override; prefer --role for new callers.",
             )
-            command.add_argument("--role", default=os.environ.get("CLOSED_CLAW_COORDINATOR_ROLE"))
-            command.add_argument("--profile", default=os.environ.get("CLOSED_CLAW_RUNTIME_PROFILE"))
+            command.add_argument("--role", default=os.environ.get("STEEL_MISSION_COORDINATOR_ROLE"))
+            command.add_argument("--profile", default=os.environ.get("STEEL_MISSION_RUNTIME_PROFILE"))
         command.set_defaults(func=func)
     return parser
 

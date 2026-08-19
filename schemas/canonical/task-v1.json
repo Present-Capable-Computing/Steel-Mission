@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://present.dev/schemas/task-v1.json",
   "title": "Task v1",
-  "description": "A unit of development work tracked by the control plain. Infrastructure record only; carries no Present product requirement.",
+  "description": "A unit of development work tracked by the control plane. Infrastructure record only; carries no Present product requirement.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion","taskId","title","state","createdAt"],

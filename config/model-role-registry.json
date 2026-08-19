@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "producedAt": "2026-08-19T00:00:00Z",
-  "producer": "closed-claw",
+  "producer": "steel-mission",
   "models": [
     {
       "id": "claude-sonnet-5",
@@ -26,7 +26,7 @@
       "title": "Delivery Coordinator",
       "primaryModel": "claude-sonnet-5",
       "fallbackModels": ["qwen2.5-coder:14b"],
-      "snapshotProfile": "closed-claw-starter"
+      "snapshotProfile": "steel-mission-starter"
     }
   ]
 }

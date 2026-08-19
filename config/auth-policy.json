@@ -20,7 +20,7 @@
     "jwksUrl": ""
   },
   "policyId": "present.enterprise-auth.ga-boundary",
-  "producer": "closed-claw-chat auth-control",
+  "producer": "steel-mission-chat auth-control",
   "roleClaims": [
     "present_role",
     "role"

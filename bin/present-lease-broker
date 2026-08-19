@@ -1861,7 +1861,7 @@ def _persist_distributed_node(state_path: Path | None, state: dict[str, Any] | N
                 )
             ],
             human_text=(
-                f"The control plain imported {imported.get('kind', 'artifact')} from node "
+                f"The control plane imported {imported.get('kind', 'artifact')} from node "
                 f"{imported.get('sourceNodeId')} into node {node_id}."
             ),
         )
@@ -1883,7 +1883,7 @@ def _persist_distributed_node(state_path: Path | None, state: dict[str, Any] | N
                     artifact.get("sha256"),
                 )
             ],
-            human_text=f"The control plain materialized {artifact.get('kind', 'artifact')} evidence from node {node_id}.",
+            human_text=f"The control plane materialized {artifact.get('kind', 'artifact')} evidence from node {node_id}.",
         )
     for checkpoint in item.get("contextCheckpoints", []):
         if not isinstance(checkpoint, dict):
@@ -3597,7 +3597,7 @@ def cmd_run_distributed(args) -> int:
             actor_id="present-lease-broker",
             action="admit-workflow",
             target=args.task_id,
-            human_text=f"The control plain admitted workflow {workflow_id} and started attempt {attempt_id}.",
+            human_text=f"The control plane admitted workflow {workflow_id} and started attempt {attempt_id}.",
         )
         for placement in placements:
             check = placement.get("contractCheck") if isinstance(placement.get("contractCheck"), dict) else {}
@@ -3616,7 +3616,7 @@ def cmd_run_distributed(args) -> int:
                     nodeId=placement["nodeId"],
                     toolId=check.get("toolId"),
                     human_text=(
-                        f"The control plain placed node {placement['nodeId']} on worker "
+                        f"The control plane placed node {placement['nodeId']} on worker "
                         f"{placement['workerId']}{detail}."
                     ),
                 )
@@ -3656,7 +3656,7 @@ def cmd_run_distributed(args) -> int:
                     target=node["id"],
                     workerId=worker_id,
                     nodeId=node["id"],
-                    human_text=f"The control plain dispatched node {node['id']} to worker {worker_id}.",
+                    human_text=f"The control plane dispatched node {node['id']} to worker {worker_id}.",
                 )
             _write_state(args.state, state)
             snapshot = dict(results)
@@ -4902,7 +4902,7 @@ def _job_narrative(state: dict[str, Any], task_id: str) -> dict[str, Any]:
         actor_id="present-lease-broker",
         action="admit-workflow",
         target=task_id,
-        human_text=f"The control plain admitted workflow {workflow_id} for task {task_id}.",
+        human_text=f"The control plane admitted workflow {workflow_id} for task {task_id}.",
     )
     for placement in distributed.get("placements", []) if isinstance(distributed.get("placements"), list) else []:
         if not isinstance(placement, dict):
@@ -4918,7 +4918,7 @@ def _job_narrative(state: dict[str, Any], task_id: str) -> dict[str, Any]:
             target=node_id or "workflow-node",
             workerId=worker_id,
             nodeId=node_id,
-            human_text=f"The control plain placed node {node_id} on worker {worker_id}.",
+            human_text=f"The control plane placed node {node_id} on worker {worker_id}.",
         )
     for dispatch in distributed.get("nodeDispatches", []) if isinstance(distributed.get("nodeDispatches"), list) else []:
         if not isinstance(dispatch, dict):
@@ -4953,7 +4953,7 @@ def _job_narrative(state: dict[str, Any], task_id: str) -> dict[str, Any]:
             workerId=worker_id,
             nodeId=node_id,
             artifactRefs=[_narrative_artifact_ref(str(imported.get("kind") or "artifact"), imported.get("path"), imported.get("sha256"))],
-            human_text=f"The control plain imported {imported.get('kind', 'artifact')} from node {source} into node {node_id} on worker {worker_id}.",
+            human_text=f"The control plane imported {imported.get('kind', 'artifact')} from node {source} into node {node_id} on worker {worker_id}.",
         )
     for artifact in distributed.get("artifactStore", []) if isinstance(distributed.get("artifactStore"), list) else []:
         if not isinstance(artifact, dict):
@@ -4976,7 +4976,7 @@ def _job_narrative(state: dict[str, Any], task_id: str) -> dict[str, Any]:
                     artifact.get("sha256"),
                 )
             ],
-            human_text=f"The control plain materialized {artifact.get('kind', 'artifact')} evidence from node {node_id} into the artifact store.",
+            human_text=f"The control plane materialized {artifact.get('kind', 'artifact')} evidence from node {node_id} into the artifact store.",
         )
     for checkpoint in distributed.get("contextCheckpoints", []) if isinstance(distributed.get("contextCheckpoints"), list) else []:
         if not isinstance(checkpoint, dict):
@@ -5016,7 +5016,7 @@ def _job_narrative(state: dict[str, Any], task_id: str) -> dict[str, Any]:
             actor_id="present-lease-broker",
             action="inspect-state",
             target=task_id,
-            human_text=f"The control plain found a broker record for {task_id}, but no workflow events are available yet.",
+            human_text=f"The control plane found a broker record for {task_id}, but no workflow events are available yet.",
         )
     plain_lines = [f"{event['sequence']}. {event['humanText']}" for event in events]
     narrative = {
@@ -5645,7 +5645,7 @@ def cmd_runbook_generate(args) -> int:
         "quarantine-worker", "unquarantine-worker", "refresh-scheduler",
     ]
     body = [
-        "# Present Control Plain Broker Runbook",
+        "# Present Control Plane Broker Runbook",
         "",
         f"Generated: {common.utc_now()}",
         "",

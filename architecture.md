@@ -1,6 +1,6 @@
-# Closed-Claw Architecture
+# Steel Mission Architecture
 
-Closed-Claw is an Agentic Delivery Plain. It keeps policy, approval, evidence, and execution authority inside the customer-controlled runtime boundary.
+Steel Mission is an Agent Delivery Plane. It keeps policy, approval, evidence, and execution authority inside the customer-controlled runtime boundary.
 
 ## Core Components
 
@@ -22,7 +22,7 @@ Delivery Coordinator is the role. Claude, OpenAI, Glimmer, local models, and fut
 
 ## Customer Boundary
 
-Closed-Claw is designed to run inside customer infrastructure or a private cloud environment. Policies, auth configuration, knowledge, evidence, and connector configuration are customer-owned.
+Steel Mission is designed to run inside customer infrastructure or a private cloud environment. Policies, auth configuration, knowledge, evidence, and connector configuration are customer-owned.
 
 ## Execution Boundary
 
@@ -48,6 +48,6 @@ If production policy requires external signing and the signer is unavailable, ev
 
 ## Orchestration Adapters
 
-Closed-Claw does not depend on n8n. Orchestration systems may request work or receive events, but they are not the source of truth for policy, approval, evidence, or execution authority.
+Steel Mission does not depend on n8n. Orchestration systems may request work or receive events, but they are not the source of truth for policy, approval, evidence, or execution authority.
 
 Upcoming adapters include Temporal, GitHub Actions, GitLab, and a private job runner.

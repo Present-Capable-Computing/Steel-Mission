@@ -11,7 +11,7 @@ from typing import Any
 
 
 WORKER_DIR = Path(__file__).resolve().parent.parent
-SERVER_PATH = WORKER_DIR / "closed-claw-chat" / "server.py"
+SERVER_PATH = WORKER_DIR / "steel-mission-chat" / "server.py"
 
 
 def load_server() -> dict[str, Any]:

@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
   "producedAt": "2026-08-19T00:00:00Z",
-  "producer": "closed-claw",
+  "producer": "steel-mission",
   "repositories": [
     {
-      "name": "closed-claw-product",
+      "name": "steel-mission-product",
       "path": "${WORKER_DIR}"
     }
   ],
   "documents": [
     {
-      "title": "Northstar Forge Operating Context",
+      "title": "Starter Organization Operating Context",
       "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"
     },
     {
-      "title": "Northstar Forge Team Doctrine",
+      "title": "Starter Organization Team Doctrine",
       "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"
     },
     {
-      "title": "Northstar Forge Team Roster and Workflow",
+      "title": "Starter Organization Team Roster and Workflow",
       "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"
     },
     {
-      "title": "Northstar Forge Capability Map",
+      "title": "Starter Organization Capability Map",
       "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"
     }
   ]

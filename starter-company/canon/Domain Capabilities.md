@@ -2,7 +2,7 @@
 
 Company: Northstar Forge
 
-This synthetic capability map gives Closed-Claw an up-and-running organization on first launch. Capability names carry the product meaning. Owners and admins manage the organization by knowledge domain and domain capability names.
+This synthetic capability map gives Steel Mission an up-and-running organization on first launch. Capability names carry the product meaning. Owners and admins manage the organization by knowledge domain and domain capability names.
 
 Each Domain Capability has a synthetic starter dossier under `starter-company/knowledge/domain-capabilities/`. Those dossiers preserve the shape of the original capability system without carrying private canon, private people, or private product specifics.
 

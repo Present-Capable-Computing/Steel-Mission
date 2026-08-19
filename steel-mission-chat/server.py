@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local-only DC13 chat wrapper for closed-claw coordination-report."""
+"""Local-only DC13 chat wrapper for steel-mission coordination-report."""
 from __future__ import annotations
 
 import argparse
@@ -40,7 +40,7 @@ TASKS_DIR = Path(os.environ.get("PRESENT_TASKS_DIR") or WORKER_DIR / "tasks")
 TEST_RESULTS_DIR = Path(os.environ.get("PRESENT_TEST_RESULTS_DIR") or WORKER_DIR / "test-results")
 REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR") or WORKER_DIR / "repos")
 PRESENT_DEV_DIR = Path(os.environ.get("PRESENT_DEV") or WORKER_DIR.parent)
-WORKER_BIN = WORKER_DIR / "bin" / "closed-claw"
+WORKER_BIN = WORKER_DIR / "bin" / "steel-mission"
 BROKER_BIN = WORKER_DIR / "bin" / "present-lease-broker"
 INDEX = APP_DIR / "index.html"
 CANON_DIR = Path(os.environ.get("PRESENT_CANON_DIR") or WORKER_DIR / "starter-company" / "canon")
@@ -48,6 +48,7 @@ ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.j
 ROLE_KNOWLEDGE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-knowledge-registry.json"
 DOMAIN_CAPABILITIES_PATH = WORKER_DIR / "config" / "domain-capabilities.json"
 GENERAL_KNOWLEDGE_PATH = WORKER_DIR / "config" / "general-knowledge.json"
+ORGANIZATION_REGISTRY_PATH = Path(os.environ.get("PRESENT_ORGANIZATION_REGISTRY") or WORKER_DIR / "config" / "organizations.json")
 ORG_KNOWLEDGE_UPLOAD_ROOT = Path(os.environ.get("PRESENT_ORG_KNOWLEDGE_UPLOAD_DIR") or WORKER_DIR / "config" / "org-knowledge-uploads")
 USER_REGISTRY_PATH = WORKER_DIR / "config" / "users.json"
 RUNTIME_PROFILE_REGISTRY_PATH = WORKER_DIR / "config" / "runtime-profiles.json"
@@ -74,9 +75,9 @@ DELIVERY_COMMAND_TIMEOUT_SECONDS = 180
 # is how every live run died at 180s on 2026-08-17 while the adapter still
 # believed it had a 600s budget. Inner budget < outer budget, always.
 MODEL_TIMEOUT_MARGIN_SECONDS = 30
-COORDINATOR_PROVIDER_ENV = "CLOSED_CLAW_COORDINATOR_PROVIDER"
-COORDINATOR_ROLE_ENV = "CLOSED_CLAW_COORDINATOR_ROLE"
-COORDINATOR_RUNTIME_PROFILE_ENV = "CLOSED_CLAW_RUNTIME_PROFILE"
+COORDINATOR_PROVIDER_ENV = "STEEL_MISSION_COORDINATOR_PROVIDER"
+COORDINATOR_ROLE_ENV = "STEEL_MISSION_COORDINATOR_ROLE"
+COORDINATOR_RUNTIME_PROFILE_ENV = "STEEL_MISSION_RUNTIME_PROFILE"
 ACTIVE_COORDINATOR_PROVIDER: str | None = None
 ACTIVE_COORDINATOR_ROLE: str | None = None
 ACTIVE_RUNTIME_PROFILE: str | None = None
@@ -94,7 +95,7 @@ MISSION_TEMPLATES: list[dict[str, Any]] = [
         "description": "Scope the configured knowledge sources, ask DC13 for an advisory readout, and record findings.",
         "nodes": [
             {"nodeId": "snapshot-scope", "title": "Snapshot scope", "kind": "snapshot", "capability": "dc13.snapshot.read"},
-            {"nodeId": "closed-claw-readout", "title": "Delivery Coordinator readout", "kind": "coordination-report", "capability": "dc13.coordination-report"},
+            {"nodeId": "steel-mission-readout", "title": "Delivery Coordinator readout", "kind": "coordination-report", "capability": "dc13.coordination-report"},
             {"nodeId": "mission-summary", "title": "Mission summary", "kind": "summary", "capability": "dc13.ledger.record"},
         ],
     },
@@ -106,7 +107,7 @@ MISSION_TEMPLATES: list[dict[str, Any]] = [
         "nodes": [
             {"nodeId": "snapshot-scope", "title": "Snapshot scope", "kind": "snapshot", "capability": "dc13.snapshot.read"},
             {"nodeId": "broker-overview", "title": "Broker overview", "kind": "broker-overview", "capability": "broker.state.read"},
-            {"nodeId": "closed-claw-reconciliation", "title": "DC13 reconciliation", "kind": "coordination-report", "capability": "dc13.coordination-report"},
+            {"nodeId": "steel-mission-reconciliation", "title": "DC13 reconciliation", "kind": "coordination-report", "capability": "dc13.coordination-report"},
             {"nodeId": "mission-summary", "title": "Mission summary", "kind": "summary", "capability": "dc13.ledger.record"},
         ],
     },
@@ -118,7 +119,7 @@ MISSION_TEMPLATES: list[dict[str, Any]] = [
         "nodes": [
             {"nodeId": "snapshot-scope", "title": "Snapshot scope", "kind": "snapshot", "capability": "dc13.snapshot.read"},
             {"nodeId": "schema-gate", "title": "Schema gate", "kind": "schema-gate", "capability": "schema-authority.validate"},
-            {"nodeId": "closed-claw-verification-readout", "title": "DC13 verification readout", "kind": "coordination-report", "capability": "dc13.coordination-report"},
+            {"nodeId": "steel-mission-verification-readout", "title": "DC13 verification readout", "kind": "coordination-report", "capability": "dc13.coordination-report"},
             {"nodeId": "mission-summary", "title": "Mission summary", "kind": "summary", "capability": "dc13.ledger.record"},
         ],
     },
@@ -136,7 +137,7 @@ MISSION_TEMPLATES: list[dict[str, Any]] = [
                 "capability": "mission.approve",
                 "requiresApproval": True,
             },
-            {"nodeId": "closed-claw-implementation-brief", "title": "DC13 implementation brief", "kind": "coordination-report", "capability": "dc13.coordination-report"},
+            {"nodeId": "steel-mission-implementation-brief", "title": "DC13 implementation brief", "kind": "coordination-report", "capability": "dc13.coordination-report"},
             {"nodeId": "mission-summary", "title": "Mission summary", "kind": "summary", "capability": "dc13.ledger.record"},
         ],
     },
@@ -180,7 +181,7 @@ MISSION_TEMPLATES: list[dict[str, Any]] = [
                 "requiresApproval": True,
             },
             {"nodeId": "schema-gate", "title": "Schema gate", "kind": "schema-gate", "capability": "schema-authority.validate"},
-            {"nodeId": "closed-claw-publish-readiness", "title": "DC13 publish readiness", "kind": "coordination-report", "capability": "dc13.coordination-report"},
+            {"nodeId": "steel-mission-publish-readiness", "title": "DC13 publish readiness", "kind": "coordination-report", "capability": "dc13.coordination-report"},
             {"nodeId": "mission-summary", "title": "Mission summary", "kind": "summary", "capability": "dc13.ledger.record"},
         ],
     },
@@ -298,7 +299,7 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "producedAt": utc_now(),
-        "producer": "closed-claw-chat-local-fallback",
+        "producer": "steel-mission-chat-local-fallback",
         "runtimeProfile": {
             "schemaVersion": 1,
             "id": selected_profile,
@@ -307,7 +308,7 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
             "modelRole": model_policy.get("role") or active_coordinator_role(),
             "modelProvider": str(model_policy.get("provider") or active_coordinator_provider()),
             "snapshotProfile": model_policy.get("snapshotProfile") or "worker-local-default",
-            "defaultFor": ["closed-claw-chat"],
+            "defaultFor": ["steel-mission-chat"],
             "editableBy": ["local-user"],
             "visibilityRoleKeys": ["DC13"],
             "registryPath": "unavailable",
@@ -411,6 +412,9 @@ def knowledge_registry() -> dict[str, Any]:
         "roles": roles,
         "capabilities": roles,
         "generalKnowledge": general_knowledge_registry(),
+        "effectiveKnowledge": effective_knowledge_sources(),
+        "organizationRegistry": organization_registry(),
+        "activeOrganization": active_organization(),
     }
 
 
@@ -445,7 +449,7 @@ def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, A
     return {
         "schemaVersion": 1,
         "producedAt": str(payload.get("producedAt") or utc_now()),
-        "producer": "closed-claw-chat",
+        "producer": "steel-mission-chat",
         "repositories": repositories,
         "documents": documents,
     }
@@ -457,6 +461,215 @@ def general_knowledge_registry() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         payload = {}
     return normalize_general_knowledge_registry(payload if isinstance(payload, dict) else {})
+
+
+def safe_org_id(value: str, fallback: str = "organization") -> str:
+    cleaned = re.sub(r"[^a-z0-9-]+", "-", value.strip().lower()).strip("-")
+    return cleaned[:80] or fallback
+
+
+def knowledge_catalog() -> dict[str, list[dict[str, Any]]]:
+    try:
+        role_registry = json.loads(ROLE_REGISTRY_PATH.read_text())
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        role_registry = {}
+    knowledge_domains = [
+        {
+            "domainKey": str(item.get("role_key") or ""),
+            "displayName": str(item.get("display_name") or item.get("role_key") or ""),
+            "canonPath": str(item.get("canon_path") or ""),
+        }
+        for item in role_registry.get("foundations", [])
+        if isinstance(item, dict) and item.get("role_key")
+    ]
+    capabilities = [
+        {
+            "capabilityKey": str(item.get("role_key") or ""),
+            "fNumber": str(item.get("current_f_number") or item.get("role_key") or ""),
+            "displayName": str(item.get("display_name") or item.get("role_key") or ""),
+            "canonPath": str(item.get("canon_path") or ""),
+        }
+        for item in role_registry.get("roles", [])
+        if isinstance(item, dict) and item.get("role_key")
+    ]
+    return {"knowledgeDomains": knowledge_domains, "capabilities": capabilities}
+
+
+def default_organization_registry() -> dict[str, Any]:
+    catalog = knowledge_catalog()
+    return {
+        "schemaVersion": 1,
+        "producedAt": utc_now(),
+        "producer": "steel-mission-chat",
+        "activeOrganizationId": "northstar-forge",
+        "organizations": [
+            {
+                "id": "northstar-forge",
+                "name": "Northstar Forge",
+                "slug": "northstar-forge",
+                "identifiers": {
+                    "legalName": "Northstar Forge Ltd.",
+                    "domain": "northstar.example",
+                    "country": "CH",
+                    "environment": "starter",
+                    "dataClassification": "synthetic-starter",
+                },
+                "knowledgeDomainKeys": [
+                    item["domainKey"] for item in catalog["knowledgeDomains"] if item.get("domainKey")
+                ] or ["KD01", "KD02", "KD03"],
+                "domainCapabilityKeys": [
+                    item["capabilityKey"] for item in catalog["capabilities"] if item.get("capabilityKey")
+                ] or [f"DC{i:02d}" for i in range(1, 14)],
+                "knowledgeSources": {
+                    "repositories": [
+                        {"name": "steel-mission-product", "path": "${WORKER_DIR}"},
+                        {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"},
+                    ],
+                    "documents": [
+                        {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
+                        {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
+                        {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+                        {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"},
+                    ],
+                },
+                "notes": "Synthetic starter organization for first-run demonstrations. Owners and admins can rename it or create additional organizations.",
+            }
+        ],
+    }
+
+
+def normalize_organization_registry(payload: dict[str, Any]) -> dict[str, Any]:
+    catalog = knowledge_catalog()
+    valid_kds = {item["domainKey"] for item in catalog["knowledgeDomains"] if item.get("domainKey")}
+    valid_dcs = {item["capabilityKey"] for item in catalog["capabilities"] if item.get("capabilityKey")}
+    organizations: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(payload.get("organizations", [])):
+        if not isinstance(item, dict):
+            continue
+        name = clean_optional_string(item.get("name") or item.get("displayName") or f"Organization {index + 1}", limit=120)
+        org_id = safe_org_id(str(item.get("id") or item.get("slug") or name), f"organization-{index + 1}")
+        if org_id in seen:
+            suffix = 2
+            base = org_id[:70] or "organization"
+            while f"{base}-{suffix}" in seen:
+                suffix += 1
+            org_id = f"{base}-{suffix}"
+        seen.add(org_id)
+        identifiers = item.get("identifiers") if isinstance(item.get("identifiers"), dict) else {}
+        sources = normalize_general_knowledge_registry(item.get("knowledgeSources") if isinstance(item.get("knowledgeSources"), dict) else {})
+        kd_keys = [
+            value for value in clean_string_list(item.get("knowledgeDomainKeys"), limit=80)
+            if not valid_kds or value in valid_kds
+        ]
+        dc_keys = [
+            value for value in clean_string_list(item.get("domainCapabilityKeys"), limit=120)
+            if not valid_dcs or value in valid_dcs
+        ]
+        organizations.append({
+            "id": org_id,
+            "name": name or org_id,
+            "slug": safe_org_id(str(item.get("slug") or org_id), org_id),
+            "identifiers": {
+                "legalName": clean_optional_string(identifiers.get("legalName") or item.get("legalName"), limit=160),
+                "domain": clean_optional_string(identifiers.get("domain") or item.get("domain"), limit=160),
+                "country": clean_optional_string(identifiers.get("country") or item.get("country"), limit=80),
+                "environment": clean_optional_string(identifiers.get("environment") or item.get("environment") or "starter", limit=80),
+                "dataClassification": clean_optional_string(
+                    identifiers.get("dataClassification") or item.get("dataClassification") or "synthetic-starter",
+                    limit=120,
+                ),
+            },
+            "knowledgeDomainKeys": kd_keys or sorted(valid_kds),
+            "domainCapabilityKeys": dc_keys or sorted(valid_dcs),
+            "knowledgeSources": {
+                "repositories": sources.get("repositories", []),
+                "documents": sources.get("documents", []),
+            },
+            "notes": clean_optional_string(item.get("notes"), limit=800),
+        })
+    if not organizations:
+        return normalize_organization_registry(default_organization_registry())
+    active_id = safe_org_id(str(payload.get("activeOrganizationId") or ""), "")
+    if active_id not in {item["id"] for item in organizations}:
+        active_id = organizations[0]["id"]
+    return {
+        "schemaVersion": 1,
+        "producedAt": str(payload.get("producedAt") or utc_now()),
+        "producer": "steel-mission-chat",
+        "activeOrganizationId": active_id,
+        "organizations": organizations,
+    }
+
+
+def organization_registry() -> dict[str, Any]:
+    payload = read_json_file(ORGANIZATION_REGISTRY_PATH) or default_organization_registry()
+    return normalize_organization_registry(payload)
+
+
+def active_organization() -> dict[str, Any]:
+    registry = organization_registry()
+    active_id = registry.get("activeOrganizationId")
+    for organization in registry.get("organizations", []):
+        if isinstance(organization, dict) and organization.get("id") == active_id:
+            return organization
+    organizations = registry.get("organizations", [])
+    return organizations[0] if organizations and isinstance(organizations[0], dict) else {}
+
+
+def merge_knowledge_sources(*registries: dict[str, Any]) -> dict[str, Any]:
+    repositories: list[dict[str, Any]] = []
+    documents: list[dict[str, Any]] = []
+    repo_keys: set[tuple[str, str]] = set()
+    doc_keys: set[tuple[str, str]] = set()
+    for registry in registries:
+        normalized = normalize_general_knowledge_registry(registry if isinstance(registry, dict) else {})
+        for item in normalized.get("repositories", []):
+            key = (str(item.get("name") or ""), str(item.get("path") or ""))
+            if key[1] and key not in repo_keys:
+                repositories.append(item)
+                repo_keys.add(key)
+        for item in normalized.get("documents", []):
+            key = (str(item.get("title") or ""), str(item.get("path") or ""))
+            if key[1] and key not in doc_keys:
+                documents.append(item)
+                doc_keys.add(key)
+    return {
+        "schemaVersion": 1,
+        "producedAt": utc_now(),
+        "producer": "steel-mission-chat",
+        "repositories": repositories,
+        "documents": documents,
+    }
+
+
+def effective_knowledge_sources() -> dict[str, Any]:
+    organization = active_organization()
+    return merge_knowledge_sources(
+        general_knowledge_registry(),
+        organization.get("knowledgeSources", {}) if isinstance(organization.get("knowledgeSources"), dict) else {},
+    )
+
+
+def save_organization_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
+    role = corporate_role(actor)
+    if role not in {"owner", "admin"}:
+        raise ValueError("only owner and admin endpoints can manage organizations")
+    before = read_json_file(ORGANIZATION_REGISTRY_PATH)
+    registry = normalize_organization_registry({**payload, "producedAt": utc_now()})
+    atomic_write_json(ORGANIZATION_REGISTRY_PATH, registry)
+    record_mutation(
+        "organizations-saved",
+        role,
+        ORGANIZATION_REGISTRY_PATH,
+        before=before,
+        after=registry,
+        details={
+            "organizations": len(registry.get("organizations", [])),
+            "activeOrganizationId": registry.get("activeOrganizationId") or "",
+        },
+    )
+    return registry
 
 
 def save_general_knowledge_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -496,7 +709,12 @@ def upload_organization_knowledge(payload: dict[str, Any], actor: str) -> dict[s
     if not files:
         raise ValueError("at least one file is required")
     root = save_uploaded_knowledge_files(files, label)
-    current = general_knowledge_registry()
+    current_registry = organization_registry()
+    requested_org = safe_org_id(str(payload.get("organizationId") or current_registry.get("activeOrganizationId") or ""), "")
+    organizations = [item for item in current_registry.get("organizations", []) if isinstance(item, dict)]
+    org_index = next((index for index, item in enumerate(organizations) if item.get("id") == requested_org), 0)
+    organization = organizations[org_index] if organizations else active_organization()
+    current = organization.get("knowledgeSources", {}) if isinstance(organization.get("knowledgeSources"), dict) else {}
     repositories = [item for item in current.get("repositories", []) if isinstance(item, dict)]
     documents = [item for item in current.get("documents", []) if isinstance(item, dict)]
     if source_kind == "folder" or len(files) > 1:
@@ -514,7 +732,19 @@ def upload_organization_knowledge(payload: dict[str, Any], actor: str) -> dict[s
             "kind": files[0].get("type") or "uploaded-file",
             "description": "Uploaded organization knowledge document.",
         })
-    registry = save_general_knowledge_registry({"repositories": repositories, "documents": documents}, role)
+    organization = {
+        **organization,
+        "knowledgeSources": {"repositories": repositories, "documents": documents},
+    }
+    if organizations:
+        organizations[org_index] = organization
+    else:
+        organizations = [organization]
+    registry = save_organization_registry({
+        **current_registry,
+        "activeOrganizationId": organization.get("id") or current_registry.get("activeOrganizationId") or "",
+        "organizations": organizations,
+    }, role)
     mission = start_orchestrated_mission(
         "prepare-knowledge",
         f"Prepare the first snapshot after adding organization knowledge: {label}",
@@ -527,7 +757,9 @@ def upload_organization_knowledge(payload: dict[str, Any], actor: str) -> dict[s
         "ok": True,
         "uploadRoot": str(root),
         "fileCount": len(files),
-        "registry": registry,
+        "organizationId": organization.get("id") or "",
+        "registry": organization.get("knowledgeSources", {"repositories": [], "documents": []}),
+        "organizationRegistry": registry,
         "mission": mission,
     }
 
@@ -561,7 +793,8 @@ def knowledge_file_sample(root: Path, *, limit: int = 120) -> dict[str, Any]:
 
 
 def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, Any]:
-    registry = general_knowledge_registry()
+    organization = active_organization()
+    registry = effective_knowledge_sources()
     sources: list[dict[str, Any]] = []
     for item in registry.get("repositories", []):
         if not isinstance(item, dict):
@@ -589,6 +822,14 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
     return {
         "schemaVersion": 1,
         "profile": profile or active_runtime_profile(),
+        "organization": {
+            "id": organization.get("id") or "",
+            "name": organization.get("name") or "",
+            "slug": organization.get("slug") or "",
+            "identifiers": organization.get("identifiers", {}),
+            "knowledgeDomainKeys": organization.get("knowledgeDomainKeys", []),
+            "domainCapabilityKeys": organization.get("domainCapabilityKeys", []),
+        },
         "registryHash": canonical_json_hash(registry),
         "sourceCount": len(sources),
         "availableSourceCount": len(sources) - len(missing),
@@ -597,7 +838,7 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
         "byteCount": sum(int(source.get("byteCount") or 0) for source in sources),
         "sources": sources,
         "preparedAt": utc_now(),
-        "producer": "closed-claw-chat knowledge-preparer",
+        "producer": "steel-mission-chat knowledge-preparer",
     }
 
 
@@ -666,7 +907,7 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "producedAt": str(payload.get("producedAt") or utc_now()),
-        "producer": "closed-claw-chat",
+        "producer": "steel-mission-chat",
         "users": users,
     }
 
@@ -698,7 +939,7 @@ def default_domain_capabilities() -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "producedAt": utc_now(),
-        "producer": "closed-claw-chat",
+        "producer": "steel-mission-chat",
         "userAssignments": [
             {"userId": "publisher", "role": "publisher", "assignedCapabilities": ["DC13"]},
             {"userId": "user", "role": "user", "assignedCapabilities": ["DC13"]},
@@ -764,7 +1005,7 @@ def normalize_assignment_registry(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "producedAt": str(payload.get("producedAt") or utc_now()),
-        "producer": "closed-claw-chat",
+        "producer": "steel-mission-chat",
         "userAssignments": sorted(user_assignments.values(), key=lambda item: item["userId"]),
         "assignments": assignments,
     }
@@ -810,6 +1051,7 @@ def corporate_workspace(role: str) -> dict[str, Any]:
     assignments = domain_capability_registry()
     users = user_registry().get("users", [])
     knowledge = knowledge_registry()
+    organization = active_organization()
     by_key = {
         item.get("roleKey"): item
         for item in knowledge.get("roles", [])
@@ -849,6 +1091,14 @@ def corporate_workspace(role: str) -> dict[str, Any]:
         "foundations": knowledge.get("foundations", []),
         "knowledgeDomains": knowledge.get("knowledgeDomains", []),
         "generalKnowledge": knowledge.get("generalKnowledge", {"repositories": [], "documents": []}),
+        "effectiveKnowledge": knowledge.get("effectiveKnowledge", {"repositories": [], "documents": []}),
+        "activeOrganization": organization,
+        "organizationRegistry": organization_registry() if selected in {"owner", "admin"} else {
+            "schemaVersion": 1,
+            "activeOrganizationId": organization.get("id") or "",
+            "organizations": [organization] if organization else [],
+        },
+        "canManageOrganizations": selected in {"owner", "admin"},
         "assignments": assignments.get("assignments", []),
         "userAssignments": assignments.get("userAssignments", []),
         "users": active_users if selected in {"owner", "admin"} else [
@@ -999,7 +1249,7 @@ def default_snapshot_policy(provider: str = "claude", source_profile: str | None
             "generalDocuments": 8,
             "missions": 12,
         }
-    general = general_knowledge_registry()
+    general = effective_knowledge_sources()
     general_repos = [
         {"name": item["name"], "path": item["path"]}
         for item in general.get("repositories", [])
@@ -1311,7 +1561,7 @@ def evidence_signer_health(policy: dict[str, Any] | None = None) -> dict[str, An
         }
     probe = {
         "kind": "evidence-signer-health",
-        "producer": "closed-claw-chat auth-control",
+        "producer": "steel-mission-chat auth-control",
         "producedAt": utc_now(),
         "keyId": str(kms.get("keyId") or ""),
     }
@@ -1416,7 +1666,7 @@ def default_auth_policy() -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "policyId": "present.enterprise-auth.alpha",
-        "producer": "closed-claw-chat auth-control",
+        "producer": "steel-mission-chat auth-control",
         "enforcementMode": "signed-session-required-for-control-plane",
         "sessionTtlSeconds": 3600,
         "acceptedIssuers": ["present-local-alpha"],
@@ -1464,7 +1714,7 @@ def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "policyId": clean_optional_string(source.get("policyId"), limit=160) or base["policyId"],
-        "producer": "closed-claw-chat auth-control",
+        "producer": "steel-mission-chat auth-control",
         "producedAt": utc_now(),
         "enforcementMode": clean_choice(
             source.get("enforcementMode"),
@@ -1676,7 +1926,7 @@ def default_control_policy() -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "policyId": "present.delivery-control.alpha",
-        "producer": "closed-claw-chat control-plane",
+        "producer": "steel-mission-chat control-plane",
         "modelIndependence": {
             "required": True,
             "description": "The same pre-execution policy is applied regardless of model provider.",
@@ -1737,7 +1987,7 @@ def normalize_control_policy(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "policyId": clean_optional_string(source.get("policyId"), limit=160) or base["policyId"],
-        "producer": "closed-claw-chat control-plane",
+        "producer": "steel-mission-chat control-plane",
         "producedAt": utc_now(),
         "modelIndependence": {
             **base["modelIndependence"],
@@ -1795,7 +2045,7 @@ def save_control_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
 def default_integration_registry() -> dict[str, Any]:
     return {
         "schemaVersion": 1,
-        "producer": "closed-claw-chat integration-registry",
+        "producer": "steel-mission-chat integration-registry",
         "producedAt": utc_now(),
         "controlPlane": {
             "deploymentBoundary": "customer-vpc-or-private-cloud",
@@ -1867,7 +2117,7 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
     control = source.get("controlPlane") if isinstance(source.get("controlPlane"), dict) else {}
     return {
         "schemaVersion": 1,
-        "producer": "closed-claw-chat integration-registry",
+        "producer": "steel-mission-chat integration-registry",
         "producedAt": utc_now(),
         "controlPlane": {
             "deploymentBoundary": clean_optional_string(control.get("deploymentBoundary"), limit=200) or "customer-vpc-or-private-cloud",
@@ -2193,7 +2443,7 @@ def post_connector_webhook(connector: dict[str, Any], payload: dict[str, Any], *
     signature = hmac.new(secret.encode("utf-8") or auth_signing_key(), f"{timestamp}.".encode("utf-8") + body, hashlib.sha256).hexdigest()
     headers = {
         "Content-Type": "application/json",
-        "User-Agent": "Closed-Claw-Control-Plane/ga",
+        "User-Agent": "Steel-Mission-Control-Plane/ga",
         "X-Present-Timestamp": timestamp,
         "X-Present-Signature": f"sha256={signature}",
     }
@@ -2235,7 +2485,7 @@ def execute_connector_action(connector_id: str, event_type: str, payload: dict[s
         "payload": payload,
         "payloadHash": canonical_json_hash(payload),
         "producedAt": utc_now(),
-        "producer": "closed-claw-chat connector-runtime",
+        "producer": "steel-mission-chat connector-runtime",
     }
     preflight = connector_action_preflight(connector, event_type, payload)
     execution: dict[str, Any]
@@ -2346,7 +2596,7 @@ def record_mutation(
         "schemaVersion": 1,
         "mutationId": "mu-" + canonical_json_hash(basis)[:24],
         "producedAt": produced_at,
-        "producer": "closed-claw-chat mutation-ledger",
+        "producer": "steel-mission-chat mutation-ledger",
         "actorRole": corporate_role(actor),
         "action": action,
         "status": status,
@@ -2449,7 +2699,7 @@ def update_mission(mission_id: str | None, **fields: Any) -> dict[str, Any] | No
             "schemaVersion": 1,
             "missionId": mission_id,
             "createdAt": utc_now(),
-            "producer": "closed-claw-chat mission-control",
+            "producer": "steel-mission-chat mission-control",
             "state": "unknown",
         }
         return write_mission_record({**current, **{key: value for key, value in fields.items() if value is not None}})
@@ -2667,7 +2917,7 @@ def write_mission_evidence(
         "nodeId": node_id,
         "kind": kind,
         "producedAt": produced_at,
-        "producer": "closed-claw-chat mission-orchestrator",
+        "producer": "steel-mission-chat mission-orchestrator",
         "payload": payload,
     }
     integrity = sign_integrity_record(mission_id, f"evidence:{kind}", artifact)
@@ -2835,7 +3085,7 @@ def new_task_id() -> str:
 def steering_events_path(task_id: str | None) -> Path | None:
     if not task_id:
         return None
-    return TASKS_DIR / task_id / "closed-claw-steering-events.json"
+    return TASKS_DIR / task_id / "steel-mission-steering-events.json"
 
 
 def persist_steering_events(task_id: str | None, events: list[dict[str, Any]]) -> None:
@@ -4021,8 +4271,8 @@ def build_bundle(task_id: str, requirement: str, snapshot_policy: dict[str, Any]
         "schemaVersion": 1,
         "taskId": task_id,
         "producedAt": utc_now(),
-        "producer": "closed-claw-chat-local",
-        # This client is worker-local, not the control plain; the request
+        "producer": "steel-mission-chat-local",
+        # This client is worker-local, not the control plane; the request
         # schema has a source for exactly that, and claiming otherwise
         # would misstate where the request came from.
         "provenance": {"source": "worker-local-advisory-client"},
@@ -4989,7 +5239,10 @@ def github_pr_adapter(record: dict[str, Any], workspace: dict[str, Any], change_
     command += ["--title", title[:300], "--body", body[:2000]]
     if mode == "draft":
         command.append("--draft")
-    tool = provider_tool_state("gh")
+    gh_path = shutil.which("gh")
+    tool = {"tool": "gh", "available": bool(gh_path), "path": gh_path or ""}
+    if mode != "readiness":
+        tool = provider_tool_state("gh")
     blockers = []
     if not target:
         blockers.append("github repository is not configured and could not be inferred from origin")
@@ -5049,20 +5302,21 @@ def github_actions_ci_adapter(record: dict[str, Any], workspace: dict[str, Any],
         return {"provider": "command", "status": result.get("status"), "ok": result.get("ok") is True, "required": bool(context.get("ciRequired")), "commandResult": result}
     target = context.get("githubRepository") or context.get("prTarget") or github_repo_from_remote(repo)
     branch = workspace.get("branch") or workspace.get("deliveryBranch") or context.get("branch") or ""
-    tool = provider_tool_state("gh")
     payload: dict[str, Any] = {
         "provider": "github-actions",
         "target": target,
         "branch": branch,
         "required": bool(context.get("ciRequired")),
         "wait": bool(context.get("ciWait")),
-        "tool": tool,
+        "tool": {"tool": "gh", "available": bool(shutil.which("gh")), "path": shutil.which("gh") or ""},
         "runs": [],
         "ok": not bool(context.get("ciRequired")),
         "status": "observed",
     }
     if not context.get("ciRequired") and not context.get("ciWait"):
         return payload
+    tool = provider_tool_state("gh")
+    payload["tool"] = tool
     if not target or not branch:
         return {**payload, "ok": False, "status": "blocked", "blockers": ["GitHub repository or branch is unavailable"]}
     if not tool.get("available") or not tool.get("authenticated"):
@@ -5355,7 +5609,7 @@ def delivery_proof_bundle_payload(record: dict[str, Any]) -> dict[str, Any]:
         ],
         "auditCount": int(record.get("auditCount") or 0),
         "producedAt": utc_now(),
-        "producer": "closed-claw-chat delivery-closure",
+        "producer": "steel-mission-chat delivery-closure",
     }
 
 
@@ -5428,7 +5682,7 @@ def write_delivery_proof_pack(
     manifest = {
         "schemaVersion": 1,
         "missionId": mission_id,
-        "producer": "closed-claw-chat delivery-proof-pack",
+        "producer": "steel-mission-chat delivery-proof-pack",
         "producedAt": utc_now(),
         "proof": proof_ref,
         "report": report_ref,
@@ -5675,7 +5929,7 @@ def delivery_report_markdown_from_proof(proof_artifact: dict[str, Any]) -> str:
     for item in evidence:
         if isinstance(item, dict):
             lines.append(f"- `{item.get('kind')}` · `{item.get('nodeId')}` · `{item.get('payloadHash')}`")
-    lines += ["", "Generated by `closed-claw-chat delivery-closure`."]
+    lines += ["", "Generated by `steel-mission-chat delivery-closure`."]
     return "\n".join(lines) + "\n"
 
 
@@ -6699,7 +6953,7 @@ def supervise_missions_on_startup() -> dict[str, Any]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ClosedClaw/0.1"
+    server_version = "SteelMission/0.1"
 
     def do_HEAD(self) -> None:
         path = urlparse(self.path).path
@@ -6732,6 +6986,23 @@ class Handler(BaseHTTPRequestHandler):
             role = path.strip("/").split("/")[1]
             payload = corporate_workspace(role)
             json_response(self, 200, {"ok": True, "role": payload["role"], "assignments": payload["assignments"]})
+            return
+        if path in {"/api/owner/organizations", "/api/admin/organizations", "/api/publisher/organizations", "/api/user/organizations"}:
+            role = corporate_role(path.strip("/").split("/")[1])
+            registry = organization_registry()
+            active = active_organization()
+            payload = registry if role in {"owner", "admin"} else {
+                "schemaVersion": 1,
+                "activeOrganizationId": active.get("id") or "",
+                "organizations": [active] if active else [],
+            }
+            json_response(self, 200, {
+                "ok": True,
+                "role": role,
+                "canManageOrganizations": role in {"owner", "admin"},
+                "activeOrganization": active,
+                "payload": payload,
+            })
             return
         if path in {"/api/owner/knowledge", "/api/admin/knowledge", "/api/publisher/knowledge", "/api/user/knowledge"}:
             role = corporate_role(path.strip("/").split("/")[1])
@@ -6851,7 +7122,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, 200 if payload.get("ok") else 404, payload)
                 return
         if path == "/api/health":
-            json_response(self, 200, {"ok": True, "service": "closed-claw-chat", **cos_provider_summary()})
+            json_response(self, 200, {"ok": True, "service": "steel-mission-chat", **cos_provider_summary()})
             return
         if path == "/api/runtime-profiles":
             json_response(self, 200, {
@@ -6939,6 +7210,17 @@ class Handler(BaseHTTPRequestHandler):
                 actor = actor_from_payload(body, path.strip("/").split("/")[1])
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_general_knowledge_registry(body, actor["role"])
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+                return
+            json_response(self, 200, {"ok": True, "payload": registry})
+            return
+        if path in {"/api/owner/organizations", "/api/admin/organizations"}:
+            try:
+                body = read_json(self)
+                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                require_actor_role(actor, {"owner", "admin"})
+                registry = save_organization_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
                 return

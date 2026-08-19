@@ -1,5 +1,5 @@
 {
-  "id": "CLOSED-CLAW-ROLE-KNOWLEDGE-REGISTRY",
+  "id": "STEEL-MISSION-ROLE-KNOWLEDGE-REGISTRY",
   "revision": "starter-r01",
   "rule": "Synthetic starter knowledge includes one dossier for every Domain Capability. Owners and admins replace or extend it with customer-owned repositories, folders, and documents.",
   "exclusionsCommon": [],

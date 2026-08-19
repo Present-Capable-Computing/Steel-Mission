@@ -1,17 +1,19 @@
-# Closed-Claw
+# Steel Mission
 
-Closed-Claw is an Agentic Delivery Plain for software teams. It gives an AI-assisted delivery system a governed path from request to evidence: understand, plan, modify, build, test, inspect, repair, PR, deploy, and close.
+Steel Mission is an Agent Delivery Plane for software teams. It gives an AI-assisted delivery system a governed path from request to evidence: understand, plan, modify, build, test, inspect, repair, PR, deploy, and close.
 
-Closed-Claw is part of the Present family of products. Present stands for capable computing. No other Present product assumptions are required to use this repository.
+Steel Mission is part of the Present family of products. Present stands for capable computing. No other Present product assumptions are required to use this repository.
 
 ## Editions
 
-Closed-Claw uses an open-core release model.
+Steel Mission uses an open-core release model.
 
-- Community Edition: source-available for teams to download, inspect, run, modify, and evaluate with the included synthetic starter company.
-- Enterprise Edition: commercial features for production governance, including SSO/OIDC, KMS or external evidence signing, compliance evidence packs, SIEM export, enterprise approval routing, private-cloud deployment templates, and managed integrations.
+- Core: open source under Apache-2.0 for teams to download, inspect, run, modify, and evaluate with the included synthetic starter company.
+- Enterprise Edition: closed-source, proprietary, commercially licensed features and services for production governance, including SSO/OIDC, KMS or external evidence signing, compliance evidence packs, SIEM export, enterprise approval routing, private-cloud deployment templates, and managed integrations.
 
-Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Commercial use of Enterprise Edition features requires a commercial license.
+Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Enterprise Edition functionality is gated behind a commercial license key or equivalent entitlement check.
+
+See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICENSE](LICENSE) for the Apache-2.0 core license text.
 
 ## What It Does
 
@@ -45,7 +47,7 @@ Delivery Coordinator is a role/capability. Binding it to Claude, OpenAI, Glimmer
 ## Running Locally
 
 ```bash
-python3 closed-claw-chat/server.py --host 127.0.0.1 --port 8765 --profile dc13.local
+python3 steel-mission-chat/server.py --host 127.0.0.1 --port 8765 --profile dc13.local
 ```
 
 Open:
@@ -60,7 +62,7 @@ Executable actions should use:
 
 ```bash
 bin/present-control-plane session --actor admin@example.test --role admin
-bin/present-control-plane exec --token "$TOKEN" --json '{"phase":"inspect","repositoryPath":".","command":"python3 -m py_compile closed-claw-chat/server.py"}'
+bin/present-control-plane exec --token "$TOKEN" --json '{"phase":"inspect","repositoryPath":".","command":"python3 -m py_compile steel-mission-chat/server.py"}'
 ```
 
 Direct command execution paths are blocked by default when the control policy requires the guarded runner.
@@ -77,7 +79,7 @@ The signing key is created outside the repository. A customer KMS, Vault Transit
 
 ## n8n And Orchestration
 
-Closed-Claw does not depend on n8n. n8n should be treated as a replaceable orchestration adapter that can request work, receive events, or coordinate external workflows. It is not the source of truth for policy, approval, evidence, or execution authority.
+Steel Mission does not depend on n8n. n8n should be treated as a replaceable orchestration adapter that can request work, receive events, or coordinate external workflows. It is not the source of truth for policy, approval, evidence, or execution authority.
 
 Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
 

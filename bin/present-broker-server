@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local Control Plain broker API and window server."""
+"""Local Control Plane broker API and window server."""
 from __future__ import annotations
 
 import argparse

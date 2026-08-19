@@ -2,7 +2,7 @@
 
 Company: Northstar Forge
 
-Purpose: Provide the base operating assumptions for a software team using Closed-Claw. This document is synthetic starter material. Owners and admins can replace it with their own organization context.
+Purpose: Provide the base operating assumptions for a software team using Steel Mission. This document is synthetic starter material. Owners and admins can replace it with their own organization context.
 
 Principles:
 - Work is planned before execution.

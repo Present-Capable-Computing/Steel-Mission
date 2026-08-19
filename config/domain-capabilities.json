@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "producedAt": "2026-08-19T00:00:00Z",
-  "producer": "closed-claw",
+  "producer": "steel-mission",
   "assignments": [
     {"roleKey": "DC01", "fNumber": "DC01", "displayName": "Counterweight", "publishers": [], "users": []},
     {"roleKey": "DC02", "fNumber": "DC02", "displayName": "Creative", "publishers": [], "users": []},
