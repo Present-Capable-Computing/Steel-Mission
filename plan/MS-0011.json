@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0011",
+  "projectId": "PRJ-0000",
+  "title": "U4 - Legacy retirement and the standing rule",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-10-04",
+  "outcome": "The page that shipped before the rebuild is removed as its own recorded decision, and the workplan carries the standing rule for front-end dependencies so the next person does not relitigate it. PRJ-0001 returns to ACTIVE with its milestone dates re-set from the date it resumes.",
+  "notInScope": "Nothing else. A removal that also changes something is a removal whose regression cannot be attributed. No new dependency, no visual change, no behaviour change.",
+  "taskIds": [],
+  "completionEvidence": "The removal pull request names the decision that authorises it and states how it is undone. The suite is green before and after. The workplan states the dependency rule and the number the audit enforces. PRJ-0001 reads ACTIVE, its estimate is re-defended at the boundary and the delta is printed rather than absorbed.",
+  "metadata": {
+    "stage": "U4",
+    "focusedDaysBudget": 0.5,
+    "risk": "A rollout flag left in place is a permanent fork with two surfaces and one set of tests. The same rule PRJ-0001 applies to its orchestrator flag applies here: the flag and the superseded page are deleted, not parked."
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0008",
+  "projectId": "PRJ-0000",
+  "title": "U1 - One vocabulary, in the page that ships today",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-09-02",
+  "outcome": "Profile, Role and Capability each name exactly one thing in visible text. The capability list is derived from the registry the server already publishes rather than a hardcoded array, and a label prints its key once instead of twice. The picker that chooses which model executes the Delivery Coordinator says so, rather than being labelled Profile beside a list of thirteen capabilities it has nothing to do with. The definition of a Domain Capability is visible to publishers and users, not only behind the owner gate. The work-mode switch states what it changes.",
+  "notInScope": "No build step, no framework, no bundler: this milestone edits the shipped page in place, which is what makes it cheap and immediately visible. No restructuring of the eight-section settings dialog, which is MS-0010. No wire renames - the boundary stated in MS-0007 holds here unchanged, because this is a presentation vocabulary and every field, endpoint and environment variable keeps its name.",
+  "taskIds": [],
+  "completionEvidence": "A user-interface contract test exists, is green, and asserts behaviour rather than implementation: the capability list is registry-derived and no hardcoded capability array remains, a label never prints its key twice, the capability definition appears for a non-manager role, and the work-mode control carries an accessible description. A lexicon test refuses the banned collocations - Profile adjacent to a capability list, Role labelling a capability control, a bare capability key in prose. Every assertion was watched to fail against the page as it ships today.",
+  "metadata": {
+    "stage": "U1",
+    "focusedDaysBudget": 1.5,
+    "risk": "This milestone exists partly to buy safety for a later one. The contract test written here is what makes the 231 implementation-pinning assertions in the existing suite retirable at the interface flip; without it those assertions are deleted under pressure with nothing replacing them.",
+    "why": "The vocabulary lands before the rebuild so the rebuild is not translating two vocabularies at once."
+  }
+}

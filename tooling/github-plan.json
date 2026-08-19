@@ -49,9 +49,47 @@
           "acceptance criterion"
         ],
         "$comment": "An acceptance criterion is a task, but it is the criterion the milestone exists to satisfy, so it is worth seeing separately."
+      },
+      {
+        "name": "Project",
+        "dataType": "SINGLE_SELECT",
+        "from": "label:prj:",
+        "options": [
+          "PRJ-0000",
+          "PRJ-0001"
+        ],
+        "$comment": "Which project an item belongs to, taken from its prj: label. Two projects share one board."
+      },
+      {
+        "name": "Stage",
+        "dataType": "SINGLE_SELECT",
+        "from": "label:stage:",
+        "options": [
+          "U0",
+          "U1",
+          "U2",
+          "U3",
+          "U4"
+        ],
+        "$comment": "PRJ-0000 stage. PRJ-0001 uses Phase; an item carrying neither label is reported unset rather than guessed."
       }
     ],
     "views": [
+      {
+        "name": "PRJ-0000",
+        "layout": "TABLE_LAYOUT",
+        "filter": "label:prj:PRJ-0000 -label:epic",
+        "visibleFields": [
+          "Title",
+          "Stage",
+          "Area",
+          "Kind",
+          "Status",
+          "Milestone",
+          "Assignees"
+        ],
+        "$comment": "The active project's tasks in stage order."
+      },
       {
         "name": "By phase",
         "layout": "TABLE_LAYOUT",
@@ -201,9 +239,89 @@
       "name": "area:docs",
       "color": "c5def5",
       "description": "Documentation that moves with a contract"
+    },
+    {
+      "name": "prj:PRJ-0000",
+      "color": "0e8a16",
+      "description": "Usable surface and honest admin writes (active)"
+    },
+    {
+      "name": "prj:PRJ-0001",
+      "color": "6a737d",
+      "description": "Durable broker and remote pull-runner (paused)"
+    },
+    {
+      "name": "stage:U0",
+      "color": "d93f0b",
+      "description": "MS-0007 Configuration integrity and the admin write path"
+    },
+    {
+      "name": "stage:U1",
+      "color": "fbca04",
+      "description": "MS-0008 One vocabulary, in the page that ships today"
+    },
+    {
+      "name": "stage:U2",
+      "color": "1d76db",
+      "description": "MS-0009 A build step, recorded and reversible"
+    },
+    {
+      "name": "stage:U3",
+      "color": "1d76db",
+      "description": "MS-0010 The rebuilt console at parity, then default"
+    },
+    {
+      "name": "stage:U4",
+      "color": "1d76db",
+      "description": "MS-0011 Legacy retirement and the standing rule"
+    },
+    {
+      "name": "area:ui",
+      "color": "c5def5",
+      "description": "The console: layout, vocabulary, build"
+    },
+    {
+      "name": "area:identity",
+      "color": "c5def5",
+      "description": "Actors, roles, capability authorization"
+    },
+    {
+      "name": "area:config-integrity",
+      "color": "c5def5",
+      "description": "Configuration writers, validation, refusals"
     }
   ],
   "milestones": [
+    {
+      "recordId": "MS-0007",
+      "title": "U0 — Configuration integrity and the admin write path",
+      "due_on": "2026-08-27T23:59:59Z",
+      "description": "MS-0007 · record: plan/MS-0007.json · PRJ-0000 · stage U0\n\nOutcome: Every writer of a configuration file refuses input it cannot represent instead of coercing it and answering 200. The domain-capability registry loses its one-way door: a file in the shipped shape stays readable after the first save, and a user identifier absent from the user registry is refused rather than accepted. Capability authorization on mission bindings is enforced in every identity mode, with the development allowance stated in the auth policy rather than implied by a mode branch. Every configuration writer validates against a registered schema before it writes. The only writer of the capability registry has tests.\n\nNot in scope: No interface change of any kind, no build step, no framework. No renaming of any wire field, configuration key, environment variable or module-level function: snapshotProfile, runtimeProfile, the runtime-profile endpoint, STEEL_MISSION_RUNTIME_PROFILE and resolve_runtime_profile keep their names, because the runtime-profile tests pin them and the harness silently stops patching a renamed function rather than failing. No schema work outside the configuration directory.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
+      "recordId": "MS-0008",
+      "title": "U1 — One vocabulary, in the page that ships today",
+      "due_on": "2026-09-02T23:59:59Z",
+      "description": "MS-0008 · record: plan/MS-0008.json · PRJ-0000 · stage U1\n\nOutcome: Profile, Role and Capability each name exactly one thing in visible text. The capability list is derived from the registry the server already publishes rather than a hardcoded array, and a label prints its key once instead of twice. The picker that chooses which model executes the Delivery Coordinator says so, rather than being labelled Profile beside a list of thirteen capabilities it has nothing to do with. The definition of a Domain Capability is visible to publishers and users, not only behind the owner gate. The work-mode switch states what it changes.\n\nNot in scope: No build step, no framework, no bundler: this milestone edits the shipped page in place, which is what makes it cheap and immediately visible. No restructuring of the eight-section settings dialog, which is MS-0010. No wire renames - the boundary stated in MS-0007 holds here unchanged, because this is a presentation vocabulary and every field, endpoint and environment variable keeps its name.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
+      "recordId": "MS-0009",
+      "title": "U2 — A build step, recorded and reversible",
+      "due_on": "2026-09-10T23:59:59Z",
+      "description": "MS-0009 · record: plan/MS-0009.json · PRJ-0000 · stage U2\n\nOutcome: The front end builds from typed source with a pinned three-package toolchain. The built page is committed, and continuous integration proves it is byte-identical to a clean rebuild, so a hand-edited bundle cannot enter the tree. The new application is reachable behind a server flag at a non-default route. The contract test from MS-0008 passes against both pages.\n\nNot in scope: The default page does not change: the root route still serves the page that ships today, and that file is left byte-untouched so the existing implementation-pinning assertions stay green. No container change and no new runtime dependency in the image. No static-asset route in the server - the served page remains the single file the server already reads, and the closed route allow-list is preserved. No feature work in the new application beyond what the contract test requires.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
+      "recordId": "MS-0010",
+      "title": "U3 — The rebuilt console at parity, then default",
+      "due_on": "2026-09-30T23:59:59Z",
+      "description": "MS-0010 · record: plan/MS-0010.json · PRJ-0000 · stage U3\n\nOutcome: Settings are navigable structures rather than one dialog holding eight sections whose element identifiers are all named after profiles. The capability workspace renders for the roles it was written for, having previously rendered for nobody. The owner assignment editor exists, is authorized, and is the interface for the endpoint that had none. The rebuilt application becomes the default page.\n\nNot in scope: No new product capability and no change to any interface contract: every call the new application makes exists today, and the twelve non-coordinator Domain Capabilities do not become conversational agents. The page that ships today remains in the tree and remains reachable. No visual redesign beyond what the information architecture and the named defects require.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
+      "recordId": "MS-0011",
+      "title": "U4 — Legacy retirement and the standing rule",
+      "due_on": "2026-10-04T23:59:59Z",
+      "description": "MS-0011 · record: plan/MS-0011.json · PRJ-0000 · stage U4\n\nOutcome: The page that shipped before the rebuild is removed as its own recorded decision, and the workplan carries the standing rule for front-end dependencies so the next person does not relitigate it. PRJ-0001 returns to ACTIVE with its milestone dates re-set from the date it resumes.\n\nNot in scope: Nothing else. A removal that also changes something is a removal whose regression cannot be attributed. No new dependency, no visual change, no behaviour change.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
     {
       "recordId": "MS-0001",
       "title": "P0 — Toolchain and CI baseline",
@@ -249,7 +367,8 @@
       "labels": [
         "epic",
         "P0",
-        "area:ci"
+        "area:ci",
+        "prj:PRJ-0001"
       ],
       "outcome": "Every dependency and runtime jump currently open is landed or explicitly rejected with the full suite green on each. Continuous integration compiles every entrypoint rather than four of them. The test harness has the markers, the requirements split and the fixtures that P1 through P4 need before any of them start writing tests.",
       "notInScope": "No durable store, no runner protocol, no orchestration change, no renaming. This milestone touches build, test and dependency surfaces only.",
@@ -262,7 +381,8 @@
       "labels": [
         "epic",
         "P1",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "outcome": "Broker state lives in one transactional store behind one interface, with a SQLite backend by default and a PostgreSQL backend available. Concurrent writers are serialized rather than overwriting each other. Every lease grant carries a fence token, expiry is swept rather than noticed lazily on the next read, and a daemon drives workflows so that killing the coordinator mid-job resumes the work instead of stranding it.",
       "notInScope": "No remote runner and no gRPC surface; node invocation stays on the local subprocess path. No connector inbox or outbox. No change to mission orchestration beyond routing its reads through the store. The legacy JSON state document is still mirrored and is not retired in this milestone.",
@@ -276,7 +396,8 @@
         "epic",
         "P2",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "outcome": "A runner process inside customer infrastructure dials out over mutual TLS, claims jobs from the broker, materializes its own source from a pinned commit or bundle digest, executes in a digest-pinned image, and returns a result signed with its own key and bound to the job, the runner, the image and the inputs. Secrets are carried as references and resolved just in time.",
       "notInScope": "No change to the local subprocess execution path, which stays the default so the existing suite keeps exercising it. No connector work. No mission orchestration change. Multi-tenant runner pools and regional placement are later phases; the schema must not preclude them.",
@@ -289,7 +410,8 @@
       "labels": [
         "epic",
         "P3",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "outcome": "Signed inbound events land in a transactional inbox where a unique deduplication key decides which single transaction starts a mission. Outbound connector actions are written to an outbox in the same transaction as the evidence they record, and delivered by a worker with exponential backoff, jitter, honoured retry hints and an attempt cap that ends in a dead-letter queue.",
       "notInScope": "No change to signature verification on ingress. No new connectors. Exactly-once reply is effective, not absolute, and degrades visibly where a connector cannot be queried for a marker.",
@@ -302,7 +424,8 @@
       "labels": [
         "epic",
         "P4",
-        "area:orchestration"
+        "area:orchestration",
+        "prj:PRJ-0001"
       ],
       "outcome": "There is one orchestration path. Mission control becomes a client of the broker rather than a parallel engine, approval gates are a first-class waiting state on a job, and a restart resumes missions rather than marking them paused.",
       "notInScope": "No new mission semantics. Node lists translate to a sequential chain, preserving today's ordering. Mission documents and the integrity chain stay authoritative and are referenced by digest.",
@@ -315,11 +438,82 @@
       "labels": [
         "epic",
         "P5",
-        "area:naming"
+        "area:naming",
+        "prj:PRJ-0001"
       ],
       "outcome": "The repository names one product. Executable names, environment variable prefixes, schema identifier namespaces and prose all read Steel-Mission, with no residual reference to the separate programme this code was extracted from.",
       "notInScope": "No behaviour change of any kind. This milestone renames and shims only.",
       "done": "A search of the tracked tree for the prior product name returns only the migration provenance record and the compatibility shim table, both of which name it deliberately. The suite passes before and after each rename step, and every removed shim is its own recorded decision."
+    },
+    {
+      "key": "epic-u0",
+      "title": "U0 — Configuration integrity and the admin write path",
+      "milestone": "MS-0007",
+      "labels": [
+        "epic",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "outcome": "Every writer of a configuration file refuses input it cannot represent instead of coercing it and answering 200. The capability registry loses its one-way door. Capability authorization is enforced in every identity mode. Every configuration writer validates against a registered schema before it writes.",
+      "notInScope": "No interface change, no build step, no framework. No renaming of any wire field, configuration key, environment variable or module-level function — the runtime-profile tests pin those names and the harness stops patching a renamed function without failing.",
+      "done": "A test exists for each refusal and was watched to fail without the change. The capability-registry endpoint has authorization and round-trip tests. Every configuration writer validates against a registered schema. Full suite green on both interpreters."
+    },
+    {
+      "key": "epic-u1",
+      "title": "U1 — One vocabulary, in the page that ships today",
+      "milestone": "MS-0008",
+      "labels": [
+        "epic",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "outcome": "Profile, Role and Capability each name exactly one thing in visible text. Labels are derived from the registry the server publishes rather than hardcoded, and a label prints its key once. The definition of a Domain Capability is visible to the people who are assigned capabilities.",
+      "notInScope": "No build step, no framework, no bundler — this edits the page that ships today. No restructuring of the settings dialog, which is U3. No wire renames: this is a presentation vocabulary and every field, endpoint and environment variable keeps its name.",
+      "done": "A behavioural contract test is green against the shipped page, with every assertion watched to fail first. A lexicon test refuses the banned collocations."
+    },
+    {
+      "key": "epic-u2",
+      "title": "U2 — A build step, recorded and reversible",
+      "milestone": "MS-0009",
+      "labels": [
+        "epic",
+        "prj:PRJ-0000",
+        "stage:U2",
+        "area:ui"
+      ],
+      "outcome": "The front end builds from typed source with a pinned three-package toolchain. The built page is committed and continuous integration proves it is a clean rebuild. The new application is reachable behind a server flag at a non-default route.",
+      "notInScope": "The default page does not change and the page that ships today is byte-untouched, so the existing implementation-pinning assertions stay green. No container change, no new runtime dependency in the image, and no static-asset route in the server.",
+      "done": "A clean checkout rebuilds to a byte-identical committed page. The existing script-parse test still passes against the built output. The dependency audit is clean. Reverting the build commit leaves a working product, demonstrated."
+    },
+    {
+      "key": "epic-u3",
+      "title": "U3 — The rebuilt console at parity, then default",
+      "milestone": "MS-0010",
+      "labels": [
+        "epic",
+        "prj:PRJ-0000",
+        "stage:U3",
+        "area:ui"
+      ],
+      "outcome": "Settings are navigable structures rather than one dialog of eight sections. The capability workspace renders for the roles it was written for. The owner assignment editor exists and is the interface for the endpoint that had none. The rebuilt application becomes the default.",
+      "notInScope": "No new product capability and no interface contract change: every call the new application makes exists today, and the twelve non-coordinator capabilities do not become conversational agents. The superseded page stays in the tree and reachable. No visual redesign beyond what the information architecture and the named defects require.",
+      "done": "The contract test covers each restored behaviour, watched to fail first. The 231 implementation pins are removed in the flip pull request with the contract test already green for two milestones. The container comes up and the shipped demo organisation is reachable."
+    },
+    {
+      "key": "epic-u4",
+      "title": "U4 — Legacy retirement and the standing rule",
+      "milestone": "MS-0011",
+      "labels": [
+        "epic",
+        "prj:PRJ-0000",
+        "stage:U4",
+        "area:ui"
+      ],
+      "outcome": "The page that shipped before the rebuild is removed as its own recorded decision, the workplan carries the standing rule for front-end dependencies, and PRJ-0001 returns to active with dates re-set from the day it resumes.",
+      "notInScope": "Nothing else. A removal that also changes something is a removal whose regression cannot be attributed.",
+      "done": "The removal names the decision that authorises it and states how it is undone. The suite is green before and after. PRJ-0001 reads active and its estimate is re-defended with the delta printed."
     }
   ],
   "issues": [
@@ -330,7 +524,8 @@
       "labels": [
         "task",
         "P0",
-        "area:ci"
+        "area:ci",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p0",
       "requirement": "The open checkout action bump is merged, or closed with a written reason recorded in the pull request. Workflows run with repository credentials, so an unreviewed action bump is a real change and is reviewed as one.",
@@ -344,7 +539,8 @@
       "labels": [
         "task",
         "P0",
-        "area:ci"
+        "area:ci",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p0",
       "requirement": "The open setup-python action bump is merged, or closed with a written reason. A two-major-version jump in the action that provisions the interpreter can change which patch release the matrix actually runs; confirm the resolved versions before merging, do not infer them.",
@@ -358,7 +554,8 @@
       "labels": [
         "task",
         "P0",
-        "area:ci"
+        "area:ci",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p0",
       "requirement": "The open grouped development dependency bump is merged, or closed with a written reason. A grouped bump hides which member broke the suite, so if it fails, split it before diagnosing.",
@@ -373,7 +570,8 @@
         "task",
         "P0",
         "area:ci",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p0",
       "requirement": "The container base image jump is landed or rejected on evidence. The container runtime and the continuous integration interpreter matrix are different runtimes that fail independently: a green matrix says nothing about the container, and a built container says nothing about the matrix. Whichever way this goes, the reason is written down.",
@@ -388,7 +586,8 @@
       "labels": [
         "task",
         "P0",
-        "area:ci"
+        "area:ci",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p0",
       "requirement": "The CI compile step covers the same entrypoints as `make release-check`. Today CI compiles four files and the local gate compiles five, so the private runner and the lease broker can be pushed with a syntax error that only the local gate would have caught. The two lists come from one place so they cannot drift again.",
@@ -402,7 +601,8 @@
       "labels": [
         "task",
         "P0",
-        "area:ci"
+        "area:ci",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p0",
       "requirement": "A root pytest configuration declares the postgres, docker and slow markers, and a conftest provides the shared fixtures the later phases need: a temporary store, process managers for the daemon and agents, a fake connector server and a crash-point helper. These exist before P1 writes its first test, so that no phase invents its own harness.",
@@ -416,7 +616,8 @@
       "labels": [
         "task",
         "P0",
-        "area:ci"
+        "area:ci",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p0",
       "requirement": "Requirements are split into runtime, an optional PostgreSQL extra, and development. The cryptography dependency moves from development to runtime, because P2 signs with it in production. The default SQLite path stays on the standard library plus the runtime file, so an operator who does not want PostgreSQL never installs psycopg.",
@@ -430,7 +631,8 @@
       "labels": [
         "task",
         "P1",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "One storage interface exists with a SQLite backend behind it: transactions, job claim, event append, exclusive state for a task, and a factory that opens a store from a URL. SQLite uses write-ahead logging, immediate-mode write transactions, a busy timeout and a durable commit, so that two processes writing at once serialize rather than corrupt. Table definitions are portable, with the dialect differences confined to one shim.",
@@ -444,7 +646,8 @@
       "labels": [
         "task",
         "P1",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "A single transition table governs job and workflow states, with one entry point that applies the transition and appends the event row in the same transaction, so an event and the state it describes can never disagree. A compatibility map covers the legacy status set, so nothing that reads the old statuses breaks.",
@@ -458,7 +661,8 @@
       "labels": [
         "task",
         "P1",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "Broker state reads and writes go through the store, with every read-modify-write wrapped in an exclusive state transaction. No command handler is rewritten in this step — the point is to convert last-writer-wins into serialized transactions underneath handlers that do not change, so that any behaviour difference is attributable to the storage swap alone. The legacy JSON document is mirrored after each mutation and auto-migrates on first open.",
@@ -476,7 +680,8 @@
       "labels": [
         "task",
         "P1",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "No code path sets a status directly. Every status change goes through the transition entry point, which is what makes the event log complete rather than mostly complete.",
@@ -494,7 +699,8 @@
         "task",
         "P1",
         "area:store",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "Leases live in their own table and the broker is authoritative over grant, heartbeat, expiry and reclaim. Every grant increments a per-job fence token; heartbeats and results carry it and a stale fence is refused. A sweeper expires leases on a timer rather than lazily on the next read, so an expired lease is expired whether or not anyone looked. Heartbeat renewal writes the leases table directly and never inside the exclusive state transaction, because a transaction held across a renewal collapses throughput.",
@@ -511,7 +717,8 @@
       "labels": [
         "task",
         "P1",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "The distributed run loop moves out of the command handler into a controller: admission, topological ready batches, dispatch, collect, retry. Exponential backoff is added behind configuration whose default reproduces today's single retry exactly, so the change is invisible to existing behaviour until someone turns it on. The distributed run command becomes enqueue-then-drive-synchronously and produces identical output.",
@@ -529,7 +736,8 @@
         "task",
         "P1",
         "area:store",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "A daemon drives workflows continuously: the controller loop, the lease sweeper, a controller-singleton leader lease so that two daemons cannot co-drive one workflow, an authenticated HTTP operations API replacing the subprocess-per-request broker server, and a graceful drain on SIGTERM. The operations API reads its bearer token from a 0600 file, matching the existing key conventions. The existing broker server becomes a thin authenticated proxy with its response shapes preserved.",
@@ -546,7 +754,8 @@
       "labels": [
         "task",
         "P1",
-        "area:schema"
+        "area:schema",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "The store archive, lease record and daemon status schemas exist with registry entries, and the event type registry gains job claimed, lease expired, lease reclaimed, workflow resumed after restart, controller elected and controller drained. Schemas land before the code that produces them, per the repository's schema-first discipline.",
@@ -560,7 +769,8 @@
       "labels": [
         "task",
         "P1",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "A PostgreSQL backend passes the same parity suite as SQLite, claiming work by row lock with skip-locked. It is optional: the default path stays on the standard library. A development compose file and a CI service job run the suite against a real server, because a portability layer tested only against one dialect is a portability layer that has not been tested.",
@@ -578,7 +788,8 @@
         "task",
         "P1",
         "acceptance-criterion",
-        "area:store"
+        "area:store",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "Killing the coordinator in the middle of a job resumes the work on restart and produces the side effect exactly once. This is the criterion the whole of P1 exists to satisfy; if it does not pass, the durability work is not done regardless of what else is green.",
@@ -595,7 +806,8 @@
       "labels": [
         "task",
         "P1",
-        "area:docs"
+        "area:docs",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p1",
       "requirement": "The architecture and operations documents describe the store, the daemon, the leader lease, fencing and the operations API, in the same pull requests as the code where the contract moved. An operator can find how to back up, restore and inspect the store without reading the source.",
@@ -609,7 +821,8 @@
       "labels": [
         "task",
         "P2",
-        "area:schema"
+        "area:schema",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The v2 job specification replaces the host-local workspace path with a source that is a pinned commit, a bundle digest, or none; pins the image by digest; carries the command as an argument vector; carries secrets as references only, never values; and declares an egress profile, resources, an idempotency key, a retry policy, a deadline and its attestation requirements. The v2 result carries the fence token, the runner id, the image digest actually used, the input hashes, the outputs, a log digest, output tails with explicit truncation markers, and a signature with a key id. Truncation is marked because output that stops silently is indistinguishable from output that ended.",
@@ -623,7 +836,8 @@
       "labels": [
         "task",
         "P2",
-        "area:runner"
+        "area:runner",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The gRPC service definition exists with its generated code checked in, a make target regenerates it, and a check target fails CI if the generated code has drifted from the definition. Message bodies are canonical JSON validated against the v2 schemas; the protocol buffer is framing only and never becomes the schema of record.",
@@ -641,7 +855,8 @@
         "task",
         "P2",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The container hardening logic moves out of the private runner executable into an importable module, and the executable becomes a thin command-line wrapper over it. Its v1 schema and every one of its existing tests are unchanged. This is a pure refactor and ships alone: a regression here weakens an isolation boundary without failing anything, which is why it gets its own pull request and a characterization test rather than being folded into the gateway work.",
@@ -656,7 +871,8 @@
         "task",
         "P2",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "A runner enrols, presenting its labels and its result-signing public key, and does no work until a person approves it. The public key is pinned at enrolment, so a runner that later presents a different key is a different runner. Shared-secret identity is not extended to remote runners.",
@@ -671,7 +887,8 @@
         "task",
         "P2",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The daemon exposes a runner-facing gRPC gateway that maps a peer certificate to a runner row and performs claim, heartbeat and result inside store transactions. Streams hold no durable truth: everything lives in the database, a hello re-associates a runner after a reconnect, and leases outlive stream death until their time to live expires. The listener is off by default until the agent exists.",
@@ -691,7 +908,8 @@
         "task",
         "P2",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The agent dials out over mutual TLS, claims work, materializes its own source from a pinned commit or a bundle digest, resolves secret references just in time into the sandboxed process environment, executes through the extracted sandbox module, streams artifacts in chunks rather than base64 over standard input and output, and signs its result. It reports the image digest the container runtime actually used, not the one it was asked for.",
@@ -710,7 +928,8 @@
         "task",
         "P2",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The gateway and the agent authenticate each other with mutual TLS, configured through a daemon configuration block. A development helper issues a local certificate authority and leaf certificates, built on the cryptography dependency already present. The helper is explicitly for development and says so where an operator will read it, so that nobody ships its output.",
@@ -727,7 +946,8 @@
       "labels": [
         "task",
         "P2",
-        "area:runner"
+        "area:runner",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The dormant transport-kind seam branches: the remote runner kind routes node invocation to a job-table enqueue and a wait on the result. The local subprocess kind stays the default and is not touched, so the whole existing suite keeps exercising the unchanged path. The remote artifact store stub becomes real.",
@@ -745,7 +965,8 @@
         "task",
         "P2",
         "acceptance-criterion",
-        "area:runner"
+        "area:runner",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "A runner that dies mid-job has its lease reclaimed by another runner, and if the dead runner comes back and replays its old result, that result is refused. Reclaim without fencing is not safety; it is a second writer.",
@@ -764,7 +985,8 @@
         "P2",
         "acceptance-criterion",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "A secret resolved for a job never appears in process arguments, in the store, in the logs, or in an artifact. The test is a grep for a sentinel across all four, and any path added later that could carry a secret is added to it.",
@@ -783,7 +1005,8 @@
         "P2",
         "acceptance-criterion",
         "area:runner",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "A result is only accepted if it is bound to the job it was issued for, the runner that claimed it, the image that actually ran, and the inputs that were supplied. A signature that proves who sent a result, without binding what it describes, proves very little.",
@@ -800,7 +1023,8 @@
       "labels": [
         "task",
         "P2",
-        "area:docs"
+        "area:docs",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p2",
       "requirement": "The control-plane protocol document gains the v2 surfaces, the security policy moves remote scheduling out of what is not yet included, and the operations document explains enrolling, approving, revoking and operating a runner in someone else's infrastructure.",
@@ -814,7 +1038,8 @@
       "labels": [
         "task",
         "P3",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "The inbox and outbox tables and their modules exist and are tested in isolation before anything is wired to them, so that a failure during the swap is attributable to the swap. The outbox delivery worker does exponential backoff with jitter, honours a retry hint on 429 and 503, and caps attempts into a dead-letter queue.",
@@ -829,7 +1054,8 @@
         "task",
         "P3",
         "area:connector",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "Workflow ingress deduplicates by a unique key in one transaction that either inserts or does nothing, and the mission starts only for the transaction that inserted and claimed the row. This replaces a receipt file plus a lock released before the work begins, which is a race whose window is exactly the time it takes to start a mission. Signature verification is unchanged.",
@@ -846,7 +1072,8 @@
       "labels": [
         "task",
         "P3",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "GitHub connector actions are enqueued to the outbox in the same transaction as the evidence write, and delivered by the worker. An idempotency marker is embedded in the body so that an in-flight row can be verified by query after a restart before anything is re-sent. GitHub ships first precisely because its marker can be read back.",
@@ -863,7 +1090,8 @@
       "labels": [
         "task",
         "P3",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "Slack connector actions go through the outbox on the same pattern, using message metadata as the idempotency marker. Where the marker cannot be read back reliably, the behaviour degrades to a retry with a visible duplicate annotation, and the documentation says which of the two applies.",
@@ -880,7 +1108,8 @@
       "labels": [
         "task",
         "P3",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "Jira connector actions go through the outbox on the same pattern, using an entity property as the idempotency marker, with the same honest degradation rule where it cannot be read back.",
@@ -897,7 +1126,8 @@
       "labels": [
         "task",
         "P3",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "An operator can list the dead-letter queue and requeue an entry, with the reason for each entry recorded. A dead letter nobody can see is a dropped message with extra steps.",
@@ -915,7 +1145,8 @@
         "task",
         "P3",
         "acceptance-criterion",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "Five identical correctly signed inbound requests arriving concurrently start exactly one mission.",
@@ -933,7 +1164,8 @@
         "task",
         "P3",
         "acceptance-criterion",
-        "area:connector"
+        "area:connector",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p3",
       "requirement": "A connector endpoint that rejects twice with a retry hint and then accepts receives exactly one message. A crash after the post, before the row is marked delivered, also results in exactly one message.",
@@ -950,7 +1182,8 @@
       "labels": [
         "task",
         "P4",
-        "area:orchestration"
+        "area:orchestration",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "A mission translates into a workflow: the node list becomes a sequential chain, preserving today's ordering exactly. Job kinds are mission-node for the existing control-plane node kinds and sandbox-job for delivery steps under the v2 specification. Parallel execution is possible under the new model and is deliberately not turned on here, so that a behaviour difference in this milestone cannot be attributed to a scheduling change.",
@@ -967,7 +1200,8 @@
       "labels": [
         "task",
         "P4",
-        "area:orchestration"
+        "area:orchestration",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "The chat server runs an in-process runner with a mission-control label that claims mission-node jobs and executes the existing mission node bodies unchanged. The bodies are not rewritten in this step; only what invokes them changes. The chat server is loaded by path with module-scope monkeypatching, so no patched module-level function is renamed — wrap instead.",
@@ -985,7 +1219,8 @@
         "task",
         "P4",
         "area:orchestration",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "An approval gate is a waiting state on a job, and approving or resuming a mission signals that job through the shared command module. Separation of duties is retained at the point of signalling. The approval evidence is written before any successor is dispatched, in the same transaction, so that a crash between the two cannot produce work whose authorization was never recorded.",
@@ -1002,7 +1237,8 @@
       "labels": [
         "task",
         "P4",
-        "area:orchestration"
+        "area:orchestration",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "Startup supervision is replaced: the sweeper reclaims dead mission-node leases and missions resume automatically. The field that recorded orphaned-at-startup is removed along with the tests that assert it, because a field that reports a failure to resume is not needed once the work resumes. Enumerate the affected tests by grepping for that field, the orchestrator launcher and the supervision entrypoint before writing any code.",
@@ -1020,7 +1256,8 @@
         "task",
         "P4",
         "area:orchestration",
-        "area:schema"
+        "area:schema",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "Evidence is mirrored into a table carrying its digest, chain hashes and signature, so that an archive export captures workflow, approvals and evidence in one restorable artifact. Mission documents and the integrity chain stay authoritative and are referenced by digest — the table is an index, never a replacement.",
@@ -1037,7 +1274,8 @@
       "labels": [
         "task",
         "P4",
-        "area:orchestration"
+        "area:orchestration",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "The rollout flag defaults to legacy while tests migrate, flips to broker mid-phase, and the legacy orchestrator code and the flag itself are deleted at the end of the phase. A rollout flag left in place is a permanent fork with two code paths and one set of tests.",
@@ -1055,7 +1293,8 @@
         "task",
         "P4",
         "acceptance-criterion",
-        "area:orchestration"
+        "area:orchestration",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "An archive taken while a mission is waiting on an approval restores to a state where the hash chain verifies, the approval can still be completed, and no connector delivery is duplicated by the restore.",
@@ -1074,7 +1313,8 @@
         "task",
         "P4",
         "acceptance-criterion",
-        "area:orchestration"
+        "area:orchestration",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p4",
       "requirement": "The P1 coordinator-death criterion holds for missions, not only for broker workflows. Missions were the path that previously stranded work on restart, so passing it at the broker level does not settle it.",
@@ -1091,7 +1331,8 @@
       "labels": [
         "task",
         "P5",
-        "area:naming"
+        "area:naming",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p5",
       "requirement": "A written inventory of every surface carrying the prior product name: executable names, environment variable prefixes, schema identifier namespaces, configuration keys, documentation and prose. Each entry says whether it is externally visible, because an externally visible name cannot simply be changed.",
@@ -1105,7 +1346,8 @@
       "labels": [
         "task",
         "P5",
-        "area:naming"
+        "area:naming",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p5",
       "requirement": "A decision record states the target names, which compatibility shims are provided, how long each survives, and what removing one requires. A published schema identifier that has already been consumed is not renamed on a whim; the record says which ones those are.",
@@ -1122,7 +1364,8 @@
       "labels": [
         "task",
         "P5",
-        "area:naming"
+        "area:naming",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p5",
       "requirement": "Executables are renamed to the Steel-Mission names, each keeping a working compatibility name for one release. The suite drives these as subprocesses by name, so this is a test-visible change in roughly two hundred places at once: land the shim first, migrate the call sites second, remove the shim third, with the suite green between each.",
@@ -1139,7 +1382,8 @@
       "labels": [
         "task",
         "P5",
-        "area:naming"
+        "area:naming",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p5",
       "requirement": "Environment variables move to the Steel-Mission prefix, reading both prefixes for one release with the new one taking precedence and the old one emitting a deprecation notice. An operator whose deployment sets the old names does not have a broken deployment on upgrade day.",
@@ -1157,7 +1401,8 @@
         "task",
         "P5",
         "area:naming",
-        "security-review"
+        "security-review",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p5",
       "requirement": "Schema identifiers move to the Steel-Mission namespace, following the decision record on which already-published identifiers may move and which must not. An identifier is a contract with whoever validates against it; changing one silently breaks them.",
@@ -1175,7 +1420,8 @@
         "task",
         "P5",
         "area:naming",
-        "area:docs"
+        "area:docs",
+        "prj:PRJ-0001"
       ],
       "epic": "epic-p5",
       "requirement": "The README, architecture, operations, security, install, quickstart and protocol documents name one product. The only remaining references to the prior name are the migration provenance record and the compatibility shim table, both of which name it deliberately.",
@@ -1185,6 +1431,649 @@
         "p5-binaries",
         "p5-env",
         "p5-schema-ids"
+      ]
+    },
+    {
+      "key": "u0-schemas",
+      "title": "Add schemas for the configuration files and register them",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "The user registry, organisation registry, capability registry and auth policy each have a schema in schemas/canonical/ registered in the schema registry. Schemas land before the code that enforces them, per the repository's schema-first discipline. The runtime-profile and model-role schemas already exist and are reused rather than duplicated.",
+      "acceptance": "Each new schema validates the shipped configuration file it describes, and rejects a fixture with the defect it is meant to catch. Registry entries are appended rather than the file re-sorted, so the diff shows the additions. No behaviour change yet: nothing validates on write until a later task.",
+      "surface": "schemas (authority-owned)"
+    },
+    {
+      "key": "u0-loader-both-shapes",
+      "title": "Let the capability registry loader read both file shapes",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "The loader accepts the shipped shape and the normalized shape with a stated precedence, so the first save is no longer a one-way door. Today the writer always emits the normalized shape and the loader prefers it, after which the shipped arrays are never read again and later hand-edits are silently ignored. This lands before anything can call the writer: building the assignment interface first would arm a destructive flip that is currently unreachable from a browser.",
+      "acceptance": "A test writes the shipped-shape registry, saves through the endpoint, reloads, and asserts the existing assignment still resolves. Watched to fail against the current loader. The shipped configuration file is unchanged by the round trip in any way that loses information.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-schemas"
+      ]
+    },
+    {
+      "key": "u0-fail-closed-parse",
+      "title": "Fail closed when the capability registry cannot be parsed",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "A parse error is recorded and refused rather than silently answered with a different schema shape that grants the coordinator capability to two synthetic identifiers. A configuration file that cannot be read is an operational fault, not a cue to invent a working default.",
+      "acceptance": "A test corrupts the registry and asserts the failure is surfaced and recorded, and that no synthetic assignment appears. Watched to fail against the current fallback.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-loader-both-shapes"
+      ]
+    },
+    {
+      "key": "u0-user-crosscheck",
+      "title": "Refuse capability assignments for users that do not exist",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "An assignment naming a user identifier absent from the user registry is refused with the offending list, rather than persisted and re-emitted as though it were real. There is no cross-check today.",
+      "acceptance": "A test posts an assignment for an unknown identifier and asserts a refusal naming it, and that the registry is unchanged. Watched to fail.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-loader-both-shapes"
+      ]
+    },
+    {
+      "key": "u0-refuse-user-registry",
+      "title": "Stop the user registry coercing what it cannot represent",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "An empty user list is refused rather than silently repopulating four default accounts with no identity subjects. A suspended status is refused or honoured rather than coerced to active — today attempting to suspend a user re-enables them. An unknown capability key is reported rather than dropped.",
+      "acceptance": "Three tests, each watched to fail: an empty post is refused and the registry is unchanged; a suspended status does not come back active; an unknown capability key is named in the response rather than silently removed. Existing tests that relied on a coercion are changed deliberately in this pull request, with the reason stated.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-schemas"
+      ]
+    },
+    {
+      "key": "u0-refuse-organization",
+      "title": "Stop an organisation with no capabilities being granted all of them",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "An organisation saved with zero domain capabilities keeps zero. Today an empty list is falsy and the code substitutes every valid capability, so removing all capabilities from an organisation grants it all thirteen. The same pattern applies to knowledge domains.",
+      "acceptance": "A test saves an organisation with an empty capability list and asserts it has none, then does the same for knowledge domains. Watched to fail against the current substitution.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-schemas"
+      ]
+    },
+    {
+      "key": "u0-refuse-assignments-wipe",
+      "title": "Stop an empty assignments post wiping the register",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "A malformed or truncated assignments body is refused rather than emptying every capability assignment and answering 200.",
+      "acceptance": "A test posts an empty body and asserts a refusal with the register intact. Watched to fail.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-loader-both-shapes"
+      ]
+    },
+    {
+      "key": "u0-refuse-worktree-mode",
+      "title": "Refuse an unrecognised worktree mode instead of mutating the checkout",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "An unrecognised worktree mode is refused. Today it is silently forced to in-place, which mutates the source checkout, behind a 202 that reports acceptance. This is the most dangerous coercion in the set because the caller asked for isolation and got the opposite.",
+      "acceptance": "A test requests an unrecognised mode and asserts a refusal naming the accepted values, and that no checkout was touched. Watched to fail.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-schemas"
+      ]
+    },
+    {
+      "key": "u0-validate-on-write",
+      "title": "Validate every configuration write against its schema",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "Every configuration writer validates against its registered schema before it replaces the file, using the existing standard-library validator rather than a new dependency. This is what makes the individual refusals permanent rather than a list of patches that the next writer forgets.",
+      "acceptance": "A test asserts each writer refuses a payload that violates its schema, and that the file on disk is unchanged after a refusal. The mutation ledger records the refusal.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-schemas",
+        "u0-refuse-user-registry",
+        "u0-refuse-organization"
+      ]
+    },
+    {
+      "key": "u0-capability-authz",
+      "title": "Enforce capability authorization in every identity mode",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity",
+        "security-review"
+      ],
+      "epic": "epic-u0",
+      "requirement": "Capability enforcement on mission bindings no longer depends on the identity mode. Today it is skipped unless the mode is provider-required, and the shipped mode is not, so any actor can bind any capability to any mission. Any development allowance becomes an explicit key in the auth policy rather than an implied consequence of a mode branch.",
+      "acceptance": "A test asserts a publisher cannot bind a capability they are not assigned, in the shipped identity mode. Every existing binding test is checked before the change and any that depended on the gap is updated deliberately. If the shipped demo needs an allowance, it is a written key with a stated reason, not a silent branch.",
+      "surface": "authentication, authorization, or session handling",
+      "dependsOn": [
+        "u0-user-crosscheck"
+      ]
+    },
+    {
+      "key": "u0-identity-precedence",
+      "title": "A declared role never outranks a resolved registered user",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity",
+        "security-review"
+      ],
+      "epic": "epic-u0",
+      "requirement": "Where a request resolves to an active registered user, that user's access level decides what they may do; a role asserted in a request header cannot exceed it. The loopback development fallback is kept, because it is a deliberate and tested boundary rather than an oversight.",
+      "acceptance": "A test asserts a header-declared owner role does not grant owner access when the resolved user is a publisher. The existing tests pinning loopback-accepted and remote-refused behaviour still pass unchanged.",
+      "surface": "authentication, authorization, or session handling",
+      "dependsOn": [
+        "u0-capability-authz"
+      ]
+    },
+    {
+      "key": "u0-runtime-profile-unknown-id",
+      "title": "Stop fabricating a runtime profile for an unknown identifier",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "An unknown profile identifier is refused. The offline fallback for a known profile is legitimate and stays; fabricating a profile that carries the requested identifier and recording it in a mission as valid is not, because the mission then carries a profile that never existed.",
+      "acceptance": "A test starts a mission against an unknown profile identifier and asserts a refusal. A second asserts the offline fallback still works for a known identifier. Watched to fail. The runtime-profile tests pass unchanged.",
+      "surface": "control plane"
+    },
+    {
+      "key": "u0-status-codes",
+      "title": "One mapping from failure class to status code",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "A permission failure answers 403 and a validation failure answers 400, through one wrapper the admin handlers share. Today the same failure class answers 400 in one handler group and 403 in another purely because of which exception each catches.",
+      "acceptance": "A test asserts the same refusal produces the same status from every admin endpoint. The wrapper is used by all of them.",
+      "surface": "control plane"
+    },
+    {
+      "key": "u0-assignments-tests",
+      "title": "Give the capability registry endpoint tests",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "The only writer of the capability registry has authorization and round-trip tests. It currently has neither, and no interface calls it, so it has never been exercised outside a unit-level save.",
+      "acceptance": "Tests cover: a non-owner is refused; an owner round-trips an assignment; a refusal leaves the file unchanged. It is now safe to build an interface on.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-loader-both-shapes",
+        "u0-user-crosscheck"
+      ]
+    },
+    {
+      "key": "u0-capability-ownership",
+      "title": "Resolve the two capability assignment mechanisms into one",
+      "milestone": "MS-0007",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U0",
+        "area:config-integrity"
+      ],
+      "epic": "epic-u0",
+      "requirement": "There is one place a capability assignment lives. Today there are two: the publisher and user arrays in the capability registry, which are read only when no active user of that role carries any assigned capabilities and then grant the capability to the role collectively; and the assigned capabilities on each user, which is what actually has effect. Pick one, delete the other, and migrate the shipped configuration. Once one mechanism exists, assign the four capabilities that currently have no owner — Counterweight, Creative, Platform and Synthesis — or record deliberately that they are unowned.",
+      "acceptance": "A test asserts a capability resolves through exactly one path. The shipped configuration is migrated in the same pull request. The four previously unowned capabilities are either assigned or listed as unowned with a reason. Assigning them before this task would write into the dead mechanism and appear to work.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u0-assignments-tests"
+      ]
+    },
+    {
+      "key": "u1-vocabulary-endpoint",
+      "title": "Serve the vocabulary from the server instead of string literals",
+      "milestone": "MS-0008",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "epic": "epic-u1",
+      "requirement": "One endpoint returns the term table and the capability list with display names, so labels come from the registry the server already publishes rather than from literals scattered through the page. This is what kills the hardcoded capability array and the duplicated key at the source rather than fixing each label by hand.",
+      "acceptance": "The endpoint returns every capability with its key and display name. A test asserts it matches the knowledge registry. No label in the page is a literal capability key after the dependent tasks land.",
+      "surface": "control plane"
+    },
+    {
+      "key": "u1-contract-test",
+      "title": "A behavioural contract test, green against the page that ships today",
+      "milestone": "MS-0008",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "epic": "epic-u1",
+      "requirement": "A contract test asserts behaviour rather than implementation: the route answers, the capability list is registry-derived, a label never prints its key twice, the capability definition is present for a non-manager access level, the work-mode control carries a description. It is green against the current page before anything is rebuilt. This test is what makes the 231 implementation-pinning assertions retirable at the flip; without it they are deleted with nothing replacing them.",
+      "acceptance": "The test file exists and is green. Each assertion was watched to fail against the page as it ships today, and the failure is quoted in the pull request.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u1-vocabulary-endpoint"
+      ]
+    },
+    {
+      "key": "u1-registry-derived-labels",
+      "title": "Derive capability labels from the registry, and print each key once",
+      "milestone": "MS-0008",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "epic": "epic-u1",
+      "requirement": "Capability checkboxes read as one legible label instead of the key printed twice followed by the name. The hardcoded capability array is removed and both renderers use one registry-derived path. The duplication exists because one field is overwritten from the registry to equal the other, so joining both prints it twice.",
+      "acceptance": "A test asserts no label repeats its key and that no hardcoded capability array remains. Watched to fail.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u1-contract-test"
+      ]
+    },
+    {
+      "key": "u1-coordinator-model-label",
+      "title": "Say what the picker actually selects",
+      "milestone": "MS-0008",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "epic": "epic-u1",
+      "requirement": "The control that chooses which model executes the Delivery Coordinator is labelled as that, with a one-line description, instead of being labelled Profile beside a system that also has thirteen Domain Capabilities and three other meanings of the word Profile. This is the specific confusion that started the project.",
+      "acceptance": "A test asserts the label and description are present and that the word Profile does not appear adjacent to a capability list. Watched to fail.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u1-contract-test"
+      ]
+    },
+    {
+      "key": "u1-capability-definition-visible",
+      "title": "Tell publishers and users what a Domain Capability is",
+      "milestone": "MS-0008",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "epic": "epic-u1",
+      "requirement": "The definition of a Domain Capability is visible to every access level. Today it is inside an owner and admin branch, so the publishers and users who are assigned capabilities are the only people never told what they have been assigned.",
+      "acceptance": "A test asserts the definition appears for a non-manager access level. Watched to fail.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u1-contract-test"
+      ]
+    },
+    {
+      "key": "u1-work-mode-explained",
+      "title": "Make the work-mode switch state what it changes",
+      "milestone": "MS-0008",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "epic": "epic-u1",
+      "requirement": "The work-mode control carries a visible group label and a one-line description of each mode. Today it is an unlabelled pair of buttons that changes a placeholder and four starter prompts, defaults to the non-obvious setting, and is explained nowhere in the product.",
+      "acceptance": "A test asserts the group label and both descriptions are present and reachable to assistive technology. Watched to fail.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u1-contract-test"
+      ]
+    },
+    {
+      "key": "u1-lexicon-test",
+      "title": "A test that refuses the banned collocations",
+      "milestone": "MS-0008",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U1",
+        "area:ui"
+      ],
+      "epic": "epic-u1",
+      "requirement": "A lexicon test refuses the collocations the vocabulary forbids: Profile adjacent to a capability list, Role labelling a capability control, a bare capability key in prose, and the two different Profile labels appearing as user-visible text at once. Prose does not bind anyone; a failing test does.",
+      "acceptance": "The test is green and each rule was watched to fail against a deliberate violation.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u1-registry-derived-labels",
+        "u1-coordinator-model-label"
+      ]
+    },
+    {
+      "key": "u2-bundler-constraints",
+      "title": "Prove the bundler output satisfies the two existing tests, first",
+      "milestone": "MS-0009",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U2",
+        "area:ui"
+      ],
+      "epic": "epic-u2",
+      "requirement": "Before a single component is written, real build output is checked against the two existing tests that constrain it: the suite matches a bare script element, so a module-typed script matches nothing; and it runs a syntax check on the extracted script as an ordinary script file, where a top-level import is a syntax error. The bundle must therefore be emitted in immediately-invoked format.",
+      "acceptance": "A minimal build produces output that passes the existing script-parse test unchanged. If it cannot, that test is changed deliberately in this pull request with the reason written down — never quietly at the flip.",
+      "surface": "CI / tooling"
+    },
+    {
+      "key": "u2-toolchain",
+      "title": "Pin the three-package toolchain with a lockfile",
+      "milestone": "MS-0009",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U2",
+        "area:ui"
+      ],
+      "epic": "epic-u2",
+      "requirement": "The build depends on exactly three direct packages at exact versions, with a committed lockfile carrying integrity hashes, installed only from that lockfile. The dependency budget is stated as a number so that keeping it small is checkable rather than aspirational.",
+      "acceptance": "The manifest pins exact versions with no ranges. A clean install from the lockfile succeeds. The direct and transitive counts are recorded in the pull request.",
+      "surface": "CI / tooling",
+      "dependsOn": [
+        "u2-bundler-constraints"
+      ]
+    },
+    {
+      "key": "u2-build-script",
+      "title": "Build one self-contained page and commit it",
+      "milestone": "MS-0009",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U2",
+        "area:ui"
+      ],
+      "epic": "epic-u2",
+      "requirement": "The build emits a single self-contained page with no runtime network fetch, and the output is committed. This is what keeps the server reading one file path with no static-asset route, keeps the container unchanged, and keeps the test suite free of a toolchain. Minification stays off through the migration so the committed diff is reviewable.",
+      "acceptance": "Make targets build and check the page. The output is one file and fetches nothing at runtime. The server is unchanged.",
+      "surface": "CI / tooling",
+      "dependsOn": [
+        "u2-toolchain"
+      ]
+    },
+    {
+      "key": "u2-ci-drift-gate",
+      "title": "Prove the committed page is a rebuild, not a hand edit",
+      "milestone": "MS-0009",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U2",
+        "area:ui"
+      ],
+      "epic": "epic-u2",
+      "requirement": "Continuous integration installs from the lockfile, audits, type-checks, runs the front-end unit tests, rebuilds and fails on any difference against the committed page. A file that a clean checkout reproduces byte for byte cannot be a hand-edited bundle. The interpreter matrix stays free of the toolchain.",
+      "acceptance": "The job is a required status check and passes on a clean checkout. A deliberately edited committed page fails it, then is reverted. The determinism scope is stated rather than assumed.",
+      "surface": "CI / tooling",
+      "dependsOn": [
+        "u2-build-script"
+      ]
+    },
+    {
+      "key": "u2-flag-route",
+      "title": "Serve the new application behind a flag at a non-default route",
+      "milestone": "MS-0009",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U2",
+        "area:ui"
+      ],
+      "epic": "epic-u2",
+      "requirement": "The function the router calls keeps its name and gains a selector; the legacy and application renderers are new names, because the harness patches module-level names and a rename stops being patched without failing. The default stays the page that ships today. The head-request handler takes its length from the file on disk and must be corrected in the same pull request, or it reports a wrong length the moment the served page is not that file.",
+      "acceptance": "Both pages are reachable and both pass the contract test. The default is unchanged and all existing page assertions stay green. A test asserts the head-request length matches the served body.",
+      "surface": "control plane",
+      "dependsOn": [
+        "u2-build-script",
+        "u1-contract-test"
+      ]
+    },
+    {
+      "key": "u2-supply-chain-controls",
+      "title": "Put the new dependencies under the same guard as the rest",
+      "milestone": "MS-0009",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U2",
+        "area:ui"
+      ],
+      "epic": "epic-u2",
+      "requirement": "The package files are owned in the code-owners file alongside the other supply-chain surfaces, and the dependency updater covers the new ecosystem with the same treatment as the container images, because a build that runs with repository credentials is a real change.",
+      "acceptance": "The code-owners entry exists and the updater opens a pull request for the new ecosystem. Both verified rather than assumed.",
+      "surface": "CI / tooling",
+      "dependsOn": [
+        "u2-toolchain"
+      ]
+    },
+    {
+      "key": "u3-settings-ia",
+      "title": "Give settings an information architecture",
+      "milestone": "MS-0010",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U3",
+        "area:ui"
+      ],
+      "epic": "epic-u3",
+      "requirement": "Configuration is organised so a person can find the thing they came for. Today eight sections share one dialog whose element identifiers are all named after profiles while its label says Settings, and the vocabulary of the identifiers and the labels has already diverged in the source.",
+      "acceptance": "The contract test asserts each section is reachable and named by the agreed vocabulary. Watched to fail.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u2-flag-route"
+      ]
+    },
+    {
+      "key": "u3-capability-workspace",
+      "title": "Make the capability workspace render for the people it is for",
+      "milestone": "MS-0010",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U3",
+        "area:ui"
+      ],
+      "epic": "epic-u3",
+      "requirement": "A person can see which capabilities they hold. The panel written for this renders for nobody today: it clears itself for owners and admins, and publishers and users can never make its navigation section active, so the one surface designed to answer the question reaches no one.",
+      "acceptance": "A test asserts a publisher and a user each see their assigned capabilities, and that the empty state names how to get one. Watched to fail.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u3-settings-ia"
+      ]
+    },
+    {
+      "key": "u3-assignment-editor",
+      "title": "Give the capability registry endpoint an interface",
+      "milestone": "MS-0010",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U3",
+        "area:ui"
+      ],
+      "epic": "epic-u3",
+      "requirement": "An owner can assign a capability from the console. The only writer of the capability registry has no interface today and is reachable only by a hand-crafted request. This is deliberately last among the capability work: it is safe only once the loader accepts both shapes and the endpoint has tests.",
+      "acceptance": "A test drives an assignment through the interface and asserts it round-trips. A non-owner cannot reach it.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u3-capability-workspace",
+        "u0-assignments-tests"
+      ]
+    },
+    {
+      "key": "u3-parity-panels",
+      "title": "Bring the remaining panels to parity",
+      "milestone": "MS-0010",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U3",
+        "area:ui"
+      ],
+      "epic": "epic-u3",
+      "requirement": "Every panel the previous console offered is present and works, one panel per pull request with the contract test extended for each. Parity plus the named defects is the boundary; anything beyond it is a new milestone rather than a larger this one.",
+      "acceptance": "The contract test covers each panel. Every call the new application makes already existed before this milestone.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u3-settings-ia"
+      ]
+    },
+    {
+      "key": "u3-unowned-capabilities-visible",
+      "title": "Show an unowned capability as unowned, not blank",
+      "milestone": "MS-0010",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U3",
+        "area:ui"
+      ],
+      "epic": "epic-u3",
+      "requirement": "A capability with no owner is displayed as unowned. Four capabilities have no owner today and the console shows nothing, so the gap is invisible in exactly the place someone would notice it.",
+      "acceptance": "A test asserts an unowned capability renders as unowned with a way to assign one. Watched to fail.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u3-capability-workspace"
+      ]
+    },
+    {
+      "key": "u3-flip-default",
+      "title": "Flip the default and retire the implementation pins",
+      "milestone": "MS-0010",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U3",
+        "area:ui"
+      ],
+      "epic": "epic-u3",
+      "requirement": "The rebuilt application becomes the default page, and the 231 assertions that pin implementation strings in the previous page are deleted in the same pull request. Deleting them is permissible only because the contract test has been green for two milestones and covers the behaviour they stood for.",
+      "acceptance": "The full suite is green with the new default. Every deleted pin is covered by a named contract assertion, and the mapping is stated in the pull request. Reverting the default is a one-line environment change, demonstrated.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u3-parity-panels",
+        "u3-assignment-editor",
+        "u3-unowned-capabilities-visible"
+      ]
+    },
+    {
+      "key": "u4-remove-legacy",
+      "title": "Remove the superseded page and its flag",
+      "milestone": "MS-0011",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U4",
+        "area:ui"
+      ],
+      "epic": "epic-u4",
+      "requirement": "The previous page and the selector flag are deleted rather than parked. A rollout flag left in place is a permanent fork with two surfaces and one set of tests — the same rule this repository applies to the orchestrator flag in the other project.",
+      "acceptance": "The page and the flag are absent from the tree. The suite is green. The pull request states what was deleted and how a rollback would be performed.",
+      "surface": "chat / UI",
+      "dependsOn": [
+        "u3-flip-default"
+      ]
+    },
+    {
+      "key": "u4-standing-rule-and-resume",
+      "title": "Record the standing dependency rule and resume PRJ-0001",
+      "milestone": "MS-0011",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U4",
+        "area:docs"
+      ],
+      "epic": "epic-u4",
+      "requirement": "The workplan states the front-end dependency rule and the number the audit enforces, so the next person does not relitigate it. PRJ-0001 returns to active with its target dates re-set from the day it resumes, and its estimate re-defended at the boundary with the delta printed rather than absorbed.",
+      "acceptance": "The workplan carries the rule. The project record reads active with dates that are true on the day they are written.",
+      "surface": "docs",
+      "dependsOn": [
+        "u4-remove-legacy"
       ]
     }
   ]
