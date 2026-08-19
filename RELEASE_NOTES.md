@@ -4,7 +4,7 @@ Steel Mission Alpha v0.1 is the first public release of the Steel Mission Agent 
 
 ## Release Summary
 
-This release provides a runnable local control surface for governed AI-assisted software delivery. It includes a work view, role-aware settings, synthetic starter organization, knowledge and capability management, runtime profiles, model bindings, mission control, guarded execution, signed evidence, compliance mappings, and starter integration contracts.
+This release provides a runnable local control surface for governed AI-assisted software delivery. It includes a work view, role-aware settings, the founder-led Steel Mission launch organization, knowledge and capability management, runtime profiles, model bindings, mission control, guarded execution, signed evidence, compliance mappings, and starter integration contracts.
 
 ## Installation
 
@@ -43,7 +43,7 @@ Local:
 
 - Apache-2.0 core license and explicit proprietary Enterprise Edition boundary.
 - Steel Mission product naming and Agent Delivery Plane terminology.
-- Synthetic Northstar Forge starter organization.
+- Founder-led Steel Mission starter organization with a first-start knowledge manifest and PRJ-0001 Durable Core portfolio.
 - KD01-KD03 organizational knowledge domains.
 - DC01-DC13 Domain Capabilities.
 - DC13 Delivery Coordinator runtime profile and model role binding.
@@ -85,4 +85,4 @@ The release branch was validated with:
 python3 -m pytest
 ```
 
-Expected result for Alpha v0.1: 220 tests pass.
+Expected result for Alpha v0.1: 250 tests pass.

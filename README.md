@@ -2,8 +2,6 @@
 
 Steel Mission is an Agent Delivery Plane for software teams. It gives an AI-assisted delivery system a governed path from request to evidence: understand, plan, modify, build, test, inspect, repair, PR, deploy, and close.
 
-Steel Mission is part of the Present family of products. Present stands for capable computing. No other Present product assumptions are required to use this repository.
-
 ## Editions
 
 Steel Mission uses an open-core release model.
@@ -27,14 +25,16 @@ See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICE
 - Preserves provider-native capability requirements inside a common policy and evidence envelope.
 - Returns work to existing SCM, issue, chat, CI, and provider workflows instead of requiring the control UI as the daily work surface.
 - Maps proof packs to SOC 2, ISO 27001, and ISO 42001 evidence.
-- Starts with a synthetic company, Northstar Forge, so the product is usable immediately.
+- Starts with Steel Mission's founder-led company, complete capability map, and active Durable Core project so the product is useful immediately.
 
 ## Starter Company
 
-The `starter-company/` directory contains synthetic data:
+The `starter-company/` directory contains Steel Mission's launch data:
 
 - `canon/`: knowledge domains and domain capability definitions.
-- `knowledge/`: starter product, architecture, delivery, and compliance notes.
+- `knowledge/`: product, architecture, delivery, compliance, portfolio, and Durable Core notes.
+- `portfolio.json`: the expandable project registry, beginning with PRJ-0001.
+- `steel-mission-first-start-knowledge-v1.json`: the schema-validated, read-only knowledge import manifest for container first start.
 - `Workspace Packs/_build/`: role and knowledge registries consumed by the app.
 
 The starter company is not private data, and it is not your data. It ships with the
@@ -94,13 +94,38 @@ Minimum core:
 
 Optional provider tools:
 
-- Claude Code CLI for the `dc13.claude` profile;
-- Codex CLI for the repair-agent path;
-- Ollama and a local coding model for the `dc13.local` profile;
+- Claude Code CLI for planning and acceptance assessment;
+- Codex CLI for the read-only reviewer path;
+- Ollama and `qwen2.5-coder:14b` for the local coding-model path;
 - GitHub CLI for release and PR flows.
 - Docker for production-eligible private-runner isolation.
 
 See [INSTALL.md](INSTALL.md) for the complete setup guide.
+
+## Starter Company Docker Launch
+
+The `starter-company/` directory contains synthetic data for Northstar Forge, and the application image ships it. PRJ-0001
+Durable Core, its six epics, and all 58 issues. The launch contract connects
+to host Ollama through Docker Desktop and mounts the existing Claude and Codex
+CLI credentials read-only; credentials are never copied into the image.
+
+```bash
+docker compose build steel-mission
+docker compose up -d steel-mission
+docker compose ps
+```
+
+Open `http://127.0.0.1:8765/`. The governed delivery bindings are:
+
+- planner: Claude Code;
+- coder: local `qwen2.5-coder:14b` through Ollama;
+- reviewer: Codex CLI in read-only mode;
+- acceptance assessment: Claude Code;
+- final PASS authority: deterministic verification.
+
+The launch expects `~/.claude/steel-mission-worker-token` from `claude setup-token`,
+`~/.codex/auth.json` from `codex login`, and a host Ollama service on port
+`11434` with `qwen2.5-coder:14b` installed.
 
 ## Quickstarts
 
@@ -212,4 +237,4 @@ states what "done" means here.
 
 ## Release Posture
 
-This repository is prepared as a clean product distribution. The broader Present canon and internal development corpus are not included. The included company data is synthetic and exists only to make the first run understandable.
+This repository is prepared as a clean Steel Mission product distribution. The included company data defines Steel Mission's own launch organization and contains no external company corpus.

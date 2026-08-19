@@ -1226,7 +1226,7 @@
   <div class="shell">
     <aside>
       <div class="product-mark">
-        <div class="gauge-mark" aria-label="the Gauge mark" role="img">
+        <div class="gauge-mark" aria-label="Steel Mission mark" role="img">
           <span class="gauge-circle outer"></span>
           <span class="gauge-circle middle"></span>
           <span class="gauge-circle inner"></span>
@@ -2447,7 +2447,7 @@
                 <option value="active" ${current.status !== "disabled" ? "selected" : ""}>active</option>
                 <option value="disabled" ${current.status === "disabled" ? "selected" : ""}>disabled</option>
               </select></label>
-              <label class="form-field">Organization IDs <input id="managedUserOrganizations" value="${escapeHtml((current.organizationIds || []).join(", "))}" placeholder="northstar-forge"></label>
+              <label class="form-field">Organization IDs <input id="managedUserOrganizations" value="${escapeHtml((current.organizationIds || []).join(", "))}" placeholder="steel-mission"></label>
             </div>
             <label class="form-field">OIDC issuer/subject mappings <textarea id="managedUserIdentitySubjects" rows="3" placeholder="https://idp.example|provider-subject">${escapeHtml((current.identitySubjects || []).join("\n"))}</textarea></label>
             <div class="manager-grid">

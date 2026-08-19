@@ -10,17 +10,18 @@ Open `http://127.0.0.1:8765/`.
 
 ## First-Run Setup
 
-Steel Mission starts with the synthetic Northstar Forge organization:
+Steel Mission starts with its founder-led launch organization:
 
-- starter users;
+- founder and cross-functional team users;
 - knowledge domains;
 - domain capabilities;
+- PRJ-0001 Durable Core with 6 epic issues and 52 child issues;
 - Delivery Coordinator;
 - local runtime profile;
 - guarded runner policy;
 - external signer policy.
 
-Owners and admins can replace starter data from Settings.
+Owners and admins can revise or extend the launch data from Settings.
 
 ## Organization Data
 
@@ -45,7 +46,26 @@ services:
       STEEL_MISSION_ORG_DIR: /data/org
     volumes:
       - ./acme-org:/data/org:ro
+      - ./acme-config:/workspace/config:ro
 ```
+
+Both mounts are needed, and the second is the one that is easy to miss.
+`STEEL_MISSION_ORG_DIR` redirects the organization's documents — canon, knowledge,
+workspace packs. It does **not** redirect `config/`, which is where the organization
+registry, the user list and the capability map live. Point only the first and the
+application serves your canon under the shipped company's identity: the documents
+are yours and `activeOrganization` is still Northstar Forge. Supply a config
+directory as well, with your own `organizations.json`, `users.json` and
+`domain-capabilities.json`.
+
+In your own config, paths use `${ORG_DIR}`. A path written as
+`${WORKER_DIR}/starter-company/...` resolves into the image's shipped company and
+silently reads the wrong organization's documents; the knowledge-quality check
+reports those as missing sources once the file is not there at all.
+
+Keep whatever your knowledge registry references inside the mounted directory. The
+image deliberately excludes the plan layer, so a config entry pointing at
+`${WORKER_DIR}/plan/...` resolves to nothing in a container.
 
 A published image that carries an organization's data distributes that data to
 everyone who pulls it. The image ships the synthetic starter company; installations

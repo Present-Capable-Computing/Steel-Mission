@@ -4609,7 +4609,13 @@ def test_model_binding_registry_validates_and_resolves_local_dc13_instance():
     code, registry = run_worker("model-roles")
     assert code == 0
     assert schema_check.validate(registry, "canonical/model-role-registry-v1.json") == []
-    assert {role["id"] for role in registry["roles"]} == {"dc13.coordination-report"}
+    assert {role["id"] for role in registry["roles"]} == {
+        "dc13.coordination-report",
+        "delivery.planner",
+        "delivery.coder",
+        "delivery.reviewer",
+        "delivery.acceptance",
+    }
 
     code, policy = run_worker("model-role-resolve", "dc13.coordination-report", "--provider", "glimmer", "--ignore-readiness")
 
@@ -5014,7 +5020,7 @@ def test_mock_coordinator_report_is_canonical_advisory_and_claims_no_authority()
         assert code == 0
         assert payload["mock"] is True
         assert payload["taskId"] == task_id
-        assert payload["producer"] == "present-worker coordination-report (claude)"
+        assert payload["producer"] == "steel-mission coordination-report (claude)"
         # The invariant is worker-authored, never model prose: no authority,
         # no PASS, advisory only.
         assert "no authority" in payload["advisoryNote"]

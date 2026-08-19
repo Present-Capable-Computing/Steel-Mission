@@ -14,6 +14,21 @@ bin/steel-mission serve
 
 Open `http://127.0.0.1:8765/`.
 
+## Docker Starter Company
+
+With host Ollama running and the Claude/Codex CLIs already authenticated:
+
+```bash
+docker compose build steel-mission
+docker compose up -d steel-mission
+docker compose ps
+```
+
+This starts the packaged Steel Mission company and binds Claude to planning
+and acceptance assessment, the local `qwen2.5-coder:14b` model to coding, and
+Codex to read-only review. Deterministic verification remains the only phase
+that can issue PASS.
+
 ## Optional Local Model
 
 ```bash
@@ -32,8 +47,9 @@ STEEL_MISSION_RUNTIME_PROFILE=dc13.local bin/steel-mission serve
 ## What To Try
 
 - open Settings;
-- inspect the Northstar Forge starter organization;
+- inspect the Steel Mission launch organization and founder-led team;
 - review KD01-KD03 knowledge domains;
 - review DC01-DC13 Domain Capabilities;
+- inspect PRJ-0001 Durable Core and its six epics;
 - start a mission in DC13 Delivery Coordinator mode;
 - inspect the generated mission evidence.
