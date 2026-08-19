@@ -41,6 +41,7 @@
         "status": {"enum": ["active", "disabled"]},
         "modelRole": {"type": "string", "minLength": 1, "maxLength": 128},
         "modelProvider": {"enum": ["auto", "claude", "glimmer"]},
+        "requiredProviderCapabilities": {"type": "array", "maxItems": 50, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
         "snapshotProfile": {"type": "string", "minLength": 1, "maxLength": 128},
         "defaultFor": {
           "type": "array",
@@ -127,7 +128,14 @@
             "required": ["name", "path"],
             "properties": {
               "name": {"type": "string", "minLength": 1, "maxLength": 128},
-              "path": {"type": "string", "minLength": 1, "maxLength": 4096}
+              "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+              "owner": {"type": "string", "minLength": 1, "maxLength": 160},
+              "lastReviewedAt": {"type": "string", "minLength": 1, "maxLength": 64},
+              "expiresAt": {"type": "string", "minLength": 1, "maxLength": 64},
+              "maxAgeDays": {"type": "integer", "minimum": 1, "maximum": 3650},
+              "required": {"type": "boolean"},
+              "authoritative": {"type": "boolean"},
+              "provenance": {"type": "object"}
             }
           }
         },
@@ -141,7 +149,14 @@
             "properties": {
               "title": {"type": "string", "minLength": 1, "maxLength": 256},
               "path": {"type": "string", "minLength": 1, "maxLength": 4096},
-              "kind": {"type": "string", "minLength": 1, "maxLength": 64}
+              "kind": {"type": "string", "minLength": 1, "maxLength": 64},
+              "owner": {"type": "string", "minLength": 1, "maxLength": 160},
+              "lastReviewedAt": {"type": "string", "minLength": 1, "maxLength": 64},
+              "expiresAt": {"type": "string", "minLength": 1, "maxLength": 64},
+              "maxAgeDays": {"type": "integer", "minimum": 1, "maximum": 3650},
+              "required": {"type": "boolean"},
+              "authoritative": {"type": "boolean"},
+              "provenance": {"type": "object"}
             }
           }
         }

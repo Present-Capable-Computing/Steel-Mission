@@ -35,6 +35,8 @@ Recommended for development:
 - 16 GB RAM minimum for local model mode;
 - 24-32 GB RAM recommended for local 14B model work.
 
+Production-isolated execution additionally requires Docker or a compatible implementation of the versioned private-runner request/result contract.
+
 Optional providers:
 
 - Claude Code CLI for the Claude-backed Delivery Coordinator profile;
@@ -92,6 +94,29 @@ make release-check
 
 This runs whitespace checks, compiles Python entrypoints, and runs the test suite.
 
+## Private Runner
+
+Local evaluation uses `development-local` mode so setup remains small. That mode is not a production isolation claim. Build and verify the included execution image before production use:
+
+```bash
+make private-runner-image
+PRESENT_PRIVATE_RUNNER_MODE=docker bin/present-private-runner status
+```
+
+Change `executionBoundary.privateRunnerMode` in `config/control-plane-policy.json` from `development-local` to `container`. Keep the default `PRESENT_PRIVATE_RUNNER_NETWORK=none` for offline phases. If GitHub or another provider must be reached, attach only a reviewed, egress-controlled Docker network. Add only required credential names to `executionBoundary.allowedEnvironment`; their values are passed through the runner environment and are not placed in Docker argv.
+
+The included image supports this repository's Python checks plus Git and GitHub CLI. For Node, Java, Go, infrastructure CLIs, or other repository-specific tools, derive a pinned image from `Dockerfile.private-runner` and select it with `PRESENT_PRIVATE_RUNNER_IMAGE`.
+
+## GitHub, Slack, And Jira
+
+Set the scoped token and signing-secret variables documented in `.env.example`, enable the connector in Settings, and configure provider delivery to the matching endpoint:
+
+- `/api/integrations/github/webhook`
+- `/api/integrations/slack/events`
+- `/api/integrations/jira/webhook`
+
+Set `STEEL_MISSION_PUBLIC_URL` so returned workflow messages contain a usable investigation link. Jira must be delivered through a webhook gateway that computes `X-Steel-Mission-Signature: sha256=<HMAC-SHA256(raw-body)>` with `JIRA_WEBHOOK_SECRET`.
+
 ## Runtime Data
 
 Steel Mission writes runtime output into ignored local folders such as `logs/`, `missions/`, `tasks/`, `jobs/`, `worktrees/`, and `test-results/`. These folders are not release artifacts.
@@ -102,25 +127,15 @@ Use environment variables from `.env.example` when you want to redirect runtime 
 
 Before production use:
 
-- activate a valid Enterprise entitlement before configuring customer identity, external signing custody, or SIEM export;
 - configure customer identity through OIDC/JWKS;
+- configure SIEM/security-monitoring export and evidence retention;
 - replace local signing with customer KMS, Vault Transit, HSM, or equivalent external signing;
-- configure repository, issue tracker, chat, CI/CD, and licensed SIEM connectors;
-- run inside customer infrastructure, a private worker, container, or private cloud environment;
+- configure repository, issue tracker, chat, CI/CD, and SIEM connectors;
+- run the included hardened private-runner image inside customer infrastructure or a private cloud environment;
 - require approvals for high-risk changes and production deployments.
 
-## Enterprise Entitlement
+## Core Trust Controls And Commercial Operations
 
-The downloadable Core build locks OIDC/JWKS, customer KMS or equivalent external signing, and SIEM/security-monitoring export. Licensed Enterprise builds can enable those paths with:
+The downloadable Core build includes self-managed OIDC/JWKS identity, audit logging, SIEM/security-monitoring export, connector configuration, and customer-controlled external evidence signing. None of those baseline controls requires an Enterprise entitlement.
 
-```bash
-STEEL_MISSION_EDITION=enterprise
-STEEL_MISSION_LICENSE_KEY=...
-STEEL_MISSION_LICENSE_KEY_SHA256=...
-```
-
-Generate the hash with:
-
-```bash
-python3 -c 'import hashlib, os; print(hashlib.sha256(os.environ["STEEL_MISSION_LICENSE_KEY"].encode()).hexdigest())'
-```
+Enterprise offerings cover the operational layer around Core: managed deployment and upgrades, multi-organization fleet governance, centralized policy operations, managed retention and integrations, private-cloud operations, and support.

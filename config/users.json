@@ -9,7 +9,10 @@
       "email": "morgan.vale@example.test",
       "role": "owner",
       "status": "active",
-      "assignedCapabilities": []
+      "assignedCapabilities": [],
+      "organizationIds": ["northstar-forge"],
+      "identitySubjects": [],
+      "externalIdentities": {"github": [], "slack": [], "jira": []}
     },
     {
       "id": "riley-chen",
@@ -17,7 +20,10 @@
       "email": "riley.chen@example.test",
       "role": "admin",
       "status": "active",
-      "assignedCapabilities": []
+      "assignedCapabilities": [],
+      "organizationIds": ["northstar-forge"],
+      "identitySubjects": [],
+      "externalIdentities": {"github": [], "slack": [], "jira": []}
     },
     {
       "id": "avery-stone",
@@ -25,7 +31,10 @@
       "email": "avery.stone@example.test",
       "role": "publisher",
       "status": "active",
-      "assignedCapabilities": ["DC03", "DC04", "DC06", "DC09", "DC11", "DC13"]
+      "assignedCapabilities": ["DC03", "DC04", "DC06", "DC09", "DC11", "DC13"],
+      "organizationIds": ["northstar-forge"],
+      "identitySubjects": [],
+      "externalIdentities": {"github": [], "slack": [], "jira": []}
     },
     {
       "id": "jordan-lee",
@@ -33,7 +42,10 @@
       "email": "jordan.lee@example.test",
       "role": "user",
       "status": "active",
-      "assignedCapabilities": ["DC04", "DC05", "DC13"]
+      "assignedCapabilities": ["DC04", "DC05", "DC13"],
+      "organizationIds": ["northstar-forge"],
+      "identitySubjects": [],
+      "externalIdentities": {"github": [], "slack": [], "jira": []}
     }
   ]
 }

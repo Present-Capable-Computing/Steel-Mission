@@ -19,10 +19,11 @@ import sys
 import threading
 import time
 import zipfile
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 try:
@@ -42,6 +43,7 @@ REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR") or WORKER_DIR / "repos")
 PRESENT_DEV_DIR = Path(os.environ.get("PRESENT_DEV") or WORKER_DIR.parent)
 WORKER_BIN = WORKER_DIR / "bin" / "steel-mission"
 BROKER_BIN = WORKER_DIR / "bin" / "present-lease-broker"
+PRIVATE_RUNNER_BIN = WORKER_DIR / "bin" / "present-private-runner"
 INDEX = APP_DIR / "index.html"
 CANON_DIR = Path(os.environ.get("PRESENT_CANON_DIR") or WORKER_DIR / "starter-company" / "canon")
 ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.json"
@@ -58,20 +60,25 @@ INTEGRATION_REGISTRY_PATH = WORKER_DIR / "config" / "integration-registry.json"
 AUTH_POLICY_PATH = WORKER_DIR / "config" / "auth-policy.json"
 MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
+AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")
+AUTH_AUDIT_LEDGER_PATH = Path(os.environ.get("PRESENT_AUTH_AUDIT_LEDGER") or MISSION_ROOT / "_auth-audit.jsonl")
+AUTH_REVOCATION_LEDGER_PATH = Path(os.environ.get("PRESENT_AUTH_REVOCATION_LEDGER") or MISSION_ROOT / "_auth-revocations.jsonl")
+PRIVATE_RUNNER_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_PRIVATE_RUNNER_SIGNING_KEY_FILE") or MISSION_ROOT / "_private-runner-signing-key")
 EVIDENCE_SIGNING_KEY_ENV = "PRESENT_EVIDENCE_SIGNING_KEY"
 EVIDENCE_SIGNER_ID_ENV = "PRESENT_EVIDENCE_SIGNER_ID"
 EVIDENCE_SIGNER_COMMAND_ENV = "PRESENT_EVIDENCE_SIGNER_COMMAND"
 AUTH_SIGNING_KEY_ENV = "PRESENT_AUTH_SIGNING_KEY"
+AUTH_SIGNER_ID_ENV = "PRESENT_AUTH_SIGNER_ID"
+AUTH_IDENTITY_MODE_ENV = "PRESENT_IDENTITY_MODE"
+OIDC_CLIENT_SECRET_ENV = "PRESENT_OIDC_CLIENT_SECRET"
 CONNECTOR_WEBHOOK_SECRET_ENV = "PRESENT_CONNECTOR_WEBHOOK_SECRET"
+PRIVATE_RUNNER_MODE_ENV = "PRESENT_PRIVATE_RUNNER_MODE"
+PRIVATE_RUNNER_ALLOW_LOCAL_ENV = "PRESENT_PRIVATE_RUNNER_ALLOW_LOCAL"
+PRIVATE_RUNNER_SIGNING_KEY_ENV = "PRESENT_PRIVATE_RUNNER_SIGNING_KEY"
+PRIVATE_RUNNER_SIGNER_ID_ENV = "PRESENT_PRIVATE_RUNNER_SIGNER_ID"
 STEEL_MISSION_EDITION_ENV = "STEEL_MISSION_EDITION"
 STEEL_MISSION_LICENSE_KEY_ENV = "STEEL_MISSION_LICENSE_KEY"
 STEEL_MISSION_LICENSE_KEY_SHA256_ENV = "STEEL_MISSION_LICENSE_KEY_SHA256"
-ENTERPRISE_FEATURES = {
-    "oidc-jwks": "production OIDC/JWKS customer identity",
-    "external-signing": "customer KMS, Vault Transit, HSM, or equivalent external signing",
-    "siem-connectors": "SIEM/security-monitoring connectors and exports",
-}
-ENTERPRISE_CONNECTOR_IDS = {"siem"}
 MAX_REQUEST_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
 MAX_UPLOAD_REQUEST_BYTES = 36 * 1024 * 1024
@@ -95,6 +102,11 @@ JOBS_LOCK = threading.Lock()
 MISSION_LOCK = threading.Lock()
 MISSION_ORCHESTRATORS: set[str] = set()
 MISSION_ORCHESTRATORS_LOCK = threading.Lock()
+WORKFLOW_INGRESS_LOCK = threading.Lock()
+AUTH_LOCK = threading.Lock()
+OIDC_CACHE_LOCK = threading.Lock()
+OIDC_JWKS_CACHE: dict[str, Any] = {}
+OIDC_LOGIN_STATES: dict[str, dict[str, Any]] = {}
 
 MISSION_TEMPLATES: list[dict[str, Any]] = [
     {
@@ -288,6 +300,25 @@ def require_actor_role(actor: dict[str, str], allowed: set[str]) -> None:
         raise PermissionError("actor is not allowed to perform this action")
 
 
+def authorize_mission_bindings(actor: dict[str, Any], user_ids: list[str], capability_keys: list[str]) -> None:
+    role = corporate_role(str(actor.get("role") or "user"))
+    actor_capabilities = set(clean_string_list(actor.get("capabilities"), limit=200))
+    if role not in {"owner", "admin"} and identity_mode() == "oidc-required":
+        unauthorized = sorted(set(capability_keys) - actor_capabilities)
+        if unauthorized:
+            raise PermissionError("actor is not assigned requested capabilities: " + ", ".join(unauthorized))
+    actor_orgs = set(clean_string_list(actor.get("organizationIds"), limit=50))
+    if actor.get("organizationId"):
+        actor_orgs.add(str(actor.get("organizationId")))
+    for user_id in user_ids:
+        user = registered_user(user_id)
+        if not user or user.get("status") != "active":
+            raise PermissionError(f"mission user {user_id} is not active")
+        user_orgs = set(clean_string_list(user.get("organizationIds"), limit=50))
+        if actor_orgs and user_orgs and not actor_orgs.intersection(user_orgs):
+            raise PermissionError(f"mission user {user_id} is outside the actor organization scope")
+
+
 def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
     selected_profile = profile or active_runtime_profile()
     try:
@@ -316,6 +347,7 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
             "status": "active",
             "modelRole": model_policy.get("role") or active_coordinator_role(),
             "modelProvider": str(model_policy.get("provider") or active_coordinator_provider()),
+            "requiredProviderCapabilities": list(model_policy.get("requiredProviderCapabilities", [])),
             "snapshotProfile": model_policy.get("snapshotProfile") or "worker-local-default",
             "defaultFor": ["steel-mission-chat"],
             "editableBy": ["local-user"],
@@ -422,12 +454,30 @@ def knowledge_registry() -> dict[str, Any]:
         "capabilities": roles,
         "generalKnowledge": general_knowledge_registry(),
         "effectiveKnowledge": effective_knowledge_sources(),
+        "knowledgeQuality": knowledge_quality_report(),
         "organizationRegistry": organization_registry(),
         "activeOrganization": active_organization(),
     }
 
 
 def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, Any]:
+    def metadata(item: dict[str, Any]) -> dict[str, Any]:
+        max_age = item.get("maxAgeDays")
+        try:
+            max_age_days = max(1, min(int(max_age), 3650)) if max_age not in {None, ""} else None
+        except (TypeError, ValueError):
+            max_age_days = None
+        provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+        return {
+            **({"owner": str(item["owner"]).strip()[:160]} if item.get("owner") else {}),
+            **({"lastReviewedAt": str(item["lastReviewedAt"]).strip()[:64]} if item.get("lastReviewedAt") else {}),
+            **({"expiresAt": str(item["expiresAt"]).strip()[:64]} if item.get("expiresAt") else {}),
+            **({"maxAgeDays": max_age_days} if max_age_days is not None else {}),
+            "required": bool_from_payload(item.get("required"), True),
+            "authoritative": bool_from_payload(item.get("authoritative"), False),
+            **({"provenance": provenance} if provenance else {}),
+        }
+
     repositories = []
     for index, item in enumerate(payload.get("repositories", [])):
         if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item.get("path").strip():
@@ -439,6 +489,7 @@ def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, A
             "path": path,
             "exists": source_path.exists(),
             "sourceKind": "repository",
+            **metadata(item),
             **({"description": str(item["description"]).strip()} if item.get("description") else {}),
         })
     documents = []
@@ -452,6 +503,7 @@ def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, A
             "path": path,
             "exists": source_path.exists(),
             "sourceKind": "document",
+            **metadata(item),
             **({"kind": str(item["kind"]).strip()} if item.get("kind") else {}),
             **({"description": str(item["description"]).strip()} if item.get("description") else {}),
         })
@@ -531,14 +583,14 @@ def default_organization_registry() -> dict[str, Any]:
                 ] or [f"DC{i:02d}" for i in range(1, 14)],
                 "knowledgeSources": {
                     "repositories": [
-                        {"name": "steel-mission-product", "path": "${WORKER_DIR}"},
-                        {"name": "starter-company", "path": "${WORKER_DIR}/starter-company"},
+                        {"name": "steel-mission-product", "path": "${WORKER_DIR}", "owner": "platform-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"name": "starter-company", "path": "${WORKER_DIR}/starter-company", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
                     ],
                     "documents": [
-                        {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
-                        {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-                        {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
-                        {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"},
+                        {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
                     ],
                 },
                 "notes": "Synthetic starter organization for first-run demonstrations. Owners and admins can rename it or create additional organizations.",
@@ -631,17 +683,35 @@ def merge_knowledge_sources(*registries: dict[str, Any]) -> dict[str, Any]:
     documents: list[dict[str, Any]] = []
     repo_keys: set[tuple[str, str]] = set()
     doc_keys: set[tuple[str, str]] = set()
-    for registry in registries:
+    registry_scopes = ["shared-registry", "organization-registry"]
+    for registry_index, registry in enumerate(registries):
         normalized = normalize_general_knowledge_registry(registry if isinstance(registry, dict) else {})
+        registry_scope = registry_scopes[registry_index] if registry_index < len(registry_scopes) else f"registry-{registry_index + 1}"
         for item in normalized.get("repositories", []):
             key = (str(item.get("name") or ""), str(item.get("path") or ""))
             if key[1] and key not in repo_keys:
-                repositories.append(item)
+                provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+                repositories.append({
+                    **item,
+                    "provenance": {
+                        "registry": provenance.get("registry") or registry_scope,
+                        "registryProducedAt": provenance.get("registryProducedAt") or normalized.get("producedAt") or "",
+                        "sourcePath": item.get("path") or "",
+                    },
+                })
                 repo_keys.add(key)
         for item in normalized.get("documents", []):
             key = (str(item.get("title") or ""), str(item.get("path") or ""))
             if key[1] and key not in doc_keys:
-                documents.append(item)
+                provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+                documents.append({
+                    **item,
+                    "provenance": {
+                        "registry": provenance.get("registry") or registry_scope,
+                        "registryProducedAt": provenance.get("registryProducedAt") or normalized.get("producedAt") or "",
+                        "sourcePath": item.get("path") or "",
+                    },
+                })
                 doc_keys.add(key)
     return {
         "schemaVersion": 1,
@@ -658,6 +728,155 @@ def effective_knowledge_sources() -> dict[str, Any]:
         general_knowledge_registry(),
         organization.get("knowledgeSources", {}) if isinstance(organization.get("knowledgeSources"), dict) else {},
     )
+
+
+def parse_knowledge_timestamp(value: Any) -> dt.datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+
+
+def knowledge_quality_report() -> dict[str, Any]:
+    now = dt.datetime.now(dt.timezone.utc)
+    effective = effective_knowledge_sources()
+    sources = [
+        *[item for item in effective.get("repositories", []) if isinstance(item, dict)],
+        *[item for item in effective.get("documents", []) if isinstance(item, dict)],
+    ]
+    issues: list[dict[str, Any]] = []
+    assessed: list[dict[str, Any]] = []
+    for item in sources:
+        source_kind = str(item.get("sourceKind") or "knowledge")
+        label = str(item.get("name") or item.get("title") or item.get("path") or "knowledge source")
+        source_id = f"{source_kind}:{label.strip().lower()}"
+        path = resolve_config_path(str(item.get("path") or ""))
+        exists = path.exists()
+        owner = str(item.get("owner") or "").strip()
+        required = item.get("required") is not False
+        reviewed_at = parse_knowledge_timestamp(item.get("lastReviewedAt"))
+        expires_at = parse_knowledge_timestamp(item.get("expiresAt"))
+        max_age_days = item.get("maxAgeDays") if isinstance(item.get("maxAgeDays"), int) else None
+        stale = bool(expires_at and expires_at <= now)
+        if reviewed_at and max_age_days is not None:
+            stale = stale or reviewed_at + dt.timedelta(days=max_age_days) <= now
+        freshness = "expired" if expires_at and expires_at <= now else "stale" if stale else "current" if reviewed_at or expires_at else "unknown"
+        if not exists:
+            issues.append({
+                "id": "missing-source",
+                "severity": "error" if required else "warning",
+                "sourceId": source_id,
+                "message": f"{label} is unavailable at {path}.",
+                "owner": owner,
+            })
+        if stale:
+            issues.append({
+                "id": "stale-source",
+                "severity": "error" if required else "warning",
+                "sourceId": source_id,
+                "message": f"{label} is {freshness} and requires review.",
+                "owner": owner,
+            })
+        elif freshness == "unknown":
+            issues.append({
+                "id": "unknown-freshness",
+                "severity": "warning",
+                "sourceId": source_id,
+                "message": f"{label} has no review or expiration metadata.",
+                "owner": owner,
+            })
+        if not owner:
+            issues.append({
+                "id": "unowned-source",
+                "severity": "warning",
+                "sourceId": source_id,
+                "message": f"{label} has no accountable owner.",
+                "owner": "",
+            })
+        assessed.append({
+            "sourceId": source_id,
+            "sourceKind": source_kind,
+            "label": label,
+            "path": str(path),
+            "exists": exists,
+            "required": required,
+            "authoritative": item.get("authoritative") is True,
+            "owner": owner,
+            "lastReviewedAt": str(item.get("lastReviewedAt") or ""),
+            "expiresAt": str(item.get("expiresAt") or ""),
+            "maxAgeDays": max_age_days,
+            "freshness": freshness,
+            "provenance": item.get("provenance") if isinstance(item.get("provenance"), dict) else {},
+        })
+
+    logical_sources: dict[str, list[dict[str, Any]]] = {}
+    for registry_name, registry in [
+        ("shared-registry", general_knowledge_registry()),
+        ("organization-registry", active_organization().get("knowledgeSources", {})),
+    ]:
+        normalized = normalize_general_knowledge_registry(registry if isinstance(registry, dict) else {})
+        for item in [*normalized.get("repositories", []), *normalized.get("documents", [])]:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("name") or item.get("title") or "").strip().lower()
+            kind = str(item.get("sourceKind") or "knowledge")
+            logical_sources.setdefault(f"{kind}:{label}", []).append({**item, "registry": registry_name})
+    conflicts: list[dict[str, Any]] = []
+    for source_id, candidates in logical_sources.items():
+        paths = {str(item.get("path") or "") for item in candidates}
+        if len(paths) <= 1:
+            continue
+        authoritative = [item for item in candidates if item.get("authoritative") is True]
+        severity = "error" if len(authoritative) > 1 else "warning"
+        conflict = {
+            "id": "conflicting-source",
+            "severity": severity,
+            "sourceId": source_id,
+            "message": f"{source_id} resolves to multiple source paths: {', '.join(sorted(paths))}.",
+            "candidates": [
+                {"path": item.get("path") or "", "registry": item.get("registry") or "", "owner": item.get("owner") or "", "authoritative": item.get("authoritative") is True}
+                for item in candidates
+            ],
+        }
+        conflicts.append(conflict)
+        issues.append(conflict)
+
+    if not sources:
+        issues.append({"id": "no-knowledge-sources", "severity": "error", "sourceId": "knowledge", "message": "No organizational knowledge sources are configured."})
+    elif not any(item["exists"] for item in assessed):
+        issues.append({"id": "no-available-knowledge", "severity": "error", "sourceId": "knowledge", "message": "No configured organizational knowledge source is currently available."})
+    error_count = len([item for item in issues if item.get("severity") == "error"])
+    warning_count = len(issues) - error_count
+    context_sufficient = error_count == 0
+    status = "healthy" if not issues else "warning" if context_sufficient else "insufficient"
+    directive = (
+        "Organizational context is insufficient. Do not infer missing or conflicting organizational facts; identify the gaps and request owner input."
+        if not context_sufficient else
+        "Organizational context has quality warnings. Cite source provenance and state uncertainty where warnings affect the answer."
+        if issues else
+        "Organizational context passed configured availability, freshness, ownership, and conflict checks."
+    )
+    report = {
+        "schemaVersion": 1,
+        "status": status,
+        "contextSufficient": context_sufficient,
+        "checkedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "sourceCount": len(assessed),
+        "availableSourceCount": len([item for item in assessed if item["exists"]]),
+        "staleSourceCount": len([item for item in assessed if item["freshness"] in {"stale", "expired"}]),
+        "unownedSourceCount": len([item for item in assessed if not item["owner"]]),
+        "conflictCount": len(conflicts),
+        "errorCount": error_count,
+        "warningCount": warning_count,
+        "issues": issues,
+        "sources": assessed,
+        "confidenceDirective": directive,
+    }
+    return {**report, "qualityHash": canonical_json_hash(report)}
 
 
 def save_organization_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -731,6 +950,11 @@ def upload_organization_knowledge(payload: dict[str, Any], actor: str) -> dict[s
             "name": safe_path_part(label, "uploaded-folder"),
             "path": str(root),
             "description": f"Uploaded organization knowledge folder with {len(files)} files.",
+            "owner": role,
+            "lastReviewedAt": utc_now(),
+            "maxAgeDays": 90,
+            "required": True,
+            "authoritative": False,
         })
     else:
         stored_files = sorted(path for path in root.rglob("*") if path.is_file())
@@ -740,6 +964,11 @@ def upload_organization_knowledge(payload: dict[str, Any], actor: str) -> dict[s
             "path": str(target),
             "kind": files[0].get("type") or "uploaded-file",
             "description": "Uploaded organization knowledge document.",
+            "owner": role,
+            "lastReviewedAt": utc_now(),
+            "maxAgeDays": 90,
+            "required": True,
+            "authoritative": False,
         })
     organization = {
         **organization,
@@ -814,6 +1043,7 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
             "sourceKind": "repository",
             "name": item.get("name") or path.name,
             "path": str(path),
+            **{key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "maxAgeDays", "required", "authoritative", "provenance") if key in item},
             **sample,
         })
     for item in registry.get("documents", []):
@@ -825,9 +1055,11 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
             "sourceKind": "document",
             "title": item.get("title") or path.name,
             "path": str(path),
+            **{key: item[key] for key in ("owner", "lastReviewedAt", "expiresAt", "maxAgeDays", "required", "authoritative", "provenance") if key in item},
             **sample,
         })
     missing = [source for source in sources if not source.get("exists")]
+    quality = knowledge_quality_report()
     return {
         "schemaVersion": 1,
         "profile": profile or active_runtime_profile(),
@@ -846,6 +1078,9 @@ def prepare_knowledge_snapshot_payload(profile: str | None = None) -> dict[str, 
         "fileCount": sum(int(source.get("fileCount") or 0) for source in sources),
         "byteCount": sum(int(source.get("byteCount") or 0) for source in sources),
         "sources": sources,
+        "knowledgeQuality": quality,
+        "contextSufficient": quality.get("contextSufficient") is True,
+        "warnings": quality.get("issues", []),
         "preparedAt": utc_now(),
         "producer": "steel-mission-chat knowledge-preparer",
     }
@@ -883,6 +1118,12 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
         for role in knowledge_registry().get("roles", [])
         if isinstance(role, dict) and role.get("roleKey")
     }
+    organizations = organization_registry()
+    valid_organization_ids = {
+        str(item.get("id")) for item in organizations.get("organizations", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    default_organization_id = str(organizations.get("activeOrganizationId") or "")
     users = []
     for index, item in enumerate(payload.get("users", [])):
         if not isinstance(item, dict):
@@ -898,6 +1139,18 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
             if str(value).strip() and (not valid_domain_capabilities or str(value).strip() in valid_domain_capabilities)
         ]
         assigned = sorted(set(assigned))
+        organization_ids = [
+            value for value in clean_string_list(item.get("organizationIds"), limit=50)
+            if not valid_organization_ids or value in valid_organization_ids
+        ]
+        if not organization_ids and default_organization_id:
+            organization_ids = [default_organization_id]
+        identity_subjects = sorted(set(clean_string_list(item.get("identitySubjects"), limit=50)))
+        external = item.get("externalIdentities") if isinstance(item.get("externalIdentities"), dict) else {}
+        external_identities = {
+            source: sorted(set(clean_string_list(external.get(source), limit=50)))
+            for source in ("github", "slack", "jira")
+        }
         users.append({
             "id": principal_id,
             "name": str(item.get("name") or principal_id).strip(),
@@ -905,13 +1158,16 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
             "role": role,
             "status": "disabled" if str(item.get("status") or "").strip() == "disabled" else "active",
             "assignedCapabilities": assigned,
+            "organizationIds": organization_ids,
+            "identitySubjects": identity_subjects,
+            "externalIdentities": external_identities,
         })
     if not users:
         users = [
-            {"id": "owner", "name": "Owner", "email": "", "role": "owner", "status": "active", "assignedCapabilities": []},
-            {"id": "admin", "name": "Admin", "email": "", "role": "admin", "status": "active", "assignedCapabilities": []},
-            {"id": "publisher", "name": "Publisher", "email": "", "role": "publisher", "status": "active", "assignedCapabilities": ["DC13"]},
-            {"id": "user", "name": "User", "email": "", "role": "user", "status": "active", "assignedCapabilities": ["DC13"]},
+            {"id": "owner", "name": "Owner", "email": "", "role": "owner", "status": "active", "assignedCapabilities": [], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
+            {"id": "admin", "name": "Admin", "email": "", "role": "admin", "status": "active", "assignedCapabilities": [], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
+            {"id": "publisher", "name": "Publisher", "email": "", "role": "publisher", "status": "active", "assignedCapabilities": ["DC13"], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
+            {"id": "user", "name": "User", "email": "", "role": "user", "status": "active", "assignedCapabilities": ["DC13"], "organizationIds": [default_organization_id] if default_organization_id else [], "identitySubjects": [], "externalIdentities": {}},
         ]
     return {
         "schemaVersion": 1,
@@ -924,6 +1180,63 @@ def normalize_user_registry(payload: dict[str, Any]) -> dict[str, Any]:
 def user_registry() -> dict[str, Any]:
     payload = read_json_file(USER_REGISTRY_PATH) or {}
     return normalize_user_registry(payload)
+
+
+def registered_user(user_id: str) -> dict[str, Any] | None:
+    selected = clean_optional_string(user_id, limit=200)
+    return next((dict(item) for item in user_registry().get("users", [])
+                 if isinstance(item, dict) and item.get("id") == selected), None)
+
+
+def resolve_registered_identity(claims: dict[str, Any], policy: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    selected_policy = policy or auth_policy()
+    issuer = clean_optional_string(claims.get("iss"), limit=500)
+    subject = clean_optional_string(claims.get("sub"), limit=500)
+    email = clean_optional_string(claims.get("email"), limit=320).lower()
+    subject_keys = {value for value in (subject, f"{issuer}|{subject}" if issuer and subject else "") if value}
+    for item in user_registry().get("users", []):
+        if not isinstance(item, dict) or item.get("status") != "active":
+            continue
+        configured_subjects = set(clean_string_list(item.get("identitySubjects"), limit=50))
+        configured_email = clean_optional_string(item.get("email"), limit=320).lower()
+        if subject_keys.intersection(configured_subjects) or (email and configured_email and hmac.compare_digest(email, configured_email)):
+            return actor_from_registered_user(item, selected_policy)
+    return None
+
+
+def actor_from_registered_user(user: dict[str, Any], policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    organizations = clean_string_list(user.get("organizationIds"), limit=50)
+    active_id = str(organization_registry().get("activeOrganizationId") or "")
+    organization_id = active_id if active_id in organizations else (organizations[0] if organizations else "")
+    return {
+        "actorId": str(user.get("id") or "registered-user"),
+        "role": corporate_role(str(user.get("role") or "user")),
+        "capabilities": clean_string_list(user.get("assignedCapabilities"), limit=200),
+        "organizationIds": organizations,
+        "organizationId": organization_id,
+        "identitySource": "user-registry",
+        "authPolicyHash": canonical_json_hash(policy or auth_policy()),
+    }
+
+
+def resolve_external_identity(source: str, external_actor: dict[str, Any], connector: dict[str, Any]) -> dict[str, Any] | None:
+    service_user_id = clean_optional_string(connector.get("serviceUserId"), limit=200)
+    if service_user_id:
+        service_user = registered_user(service_user_id)
+        if service_user and service_user.get("status") == "active":
+            return actor_from_registered_user(service_user)
+    candidates = {
+        str(value).strip().lower() for value in (external_actor.get("id"), external_actor.get("name"), external_actor.get("login"))
+        if str(value or "").strip()
+    }
+    for user in user_registry().get("users", []):
+        if not isinstance(user, dict) or user.get("status") != "active":
+            continue
+        external = user.get("externalIdentities") if isinstance(user.get("externalIdentities"), dict) else {}
+        configured = {value.lower() for value in clean_string_list(external.get(source), limit=50)}
+        if candidates.intersection(configured):
+            return actor_from_registered_user(user)
+    return None
 
 
 def save_user_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -1155,6 +1468,10 @@ def resolve_model_policy(role: str | None = None) -> dict[str, Any]:
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         pass
     provider = active_coordinator_provider()
+    native_capabilities = {
+        "claude": ["model-effort-controls", "provider-native-cli", "streaming-progress", "structured-output"],
+        "glimmer": ["local-inference", "offline-operation", "persistent-model-residency", "structured-json-output"],
+    }
     return {
         "schemaVersion": 1,
         "role": selected_role,
@@ -1162,6 +1479,10 @@ def resolve_model_policy(role: str | None = None) -> dict[str, Any]:
         "provider": provider,
         "transport": "ollama" if provider == "glimmer" else "claude-code",
         "snapshotProfile": "worker-local-glimmer-fallback" if provider == "glimmer" else "worker-local-default",
+        "capabilityMode": "provider-native-with-governance-envelope",
+        "nativeCapabilities": native_capabilities[provider],
+        "requiredProviderCapabilities": [],
+        "governanceCapabilities": ["audit-evidence", "bounded-snapshot", "guarded-execution", "role-binding"],
         "resolvedAt": utc_now(),
     }
 
@@ -1495,7 +1816,47 @@ def auth_signing_key() -> bytes:
     configured = os.environ.get(AUTH_SIGNING_KEY_ENV)
     if configured:
         return configured.encode("utf-8")
-    return evidence_signing_key()
+    try:
+        if AUTH_SIGNING_KEY_PATH.exists():
+            return AUTH_SIGNING_KEY_PATH.read_bytes()
+        AUTH_SIGNING_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        key = secrets.token_bytes(32)
+        descriptor = os.open(AUTH_SIGNING_KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(key)
+        return key
+    except FileExistsError:
+        return AUTH_SIGNING_KEY_PATH.read_bytes()
+    except OSError:
+        return f"local-alpha-auth-fallback:{MISSION_ROOT}".encode("utf-8")
+
+
+def identity_mode(policy: dict[str, Any] | None = None) -> str:
+    configured = str(os.environ.get(AUTH_IDENTITY_MODE_ENV) or "").strip().lower()
+    if configured in {"development-local", "oidc-required"}:
+        return configured
+    selected = policy or auth_policy()
+    boundary = selected.get("identityBoundary") if isinstance(selected.get("identityBoundary"), dict) else {}
+    return "oidc-required" if boundary.get("mode") == "oidc-required" else "development-local"
+
+
+def private_runner_signing_key() -> bytes:
+    configured = os.environ.get(PRIVATE_RUNNER_SIGNING_KEY_ENV)
+    if configured:
+        return configured.encode("utf-8")
+    try:
+        if PRIVATE_RUNNER_SIGNING_KEY_PATH.exists():
+            return PRIVATE_RUNNER_SIGNING_KEY_PATH.read_bytes()
+        PRIVATE_RUNNER_SIGNING_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        key = secrets.token_bytes(32)
+        descriptor = os.open(PRIVATE_RUNNER_SIGNING_KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(key)
+        return key
+    except FileExistsError:
+        return PRIVATE_RUNNER_SIGNING_KEY_PATH.read_bytes()
+    except OSError:
+        return f"local-alpha-private-runner-fallback:{MISSION_ROOT}".encode("utf-8")
 
 
 def license_entitlement() -> dict[str, Any]:
@@ -1527,48 +1888,12 @@ def license_entitlement() -> dict[str, Any]:
         "licenseConfigured": bool(license_key),
         "licenseHashConfigured": bool(expected_hash),
         "reason": reason,
-        "features": {
-            feature_id: {
-                "id": feature_id,
-                "label": label,
-                "requiredEdition": "enterprise",
-                "enabled": enterprise_enabled,
-                "locked": not enterprise_enabled,
-            }
-            for feature_id, label in ENTERPRISE_FEATURES.items()
-        },
+        "features": {},
+        "commercialBoundary": "managed-scale-governance-and-support",
     }
-
-
-def enterprise_feature_enabled(feature_id: str) -> bool:
-    feature = license_entitlement().get("features", {}).get(feature_id)
-    return isinstance(feature, dict) and feature.get("enabled") is True
-
-
-def enterprise_feature_lock(feature_id: str) -> dict[str, Any]:
-    label = ENTERPRISE_FEATURES.get(feature_id, feature_id)
-    entitlement = license_entitlement()
-    feature = entitlement.get("features", {}).get(feature_id, {})
-    locked = not (isinstance(feature, dict) and feature.get("enabled") is True)
-    return {
-        "id": feature_id,
-        "label": label,
-        "locked": locked,
-        "enabled": not locked,
-        "requiredEdition": "enterprise",
-        "status": entitlement.get("status"),
-        "reason": f"Enterprise license required for {label}." if locked else "",
-    }
-
-
-def require_enterprise_feature(feature_id: str) -> None:
-    if not enterprise_feature_enabled(feature_id):
-        raise PermissionError(enterprise_feature_lock(feature_id)["reason"])
 
 
 def external_evidence_signer_command() -> str:
-    if not enterprise_feature_enabled("external-signing"):
-        return ""
     configured = os.environ.get(EVIDENCE_SIGNER_COMMAND_ENV)
     if configured:
         return configured
@@ -1578,8 +1903,6 @@ def external_evidence_signer_command() -> str:
 
 
 def external_signing_required(policy: dict[str, Any] | None = None) -> bool:
-    if not enterprise_feature_enabled("external-signing"):
-        return False
     selected = policy if isinstance(policy, dict) else auth_policy()
     kms = selected.get("kms") if isinstance(selected.get("kms"), dict) else {}
     configured = str(os.environ.get("PRESENT_REQUIRE_EXTERNAL_SIGNING") or "").strip().lower()
@@ -1630,17 +1953,6 @@ def external_sign_payload(record_hash: str, payload: dict[str, Any]) -> dict[str
 def evidence_signer_health(policy: dict[str, Any] | None = None) -> dict[str, Any]:
     selected = policy if isinstance(policy, dict) else auth_policy()
     kms = selected.get("kms") if isinstance(selected.get("kms"), dict) else {}
-    if not enterprise_feature_enabled("external-signing"):
-        return {
-            "ok": False,
-            "status": "locked",
-            "required": False,
-            "provider": str(kms.get("provider") or "customer-managed"),
-            "keyId": str(kms.get("keyId") or ""),
-            "commandConfigured": False,
-            "enterpriseFeature": "external-signing",
-            "lock": enterprise_feature_lock("external-signing"),
-        }
     command = str(os.environ.get(EVIDENCE_SIGNER_COMMAND_ENV) or kms.get("signCommand") or "").strip()
     if not command:
         return {
@@ -1694,7 +2006,7 @@ def decode_jwt_parts(token: str) -> tuple[dict[str, Any], dict[str, Any], bytes,
     return header, claims, signature, f"{parts[0]}.{parts[1]}".encode("utf-8")
 
 
-def load_oidc_jwks(policy: dict[str, Any]) -> dict[str, Any]:
+def load_oidc_jwks(policy: dict[str, Any], *, force_refresh: bool = False) -> dict[str, Any]:
     oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
     if isinstance(oidc.get("jwks"), dict):
         return oidc["jwks"]
@@ -1707,10 +2019,19 @@ def load_oidc_jwks(policy: dict[str, Any]) -> dict[str, Any]:
             return {}
     jwks_url = str(oidc.get("jwksUrl") or "").strip()
     if jwks_url:
+        ttl = max(30, min(int(oidc.get("jwksCacheSeconds") or 300), 86400))
+        with OIDC_CACHE_LOCK:
+            cached = OIDC_JWKS_CACHE.get(jwks_url)
+            if not force_refresh and isinstance(cached, dict) and float(cached.get("expiresEpoch") or 0) > time.time():
+                return cached.get("payload") if isinstance(cached.get("payload"), dict) else {}
         try:
             with urlopen(jwks_url, timeout=10) as response:
                 payload = json.loads(response.read(1024 * 1024).decode("utf-8"))
-                return payload if isinstance(payload, dict) else {}
+                if isinstance(payload, dict):
+                    with OIDC_CACHE_LOCK:
+                        OIDC_JWKS_CACHE[jwks_url] = {"payload": payload, "expiresEpoch": time.time() + ttl}
+                    return payload
+                return {}
         except Exception:  # noqa: BLE001
             return {}
     return {}
@@ -1729,8 +2050,6 @@ def jwk_to_rsa_public_key(jwk: dict[str, Any]) -> Any:
 
 
 def verify_oidc_rs256_session(token: str, header: dict[str, Any], claims: dict[str, Any], signature: bytes, signing_input: bytes, policy: dict[str, Any]) -> dict[str, Any]:
-    if not enterprise_feature_enabled("oidc-jwks"):
-        return {"ok": False, "error": enterprise_feature_lock("oidc-jwks")["reason"], "enterpriseFeature": "oidc-jwks"}
     if hashes is None or crypto_padding is None or rsa is None:
         return {"ok": False, "error": "RS256 verification is unavailable because cryptography is not installed"}
     oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
@@ -1743,6 +2062,10 @@ def verify_oidc_rs256_session(token: str, header: dict[str, Any], claims: dict[s
         key for key in keys
         if isinstance(key, dict) and key.get("kty") == "RSA" and (not kid or key.get("kid") == kid)
     ]
+    if not candidates and kid and str(oidc.get("jwksUrl") or "").strip():
+        jwks = load_oidc_jwks(policy, force_refresh=True)
+        keys = jwks.get("keys") if isinstance(jwks.get("keys"), list) else []
+        candidates = [key for key in keys if isinstance(key, dict) and key.get("kty") == "RSA" and key.get("kid") == kid]
     if not candidates:
         return {"ok": False, "error": "OIDC signing key is unavailable"}
     errors: list[str] = []
@@ -1759,7 +2082,7 @@ def verify_oidc_rs256_session(token: str, header: dict[str, Any], claims: dict[s
 def default_auth_policy() -> dict[str, Any]:
     return {
         "schemaVersion": 1,
-        "policyId": "present.enterprise-auth.alpha",
+        "policyId": "present.control-plane-auth.alpha",
         "producer": "steel-mission-chat auth-control",
         "enforcementMode": "signed-session-required-for-control-plane",
         "sessionTtlSeconds": 3600,
@@ -1767,11 +2090,25 @@ def default_auth_policy() -> dict[str, Any]:
         "acceptedAudiences": ["present-control-plane"],
         "roleClaims": ["present_role", "role"],
         "subjectClaims": ["sub", "email", "preferred_username"],
+        "identityBoundary": {
+            "mode": "development-local",
+            "allowLoopbackDevelopmentIdentity": True,
+        },
+        "authorization": {
+            "preventSelfApproval": True,
+        },
         "oidc": {
             "enabled": False,
             "issuer": "",
             "audience": "present-control-plane",
             "jwksUrl": "",
+            "authorizationEndpoint": "",
+            "tokenEndpoint": "",
+            "clientId": "",
+            "clientSecretEnv": OIDC_CLIENT_SECRET_ENV,
+            "redirectUri": "",
+            "scopes": ["openid", "profile", "email"],
+            "jwksCacheSeconds": 300,
         },
         "kms": {
             "enabled": False,
@@ -1787,63 +2124,19 @@ def auth_policy() -> dict[str, Any]:
     configured = read_json_file(AUTH_POLICY_PATH)
     policy = default_auth_policy()
     if not configured:
-        return apply_auth_entitlements({**policy, "configuredPath": str(AUTH_POLICY_PATH), "configured": False})
+        return attach_auth_edition_metadata({**policy, "configuredPath": str(AUTH_POLICY_PATH), "configured": False})
     merged = {**policy, **configured}
-    for key in ["oidc", "kms"]:
+    for key in ["identityBoundary", "authorization", "oidc", "kms"]:
         if isinstance(policy.get(key), dict) and isinstance(configured.get(key), dict):
             merged[key] = {**policy[key], **configured[key]}
-    return apply_auth_entitlements({**merged, "configuredPath": str(AUTH_POLICY_PATH), "configured": True})
+    return attach_auth_edition_metadata({**merged, "configuredPath": str(AUTH_POLICY_PATH), "configured": True})
 
 
-def auth_policy_enterprise_features(policy: dict[str, Any]) -> list[str]:
-    features: list[str] = []
-    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
-    if (
-        oidc.get("enabled") is True
-        or bool(str(oidc.get("issuer") or "").strip())
-        or bool(str(oidc.get("jwksUrl") or "").strip())
-        or bool(str(oidc.get("jwksPath") or "").strip())
-        or isinstance(oidc.get("jwks"), dict)
-    ):
-        features.append("oidc-jwks")
-    kms = policy.get("kms") if isinstance(policy.get("kms"), dict) else {}
-    if (
-        kms.get("enabled") is True
-        or kms.get("requireExternalSigning") is True
-        or bool(str(kms.get("keyId") or "").strip())
-        or bool(str(kms.get("signCommand") or "").strip())
-        or str(kms.get("provider") or "customer-managed").strip() not in {"", "customer-managed"}
-    ):
-        features.append("external-signing")
-    return features
-
-
-def apply_auth_entitlements(policy: dict[str, Any]) -> dict[str, Any]:
-    entitlement = license_entitlement()
-    locks = {feature_id: enterprise_feature_lock(feature_id) for feature_id in ("oidc-jwks", "external-signing")}
-    selected = {
+def attach_auth_edition_metadata(policy: dict[str, Any]) -> dict[str, Any]:
+    return {
         **policy,
-        "entitlement": entitlement,
-        "enterpriseFeatureLocks": locks,
+        "entitlement": license_entitlement(),
     }
-    if locks["oidc-jwks"]["locked"]:
-        oidc = selected.get("oidc") if isinstance(selected.get("oidc"), dict) else {}
-        selected["oidc"] = {
-            "enabled": False,
-            "issuer": "",
-            "audience": str(oidc.get("audience") or "present-control-plane"),
-            "jwksUrl": "",
-            "jwksPath": "",
-        }
-    if locks["external-signing"]["locked"]:
-        selected["kms"] = {
-            "enabled": False,
-            "provider": "customer-managed",
-            "keyId": "",
-            "signCommand": "",
-            "requireExternalSigning": False,
-        }
-    return selected
 
 
 def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1851,11 +2144,17 @@ def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
     base = default_auth_policy()
     oidc = source.get("oidc") if isinstance(source.get("oidc"), dict) else {}
     kms = source.get("kms") if isinstance(source.get("kms"), dict) else {}
+    boundary = source.get("identityBoundary") if isinstance(source.get("identityBoundary"), dict) else {}
+    authorization = source.get("authorization") if isinstance(source.get("authorization"), dict) else {}
     ttl = source.get("sessionTtlSeconds")
     try:
         ttl_int = int(ttl)
     except (TypeError, ValueError):
         ttl_int = int(base["sessionTtlSeconds"])
+    try:
+        jwks_cache_seconds = int(oidc.get("jwksCacheSeconds") or 300)
+    except (TypeError, ValueError):
+        jwks_cache_seconds = 300
     return {
         "schemaVersion": 1,
         "policyId": clean_optional_string(source.get("policyId"), limit=160) or base["policyId"],
@@ -1871,12 +2170,26 @@ def normalize_auth_policy(payload: dict[str, Any]) -> dict[str, Any]:
         "acceptedAudiences": clean_string_list(source.get("acceptedAudiences"), limit=20) or base["acceptedAudiences"],
         "roleClaims": clean_string_list(source.get("roleClaims"), limit=20) or base["roleClaims"],
         "subjectClaims": clean_string_list(source.get("subjectClaims"), limit=20) or base["subjectClaims"],
+        "identityBoundary": {
+            "mode": clean_choice(boundary.get("mode"), {"development-local", "oidc-required"}, "development-local"),
+            "allowLoopbackDevelopmentIdentity": bool_from_payload(boundary.get("allowLoopbackDevelopmentIdentity"), True),
+        },
+        "authorization": {
+            "preventSelfApproval": bool_from_payload(authorization.get("preventSelfApproval"), True),
+        },
         "oidc": {
             "enabled": bool_from_payload(oidc.get("enabled"), False),
             "issuer": clean_optional_string(oidc.get("issuer"), limit=500),
             "audience": clean_optional_string(oidc.get("audience"), limit=300) or "present-control-plane",
             "jwksUrl": clean_optional_string(oidc.get("jwksUrl"), limit=1000),
             "jwksPath": clean_optional_string(oidc.get("jwksPath"), limit=1000),
+            "authorizationEndpoint": clean_optional_string(oidc.get("authorizationEndpoint"), limit=1000),
+            "tokenEndpoint": clean_optional_string(oidc.get("tokenEndpoint"), limit=1000),
+            "clientId": clean_optional_string(oidc.get("clientId"), limit=500),
+            "clientSecretEnv": clean_optional_string(oidc.get("clientSecretEnv"), limit=200) or OIDC_CLIENT_SECRET_ENV,
+            "redirectUri": clean_optional_string(oidc.get("redirectUri"), limit=1000),
+            "scopes": clean_string_list(oidc.get("scopes"), limit=20) or ["openid", "profile", "email"],
+            "jwksCacheSeconds": max(30, min(jwks_cache_seconds, 86400)),
             **({"jwks": oidc.get("jwks")} if isinstance(oidc.get("jwks"), dict) else {}),
         },
         "kms": {
@@ -1895,8 +2208,6 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
         raise ValueError("only owner and admin endpoints can manage auth policy")
     before = read_json_file(AUTH_POLICY_PATH)
     policy = normalize_auth_policy(payload)
-    for feature_id in auth_policy_enterprise_features(policy):
-        require_enterprise_feature(feature_id)
     atomic_write_json(AUTH_POLICY_PATH, policy)
     record_mutation(
         "auth-policy-saved",
@@ -1911,42 +2222,119 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
             "kmsEnabled": policy.get("kms", {}).get("enabled") is True,
         },
     )
-    return apply_auth_entitlements(policy)
+    return attach_auth_edition_metadata(policy)
 
 
-def sign_enterprise_session(claims: dict[str, Any]) -> str:
-    header = {"alg": "HS256", "typ": "JWT", "kid": os.environ.get(EVIDENCE_SIGNER_ID_ENV, "present-local-alpha")}
+def sign_control_plane_session(claims: dict[str, Any]) -> str:
+    header = {"alg": "HS256", "typ": "JWT", "kid": os.environ.get(AUTH_SIGNER_ID_ENV, "present-auth-session")}
     encoded_header = b64url_encode(json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     encoded_payload = b64url_encode(json.dumps(claims, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(auth_signing_key(), f"{encoded_header}.{encoded_payload}".encode("utf-8"), hashlib.sha256).digest()
     return f"{encoded_header}.{encoded_payload}.{b64url_encode(signature)}"
 
 
-def issue_enterprise_session(actor_id: str, role: str, *, ttl_seconds: int | None = None) -> dict[str, Any]:
+def append_auth_audit(action: str, actor_id: str = "", *, ok: bool = True, details: dict[str, Any] | None = None) -> None:
+    event = {
+        "schemaVersion": 1,
+        "producedAt": utc_now(),
+        "action": action,
+        "actorId": clean_optional_string(actor_id, limit=200),
+        "ok": ok,
+        "details": details or {},
+    }
+    with AUTH_LOCK:
+        append_jsonl(AUTH_AUDIT_LEDGER_PATH, event)
+
+
+def revoked_session_ids() -> set[str]:
+    revoked: set[str] = set()
+    try:
+        for line in AUTH_REVOCATION_LEDGER_PATH.read_text().splitlines():
+            item = json.loads(line)
+            if isinstance(item, dict) and item.get("jti"):
+                revoked.add(str(item["jti"]))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return revoked
+
+
+def revoke_control_plane_session(token: str, actor_id: str = "") -> dict[str, Any]:
+    verification = verify_control_plane_session(token, allow_revoked=True)
+    claims = verification.get("claims") if isinstance(verification.get("claims"), dict) else {}
+    jti = clean_optional_string(claims.get("jti"), limit=200)
+    if not jti:
+        raise ValueError("session token is invalid")
+    event = {"schemaVersion": 1, "jti": jti, "revokedAt": utc_now(), "actorId": actor_id or verification.get("actorId") or ""}
+    with AUTH_LOCK:
+        append_jsonl(AUTH_REVOCATION_LEDGER_PATH, event)
+    append_auth_audit("session-revoked", str(event["actorId"]), details={"jti": jti})
+    return {"ok": True, "revoked": True, "jti": jti}
+
+
+def issue_control_plane_session(
+    actor_id: str,
+    role: str,
+    *,
+    ttl_seconds: int | None = None,
+    authn_method: str = "local-development",
+    actor: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     policy = auth_policy()
+    if identity_mode(policy) == "oidc-required" and authn_method != "oidc-exchange":
+        raise PermissionError("local self-issued sessions are disabled by the OIDC identity boundary")
     ttl = ttl_seconds or int(policy.get("sessionTtlSeconds") or 3600)
     now = int(time.time())
-    actor = clean_optional_string(actor_id, limit=200) or corporate_role(role)
+    actor_details = actor if isinstance(actor, dict) else {}
+    actor_subject = clean_optional_string(actor_id, limit=200) or corporate_role(role)
     claims = {
         "iss": "present-local-alpha",
         "aud": "present-control-plane",
-        "sub": actor,
+        "sub": actor_subject,
         "present_role": corporate_role(role),
+        "authn_method": authn_method,
+        "organization_ids": clean_string_list(actor_details.get("organizationIds"), limit=50),
+        "organization_id": clean_optional_string(actor_details.get("organizationId"), limit=120),
+        "capabilities": clean_string_list(actor_details.get("capabilities"), limit=200),
         "iat": now,
+        "nbf": now - 5,
         "exp": now + max(60, min(int(ttl), 86400)),
         "jti": "ps-" + secrets.token_hex(12),
     }
     return {
         "schemaVersion": 1,
         "tokenType": "Bearer",
-        "accessToken": sign_enterprise_session(claims),
+        "accessToken": sign_control_plane_session(claims),
         "expiresAt": dt.datetime.fromtimestamp(claims["exp"], dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "claims": claims,
         "authPolicyHash": canonical_json_hash(policy),
     }
 
 
-def verify_enterprise_session(token: str) -> dict[str, Any]:
+def issue_oidc_exchange_session(token: str, *, expected_nonce: str = "") -> dict[str, Any]:
+    policy = auth_policy()
+    verified = verify_control_plane_session(token, expected_nonce=expected_nonce, oidc_only=True)
+    if verified.get("ok") is not True:
+        raise PermissionError(str(verified.get("error") or "OIDC token is invalid"))
+    user_actor = verified.get("actor") if isinstance(verified.get("actor"), dict) else None
+    if not user_actor:
+        raise PermissionError("OIDC identity is not registered or is disabled")
+    session = issue_control_plane_session(
+        str(user_actor.get("actorId") or ""),
+        str(user_actor.get("role") or "user"),
+        authn_method="oidc-exchange",
+        actor=user_actor,
+    )
+    append_auth_audit("oidc-session-issued", str(user_actor.get("actorId") or ""), details={"issuer": verified.get("claims", {}).get("iss")})
+    return session
+
+
+def verify_control_plane_session(
+    token: str,
+    *,
+    expected_nonce: str = "",
+    oidc_only: bool = False,
+    allow_revoked: bool = False,
+) -> dict[str, Any]:
     policy = auth_policy()
     parts = str(token or "").split(".")
     if len(parts) != 3:
@@ -1956,6 +2344,8 @@ def verify_enterprise_session(token: str) -> dict[str, Any]:
         return {"ok": False, "error": "session claims are invalid"}
     algorithm = str(header.get("alg") or "")
     if algorithm == "HS256":
+        if oidc_only:
+            return {"ok": False, "error": "an OIDC RS256 token is required"}
         expected = b64url_encode(hmac.new(auth_signing_key(), signing_input, hashlib.sha256).digest())
         if not hmac.compare_digest(expected, parts[2]):
             return {"ok": False, "error": "session signature is invalid"}
@@ -1967,12 +2357,49 @@ def verify_enterprise_session(token: str) -> dict[str, Any]:
         issuer_kind = "oidc-rs256"
     else:
         return {"ok": False, "error": f"session algorithm {algorithm or 'unknown'} is not accepted"}
-    if str(claims.get("iss") or "") not in set(policy.get("acceptedIssuers") or []):
+    issuer = str(claims.get("iss") or "")
+    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
+    if issuer_kind == "oidc-rs256" and oidc.get("issuer") and issuer != str(oidc.get("issuer")):
+        return {"ok": False, "error": "OIDC token issuer does not match the configured provider"}
+    accepted_issuers = set(policy.get("acceptedIssuers") or [])
+    if issuer_kind == "local-hs256":
+        accepted_issuers.add("present-local-alpha")
+    if oidc.get("enabled") is True and oidc.get("issuer"):
+        accepted_issuers.add(str(oidc.get("issuer")))
+    if issuer not in accepted_issuers:
         return {"ok": False, "error": "session issuer is not accepted"}
-    if str(claims.get("aud") or "") not in set(policy.get("acceptedAudiences") or []):
+    audience_claim = claims.get("aud")
+    audiences = {str(value) for value in audience_claim} if isinstance(audience_claim, list) else {str(audience_claim or "")}
+    accepted_audiences = set(policy.get("acceptedAudiences") or [])
+    if issuer_kind == "local-hs256":
+        accepted_audiences.add("present-control-plane")
+    if oidc.get("audience"):
+        accepted_audiences.add(str(oidc.get("audience")))
+    if issuer_kind == "oidc-rs256" and oidc.get("clientId"):
+        accepted_audiences.add(str(oidc.get("clientId")))
+    if not audiences.intersection(accepted_audiences):
         return {"ok": False, "error": "session audience is not accepted"}
-    if int(claims.get("exp") or 0) < int(time.time()):
+    if issuer_kind == "oidc-rs256" and isinstance(audience_claim, list) and len(audience_claim) > 1 and oidc.get("clientId"):
+        if str(claims.get("azp") or "") != str(oidc.get("clientId")):
+            return {"ok": False, "error": "OIDC authorized party is invalid"}
+    now = int(time.time())
+    try:
+        expires = int(claims.get("exp") or 0)
+        issued = int(claims.get("iat") or 0)
+        not_before = int(claims.get("nbf") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "session timestamps are invalid"}
+    if expires < now:
         return {"ok": False, "error": "session is expired"}
+    if not_before and not_before > now + 30:
+        return {"ok": False, "error": "session is not active yet"}
+    if issued and issued > now + 30:
+        return {"ok": False, "error": "session issued-at time is invalid"}
+    if expected_nonce and not hmac.compare_digest(str(claims.get("nonce") or ""), expected_nonce):
+        return {"ok": False, "error": "OIDC nonce is invalid"}
+    jti = clean_optional_string(claims.get("jti"), limit=200)
+    if not allow_revoked and jti and jti in revoked_session_ids():
+        return {"ok": False, "error": "session is revoked"}
     role_claims = policy.get("roleClaims") if isinstance(policy.get("roleClaims"), list) else ["present_role", "role"]
     subject_claims = policy.get("subjectClaims") if isinstance(policy.get("subjectClaims"), list) else ["sub", "email", "preferred_username"]
     actor_id = ""
@@ -1985,11 +2412,34 @@ def verify_enterprise_session(token: str) -> dict[str, Any]:
         role_value = clean_optional_string(claims.get(str(claim)), limit=80)
         if role_value:
             break
-    role = corporate_role(role_value or "user")
+    mode = identity_mode(policy)
+    registered_actor: dict[str, Any] | None = None
+    if issuer_kind == "oidc-rs256":
+        registered_actor = resolve_registered_identity(claims, policy)
+        if mode == "oidc-required" and not registered_actor:
+            return {"ok": False, "error": "OIDC identity is not registered or is disabled"}
+    elif mode == "oidc-required":
+        if claims.get("authn_method") != "oidc-exchange":
+            return {"ok": False, "error": "local development sessions are not accepted in OIDC-required mode"}
+        user = registered_user(str(claims.get("sub") or ""))
+        if not user or user.get("status") != "active":
+            return {"ok": False, "error": "session subject is not registered or is disabled"}
+        registered_actor = actor_from_registered_user(user, policy)
+    role = corporate_role(str(registered_actor.get("role") if registered_actor else role_value or "user"))
+    resolved_actor_id = str(registered_actor.get("actorId") if registered_actor else actor_id or "session-subject")
+    result_actor = registered_actor or {
+        "actorId": resolved_actor_id,
+        "role": role,
+        "capabilities": clean_string_list(claims.get("capabilities"), limit=200),
+        "organizationIds": clean_string_list(claims.get("organization_ids"), limit=50),
+        "organizationId": clean_optional_string(claims.get("organization_id"), limit=120),
+        "identitySource": issuer_kind,
+    }
     return {
         "ok": True,
-        "actorId": actor_id or "session-subject",
+        "actorId": resolved_actor_id,
         "role": role,
+        "actor": result_actor,
         "claims": claims,
         "issuerKind": issuer_kind,
         "algorithm": algorithm,
@@ -2001,7 +2451,153 @@ def bearer_token_from_handler(handler: BaseHTTPRequestHandler) -> str:
     authorization = handler.headers.get("Authorization") or ""
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
-    return handler.headers.get("X-Present-Session") or ""
+    explicit = handler.headers.get("X-Present-Session") or ""
+    if explicit:
+        return explicit
+    cookie = SimpleCookie()
+    try:
+        cookie.load(handler.headers.get("Cookie") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+    return cookie.get("present_session").value if cookie.get("present_session") else ""
+
+
+def request_cookie(handler: BaseHTTPRequestHandler, name: str) -> str:
+    cookie = SimpleCookie()
+    try:
+        cookie.load(handler.headers.get("Cookie") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+    return cookie.get(name).value if cookie.get(name) else ""
+
+
+def is_loopback_request(handler: BaseHTTPRequestHandler) -> bool:
+    address = str(handler.client_address[0] if handler.client_address else "")
+    return address in {"127.0.0.1", "::1", "localhost"}
+
+
+def authenticate_http_request(handler: BaseHTTPRequestHandler, path: str, method: str) -> dict[str, Any]:
+    policy = auth_policy()
+    token = bearer_token_from_handler(handler)
+    cookie_authenticated = bool(request_cookie(handler, "present_session")) and not bool((handler.headers.get("Authorization") or "").strip())
+    if token:
+        verified = verify_control_plane_session(token)
+        if verified.get("ok") is not True:
+            append_auth_audit("request-denied", "", ok=False, details={"path": path, "error": verified.get("error")})
+            raise PermissionError(str(verified.get("error") or "valid session is required"))
+        actor = dict(verified.get("actor") if isinstance(verified.get("actor"), dict) else {})
+        actor.update({
+            "actorId": verified.get("actorId"),
+            "role": verified.get("role"),
+            "sessionVerified": True,
+            "authPolicyHash": verified.get("authPolicyHash"),
+            "claims": verified.get("claims"),
+            "accessToken": token,
+            "cookieAuthenticated": cookie_authenticated,
+        })
+        if cookie_authenticated and method in {"POST", "PUT", "PATCH", "DELETE"}:
+            csrf_cookie = request_cookie(handler, "present_csrf")
+            csrf_header = str(handler.headers.get("X-Present-CSRF") or "")
+            if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+                raise PermissionError("CSRF validation failed")
+        return actor
+    boundary = policy.get("identityBoundary") if isinstance(policy.get("identityBoundary"), dict) else {}
+    if identity_mode(policy) == "oidc-required":
+        raise PermissionError("OIDC-authenticated session is required")
+    if boundary.get("allowLoopbackDevelopmentIdentity") is not True or not is_loopback_request(handler):
+        raise PermissionError("development identity is restricted to loopback requests")
+    route_parts = path.strip("/").split("/")
+    fallback_role = route_parts[1] if len(route_parts) > 2 and route_parts[0] == "api" and route_parts[1] in {"owner", "admin", "publisher", "user"} else "user"
+    actor = actor_from_request(handler, fallback_role)
+    user = registered_user(str(actor.get("actorId") or ""))
+    if user and user.get("status") == "active":
+        actor = actor_from_registered_user(user, policy)
+    else:
+        actor.update({"organizationIds": [str(organization_registry().get("activeOrganizationId") or "")], "organizationId": str(organization_registry().get("activeOrganizationId") or ""), "capabilities": [], "identitySource": "loopback-development"})
+    actor.update({"sessionVerified": False, "authPolicyHash": canonical_json_hash(policy), "cookieAuthenticated": False})
+    return actor
+
+
+def oidc_redirect_uri(handler: BaseHTTPRequestHandler, oidc: dict[str, Any]) -> str:
+    configured = clean_optional_string(oidc.get("redirectUri"), limit=1000)
+    if configured:
+        return configured
+    host = str(handler.headers.get("Host") or "127.0.0.1:8765")
+    scheme = "https" if str(handler.headers.get("X-Forwarded-Proto") or "").lower() == "https" else "http"
+    return f"{scheme}://{host}/auth/callback"
+
+
+def begin_oidc_login(handler: BaseHTTPRequestHandler) -> str:
+    policy = auth_policy()
+    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
+    if identity_mode(policy) != "oidc-required" or oidc.get("enabled") is not True:
+        raise RuntimeError("OIDC login is not enabled")
+    authorization_endpoint = clean_optional_string(oidc.get("authorizationEndpoint"), limit=1000)
+    client_id = clean_optional_string(oidc.get("clientId"), limit=500)
+    if not authorization_endpoint or not client_id:
+        raise RuntimeError("OIDC authorization endpoint and client ID are required")
+    state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    challenge = b64url_encode(hashlib.sha256(verifier.encode("ascii")).digest())
+    redirect_uri = oidc_redirect_uri(handler, oidc)
+    with AUTH_LOCK:
+        cutoff = time.time() - 600
+        for key in [key for key, value in OIDC_LOGIN_STATES.items() if float(value.get("createdEpoch") or 0) < cutoff]:
+            OIDC_LOGIN_STATES.pop(key, None)
+        OIDC_LOGIN_STATES[state] = {"nonce": nonce, "verifier": verifier, "redirectUri": redirect_uri, "createdEpoch": time.time()}
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(clean_string_list(oidc.get("scopes"), limit=20) or ["openid", "profile", "email"]),
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    }
+    append_auth_audit("oidc-login-started", details={"redirectUri": redirect_uri})
+    return f"{authorization_endpoint}?{urlencode(params)}"
+
+
+def complete_oidc_login(handler: BaseHTTPRequestHandler, query: dict[str, list[str]]) -> tuple[dict[str, Any], str]:
+    state = (query.get("state") or [""])[0]
+    code = (query.get("code") or [""])[0]
+    if not state or not code:
+        raise PermissionError((query.get("error_description") or query.get("error") or ["OIDC callback is missing code or state"])[0])
+    state_cookie = request_cookie(handler, "present_oidc_state")
+    if not state_cookie or not hmac.compare_digest(state_cookie, state):
+        raise PermissionError("OIDC login state is not bound to this browser")
+    with AUTH_LOCK:
+        login = OIDC_LOGIN_STATES.pop(state, None)
+    if not isinstance(login, dict) or time.time() - float(login.get("createdEpoch") or 0) > 600:
+        raise PermissionError("OIDC login state is invalid or expired")
+    policy = auth_policy()
+    oidc = policy.get("oidc") if isinstance(policy.get("oidc"), dict) else {}
+    token_endpoint = clean_optional_string(oidc.get("tokenEndpoint"), limit=1000)
+    client_id = clean_optional_string(oidc.get("clientId"), limit=500)
+    if not token_endpoint or not client_id:
+        raise RuntimeError("OIDC token endpoint and client ID are required")
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": str(login.get("redirectUri") or ""),
+        "client_id": client_id,
+        "code_verifier": str(login.get("verifier") or ""),
+    }
+    secret_env = clean_optional_string(oidc.get("clientSecretEnv"), limit=200) or OIDC_CLIENT_SECRET_ENV
+    client_secret = str(os.environ.get(secret_env) or "")
+    if client_secret:
+        form["client_secret"] = client_secret
+    request = Request(token_endpoint, data=urlencode(form).encode("utf-8"), headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+    with urlopen(request, timeout=15) as response:
+        token_payload = json.loads(response.read(1024 * 1024).decode("utf-8"))
+    id_token = str(token_payload.get("id_token") or "") if isinstance(token_payload, dict) else ""
+    if not id_token:
+        raise PermissionError("OIDC provider did not return an ID token")
+    session = issue_oidc_exchange_session(id_token, expected_nonce=str(login.get("nonce") or ""))
+    csrf = secrets.token_urlsafe(32)
+    return session, csrf
 
 
 def latest_integrity_hash(mission_id: str) -> str:
@@ -2086,8 +2682,14 @@ def default_control_policy() -> dict[str, Any]:
         "executionBoundary": {
             "guardedRunnerRequired": True,
             "directCommandMode": "block",
+            "privateRunnerRequired": True,
+            "privateRunnerMode": "development-local",
+            "privateRunnerCommand": [str(PRIVATE_RUNNER_BIN), "execute"],
+            "privateRunnerStatusCommand": [str(PRIVATE_RUNNER_BIN), "status"],
+            "requiredProductionIsolation": "container",
+            "allowedEnvironment": ["GH_TOKEN", "GITHUB_TOKEN"],
             "guardedEntrypoints": ["bin/present-control-plane", "/api/control-plane/execute"],
-            "description": "Executable agent actions must enter through the signed guarded runner boundary.",
+            "description": "Executable agent actions must enter through the signed guarded runner and execute on an attested private-worker surface.",
         },
         "blockedCommandPatterns": [
             r"\bsudo\b",
@@ -2131,6 +2733,9 @@ def normalize_control_policy(payload: dict[str, Any]) -> dict[str, Any]:
     base = default_control_policy()
     approval_source = source.get("approvalRequired") if isinstance(source.get("approvalRequired"), dict) else {}
     compliance_source = source.get("complianceMappings") if isinstance(source.get("complianceMappings"), dict) else {}
+    execution_source = source.get("executionBoundary") if isinstance(source.get("executionBoundary"), dict) else {}
+    runner_command = execution_source.get("privateRunnerCommand")
+    runner_status_command = execution_source.get("privateRunnerStatusCommand")
     return {
         "schemaVersion": 1,
         "policyId": clean_optional_string(source.get("policyId"), limit=160) or base["policyId"],
@@ -2147,9 +2752,24 @@ def normalize_control_policy(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "executionBoundary": {
             **base["executionBoundary"],
-            **(source.get("executionBoundary") if isinstance(source.get("executionBoundary"), dict) else {}),
+            **execution_source,
             "guardedRunnerRequired": True,
             "directCommandMode": "block",
+            "privateRunnerRequired": True,
+            "privateRunnerMode": clean_choice(
+                execution_source.get("privateRunnerMode"), {"container", "development-local"}, "development-local"
+            ),
+            "privateRunnerCommand": [
+                str(item).strip() for item in runner_command[:8]
+                if isinstance(item, str) and item.strip()
+            ] if isinstance(runner_command, list) else base["executionBoundary"]["privateRunnerCommand"],
+            "privateRunnerStatusCommand": [
+                str(item).strip() for item in runner_status_command[:8]
+                if isinstance(item, str) and item.strip()
+            ] if isinstance(runner_status_command, list) else base["executionBoundary"]["privateRunnerStatusCommand"],
+            "requiredProductionIsolation": "container",
+            "allowedEnvironment": clean_string_list(execution_source.get("allowedEnvironment"), limit=30)
+            or base["executionBoundary"]["allowedEnvironment"],
         },
         "blockedCommandPatterns": clean_string_list(source.get("blockedCommandPatterns"), limit=120) or base["blockedCommandPatterns"],
         "approvalRequired": {
@@ -2200,6 +2820,17 @@ def default_integration_registry() -> dict[str, Any]:
             "evidenceRoot": str(MISSION_ROOT),
             "modelIndependent": True,
         },
+        "workflowEmbedding": {
+            "strategy": "existing-tools-first",
+            "controlSurfaceRole": "administration-investigation-and-fallback",
+            "inboundChannels": ["scm-events", "issue-events", "chat-commands", "ci-events", "ide-provider-events"],
+            "returnChannels": ["status", "approval-request", "control-decision", "evidence-link", "completion"],
+            "requirements": [
+                "preserve-originating-identity-and-thread",
+                "return-status-approvals-decisions-and-evidence-to-source",
+                "deep-link-to-investigation-without-forced-relocation",
+            ],
+        },
         "modelProviders": [
             {"id": "claude", "label": "Claude", "status": "configured-by-runtime-profile"},
             {"id": "openai", "label": "OpenAI", "status": "provider-adapter-ready"},
@@ -2207,24 +2838,22 @@ def default_integration_registry() -> dict[str, Any]:
             {"id": "local", "label": "Local model", "status": "provider-adapter-ready"},
         ],
         "connectors": [
-            {"id": "github", "label": "GitHub", "kind": "scm-pr-ci", "status": "alpha-native-gh-cli", "enabled": True, "mode": "registry", "events": ["pr", "ci"]},
+            {"id": "github", "label": "GitHub", "kind": "scm-pr-ci", "status": "alpha-native-bidirectional", "enabled": True, "mode": "native", "adapter": "github", "tokenEnv": "GITHUB_TOKEN", "secretEnv": "GITHUB_WEBHOOK_SECRET", "ingressRole": "user", "events": ["status", "approval-requested", "control-decision", "evidence", "mission-completed"]},
             {"id": "gitlab", "label": "GitLab", "kind": "scm-pr-ci", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["pr", "ci"]},
-            {"id": "jira", "label": "Jira", "kind": "work-tracking", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
+            {"id": "jira", "label": "Jira", "kind": "work-tracking", "status": "alpha-native-bidirectional", "enabled": False, "mode": "native", "adapter": "jira", "tokenEnv": "JIRA_API_TOKEN", "secretEnv": "JIRA_WEBHOOK_SECRET", "baseUrlEnv": "JIRA_BASE_URL", "ingressRole": "user", "events": ["status", "approval-requested", "control-decision", "evidence", "mission-completed"]},
             {"id": "linear", "label": "Linear", "kind": "work-tracking", "status": "alpha-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
-            {"id": "slack", "label": "Slack", "kind": "approval-notifications", "status": "alpha-outbox-command-or-webhook", "enabled": False, "mode": "registry", "events": ["approval-requested", "mission-completed"]},
+            {"id": "slack", "label": "Slack", "kind": "approval-notifications", "status": "alpha-native-bidirectional", "enabled": False, "mode": "native", "adapter": "slack", "tokenEnv": "SLACK_BOT_TOKEN", "secretEnv": "SLACK_SIGNING_SECRET", "ingressRole": "user", "events": ["status", "approval-requested", "control-decision", "evidence", "mission-completed"]},
             {"id": "ci-cd", "label": "CI/CD pipelines", "kind": "build-test-deploy", "status": "alpha-command-and-github-actions", "enabled": True, "mode": "registry", "events": ["build", "test", "deploy"]},
-            {"id": "siem", "label": "SIEM/security monitoring", "kind": "security-evidence-export", "status": "enterprise-locked", "enabled": False, "mode": "registry", "events": ["audit", "evidence", "control-decision"], "enterpriseFeature": "siem-connectors"},
+            {"id": "siem", "label": "SIEM/security monitoring", "kind": "security-evidence-export", "status": "core-export-ready", "enabled": False, "mode": "registry", "events": ["audit", "evidence", "control-decision"]},
         ],
     }
 
 
 def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
     connector_id = safe_path_part(str(item.get("id") or item.get("label") or "connector"), "connector")
-    mode = clean_choice(item.get("mode"), {"registry", "outbox", "command", "webhook"}, "registry")
+    mode = clean_choice(item.get("mode"), {"registry", "outbox", "command", "webhook", "native"}, "registry")
     kind = clean_optional_string(item.get("kind"), limit=120) or "integration"
-    enterprise_feature = clean_optional_string(item.get("enterpriseFeature"), limit=120)
-    if connector_id in ENTERPRISE_CONNECTOR_IDS or kind == "security-evidence-export":
-        enterprise_feature = "siem-connectors"
+    default_adapter = connector_id if connector_id in {"github", "slack", "jira"} else "generic"
     return {
         "id": connector_id,
         "label": clean_optional_string(item.get("label"), limit=120) or connector_id,
@@ -2232,12 +2861,21 @@ def normalize_connector(item: dict[str, Any]) -> dict[str, Any]:
         "status": clean_optional_string(item.get("status"), limit=120) or "registry-ready",
         "enabled": bool_from_payload(item.get("enabled"), False),
         "mode": mode,
+        "adapter": clean_choice(item.get("adapter"), {"generic", "github", "slack", "jira"}, default_adapter),
         "command": clean_optional_string(item.get("command"), limit=1000),
         "webhookUrl": clean_optional_string(item.get("webhookUrl"), limit=1000),
         "webhookSecretEnv": clean_optional_string(item.get("webhookSecretEnv"), limit=120) or CONNECTOR_WEBHOOK_SECRET_ENV,
+        "tokenEnv": clean_optional_string(item.get("tokenEnv"), limit=120),
+        "secretEnv": clean_optional_string(item.get("secretEnv"), limit=120),
+        "baseUrl": clean_optional_string(item.get("baseUrl"), limit=1000),
+        "baseUrlEnv": clean_optional_string(item.get("baseUrlEnv"), limit=120),
+        # Signed workflow events represent an external actor, never a local
+        # control-plane administrator. Privilege elevation remains an explicit
+        # approval inside the mission lifecycle.
+        "ingressRole": "user",
+        "serviceUserId": clean_optional_string(item.get("serviceUserId"), limit=200),
         "exportPath": clean_optional_string(item.get("exportPath"), limit=1000),
         "events": clean_string_list(item.get("events"), limit=40),
-        **({"enterpriseFeature": enterprise_feature} if enterprise_feature else {}),
     }
 
 
@@ -2267,6 +2905,7 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
             "status": clean_optional_string(item.get("status"), limit=120) or "provider-adapter-ready",
         })
     control = source.get("controlPlane") if isinstance(source.get("controlPlane"), dict) else {}
+    workflow_embedding = source.get("workflowEmbedding") if isinstance(source.get("workflowEmbedding"), dict) else base["workflowEmbedding"]
     return {
         "schemaVersion": 1,
         "producer": "steel-mission-chat integration-registry",
@@ -2277,6 +2916,13 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
             "evidenceRoot": clean_optional_string(control.get("evidenceRoot"), limit=1000) or str(MISSION_ROOT),
             "modelIndependent": True,
         },
+        "workflowEmbedding": {
+            "strategy": "existing-tools-first",
+            "controlSurfaceRole": "administration-investigation-and-fallback",
+            "inboundChannels": clean_string_list(workflow_embedding.get("inboundChannels"), limit=20) or base["workflowEmbedding"]["inboundChannels"],
+            "returnChannels": clean_string_list(workflow_embedding.get("returnChannels"), limit=20) or base["workflowEmbedding"]["returnChannels"],
+            "requirements": clean_string_list(workflow_embedding.get("requirements"), limit=20) or base["workflowEmbedding"]["requirements"],
+        },
         "modelProviders": model_providers or base["modelProviders"],
         "connectors": sorted(by_id.values(), key=lambda connector: connector["id"]),
     }
@@ -2285,7 +2931,7 @@ def normalize_integration_registry(payload: dict[str, Any]) -> dict[str, Any]:
 def integration_registry(role: str = "user") -> dict[str, Any]:
     configured = read_json_file(INTEGRATION_REGISTRY_PATH)
     registry = normalize_integration_registry(configured) if configured else normalize_integration_registry(default_integration_registry())
-    registry = apply_integration_entitlements(registry)
+    registry = attach_integration_edition_metadata(registry)
     selected = corporate_role(role)
     payload = {**registry, "ok": True, "role": selected, "configuredPath": str(INTEGRATION_REGISTRY_PATH), "configured": bool(configured)}
     if selected not in {"owner", "admin"}:
@@ -2307,18 +2953,6 @@ def save_integration_registry(payload: dict[str, Any], actor: str) -> dict[str, 
         raise ValueError("only owner and admin endpoints can manage integrations")
     before = read_json_file(INTEGRATION_REGISTRY_PATH)
     registry = normalize_integration_registry(payload)
-    for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
-        if not isinstance(connector, dict) or connector.get("enterpriseFeature") != "siem-connectors":
-            continue
-        configured = (
-            connector.get("enabled") is True
-            or str(connector.get("mode") or "registry") in {"outbox", "command", "webhook"}
-            or bool(str(connector.get("command") or "").strip())
-            or bool(str(connector.get("webhookUrl") or "").strip())
-            or bool(str(connector.get("exportPath") or "").strip())
-        )
-        if configured:
-            require_enterprise_feature("siem-connectors")
     atomic_write_json(INTEGRATION_REGISTRY_PATH, registry)
     record_mutation(
         "integration-registry-saved",
@@ -2331,40 +2965,22 @@ def save_integration_registry(payload: dict[str, Any], actor: str) -> dict[str, 
             "enabled": len([item for item in registry.get("connectors", []) if isinstance(item, dict) and item.get("enabled")]),
         },
     )
-    return apply_integration_entitlements(registry)
+    return attach_integration_edition_metadata(registry)
 
 
-def apply_integration_entitlements(registry: dict[str, Any]) -> dict[str, Any]:
+def attach_integration_edition_metadata(registry: dict[str, Any]) -> dict[str, Any]:
     entitlement = license_entitlement()
-    connectors: list[dict[str, Any]] = []
-    for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
-        if not isinstance(connector, dict):
-            continue
-        selected = dict(connector)
-        feature_id = str(selected.get("enterpriseFeature") or "")
-        if feature_id and not enterprise_feature_enabled(feature_id):
-            lock = enterprise_feature_lock(feature_id)
-            selected.update({
-                "enabled": False,
-                "mode": "registry",
-                "command": "",
-                "webhookUrl": "",
-                "exportPath": "",
-                "status": "enterprise-locked",
-                "locked": True,
-                "lockReason": lock["reason"],
-                "lock": lock,
-            })
-        elif feature_id:
-            selected.update({"locked": False, "lock": enterprise_feature_lock(feature_id)})
-        connectors.append(selected)
     return {
         **registry,
+        "connectors": [
+            {
+                **item,
+                **({"nativeReadiness": native_connector_readiness(item)} if item.get("mode") == "native" else {}),
+            }
+            for item in registry.get("connectors", [])
+            if isinstance(item, dict)
+        ],
         "entitlement": entitlement,
-        "enterpriseFeatureLocks": {
-            "siem-connectors": enterprise_feature_lock("siem-connectors"),
-        },
-        "connectors": connectors,
     }
 
 
@@ -2425,9 +3041,22 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
     connectors = registry.get("connectors") if isinstance(registry.get("connectors"), list) else []
     enabled = [item for item in connectors if isinstance(item, dict) and item.get("enabled") and not item.get("locked")]
     oidc = auth.get("oidc") if isinstance(auth.get("oidc"), dict) else {}
+    authorization = auth.get("authorization") if isinstance(auth.get("authorization"), dict) else {}
     kms = auth.get("kms") if isinstance(auth.get("kms"), dict) else {}
     execution_boundary = policy.get("executionBoundary") if isinstance(policy.get("executionBoundary"), dict) else {}
     signer = evidence_signer_health(auth)
+    private_runner = private_runner_health()
+    native_connectors = [
+        item for item in connectors
+        if isinstance(item, dict) and item.get("adapter") in {"github", "slack", "jira"}
+    ]
+    native_ready = [
+        item for item in native_connectors
+        if item.get("enabled")
+        and isinstance(item.get("nativeReadiness"), dict)
+        and item["nativeReadiness"].get("ingressReady") is True
+        and item["nativeReadiness"].get("egressReady") is True
+    ]
     wrapper_path = WORKER_DIR / "bin" / "present-control-plane"
     runner_enforced = (
         execution_boundary.get("guardedRunnerRequired") is True
@@ -2457,10 +3086,17 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "detail": "The guarded CLI/API runs policy before command or provider execution, and direct command paths are blocked.",
         },
         {
+            "id": "isolated-private-runner",
+            "label": "Isolated private runner",
+            "alpha": private_runner.get("ok") is True,
+            "production": private_runner.get("productionEligible") is True and private_runner.get("isolationLevel") == "container",
+            "detail": "Executable delivery and provider commands cross an attested private-runner boundary; production requires the hardened ephemeral container surface.",
+        },
+        {
             "id": "tamper-evident-evidence",
             "label": "Tamper-evident evidence",
             "alpha": True,
-            "production": bool(enterprise_feature_enabled("external-signing") and kms.get("requireExternalSigning") and signer.get("ok")),
+            "production": bool(kms.get("requireExternalSigning") and signer.get("ok")),
             "detail": "Mission records are signed and hash chained; production requires a healthy external signer or customer KMS command.",
         },
         {
@@ -2480,16 +3116,25 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
         {
             "id": "tool-integrations",
             "label": "Existing tool integrations",
-            "alpha": len(connectors) >= 7,
-            "production": len(enabled) >= 3 and any(item.get("mode") in {"command", "webhook", "outbox"} for item in enabled),
-            "detail": "GitHub/GitHub Actions plus command/webhook/outbox connectors cover GitLab, Jira, Linear, Slack, CI/CD, and SIEM categories.",
+            "alpha": {item.get("adapter") for item in native_connectors} >= {"github", "slack", "jira"},
+            "production": bool(native_ready),
+            "detail": "Signed GitHub, Slack, and Jira ingress preserves source/thread identity and native egress returns status, approvals, decisions, evidence, and completion.",
         },
         {
-            "id": "enterprise-auth",
-            "label": "Enterprise auth",
+            "id": "baseline-auth",
+            "label": "Baseline identity",
             "alpha": auth.get("enforcementMode") == "signed-session-required-for-control-plane",
-            "production": bool(enterprise_feature_enabled("oidc-jwks") and oidc.get("enabled")),
-            "detail": "Signed sessions are required for guarded execution; RS256/OIDC validation is available when configured.",
+            "production": bool(
+                identity_mode(auth) == "oidc-required"
+                and oidc.get("enabled")
+                and oidc.get("issuer")
+                and (oidc.get("jwksUrl") or oidc.get("jwksPath") or oidc.get("jwks"))
+                and oidc.get("authorizationEndpoint")
+                and oidc.get("tokenEndpoint")
+                and oidc.get("clientId")
+                and authorization.get("preventSelfApproval") is True
+            ),
+            "detail": "Production fails closed on OIDC, maps identities to server-owned user/org authorization, and prevents self-approval.",
         },
     ]
     alpha_score = round(100 * sum(1 for item in checks if item["alpha"]) / len(checks))
@@ -2508,16 +3153,19 @@ def control_plane_production_readiness(role: str = "admin") -> dict[str, Any]:
             "requiresSignedSession": auth.get("enforcementMode") == "signed-session-required-for-control-plane",
             "directCommandMode": str(execution_boundary.get("directCommandMode") or ""),
             "guardedRunnerRequired": execution_boundary.get("guardedRunnerRequired") is True,
+            "privateRunnerRequired": execution_boundary.get("privateRunnerRequired") is True,
+            "privateRunner": private_runner,
         },
         "entitlement": entitlement,
         "evidenceSigner": signer,
         "checks": checks,
         "remainingProductionHardening": [
             item for item in [
-                "Run agents in containers or private workers where direct shell/tool access is removed.",
-                None if enterprise_feature_enabled("external-signing") and signer.get("ok") and kms.get("requireExternalSigning") else "Activate Enterprise and back evidence signing with customer KMS or an external signing command.",
-                None if enterprise_feature_enabled("oidc-jwks") and oidc.get("enabled") else "Activate Enterprise and configure OIDC issuer/JWKS for enterprise identity verification.",
-                None if enabled else "Attach native connector credentials and webhook destinations for each customer tool.",
+                None if private_runner.get("productionEligible") and private_runner.get("isolationLevel") == "container" else "Build and select the hardened private-runner image for container-isolated execution.",
+                None if signer.get("ok") and kms.get("requireExternalSigning") else "Back evidence signing with a customer-controlled KMS or external signing command.",
+                None if identity_mode(auth) == "oidc-required" and oidc.get("enabled") and oidc.get("issuer") and oidc.get("authorizationEndpoint") and oidc.get("tokenEndpoint") and oidc.get("clientId") else "Configure the fail-closed OIDC browser/session boundary, issuer/JWKS, and client endpoints.",
+                None if authorization.get("preventSelfApproval") is True else "Enable separation of duties for mission approvals.",
+                None if native_ready else "Configure signed ingress and native egress credentials for at least one GitHub, Slack, or Jira workflow.",
                 None if runner_enforced else "Force executable agent actions through the guarded control-plane runner.",
             ]
             if item
@@ -2549,7 +3197,61 @@ def connector_outbox_path(connector: dict[str, Any], event_id: str) -> Path:
     return MISSION_ROOT / "_connector-outbox" / safe_path_part(str(connector.get("id") or "connector"), "connector") / f"{event_id}.json"
 
 
+def normalize_workflow_origin(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    source_system = clean_choice(source.get("sourceSystem"), {"github", "slack", "jira", "api", "ui"}, "")
+    if not source_system:
+        return {}
+    fields = {
+        "sourceSystem": source_system,
+        "sourceType": clean_optional_string(source.get("sourceType"), limit=80),
+        "sourceId": clean_optional_string(source.get("sourceId"), limit=240),
+        "threadId": clean_optional_string(source.get("threadId"), limit=240),
+        "actorId": clean_optional_string(source.get("actorId"), limit=160),
+        "returnChannel": clean_optional_string(source.get("returnChannel"), limit=80),
+        "returnTarget": clean_optional_string(source.get("returnTarget"), limit=500),
+        "deepLink": clean_optional_string(source.get("deepLink"), limit=1000),
+        "repository": clean_optional_string(source.get("repository"), limit=240),
+        "issueNumber": clean_optional_string(source.get("issueNumber"), limit=40),
+        "channelId": clean_optional_string(source.get("channelId"), limit=160),
+        "threadTs": clean_optional_string(source.get("threadTs"), limit=160),
+        "issueKey": clean_optional_string(source.get("issueKey"), limit=120),
+    }
+    return {key: item for key, item in fields.items() if item}
+
+
+def connector_payload_origin(payload: dict[str, Any]) -> dict[str, Any]:
+    return normalize_workflow_origin(payload.get("origin") or payload.get("workflowOrigin"))
+
+
+def native_connector_readiness(connector: dict[str, Any]) -> dict[str, Any]:
+    adapter = str(connector.get("adapter") or connector.get("id") or "generic")
+    token_env = str(connector.get("tokenEnv") or {
+        "github": "GITHUB_TOKEN", "slack": "SLACK_BOT_TOKEN", "jira": "JIRA_API_TOKEN"
+    }.get(adapter, ""))
+    secret_env = str(connector.get("secretEnv") or {
+        "github": "GITHUB_WEBHOOK_SECRET", "slack": "SLACK_SIGNING_SECRET", "jira": "JIRA_WEBHOOK_SECRET"
+    }.get(adapter, ""))
+    base_url_env = str(connector.get("baseUrlEnv") or ("JIRA_BASE_URL" if adapter == "jira" else ""))
+    token_configured = bool(token_env and os.environ.get(token_env)) or (adapter == "github" and bool(os.environ.get("GH_TOKEN")))
+    base_url = str(connector.get("baseUrl") or (os.environ.get(base_url_env) if base_url_env else "") or "").rstrip("/")
+    egress_ready = token_configured and (adapter != "jira" or bool(base_url))
+    return {
+        "adapter": adapter,
+        "native": adapter in {"github", "slack", "jira"},
+        "tokenEnv": token_env,
+        "tokenConfigured": token_configured,
+        "secretEnv": secret_env,
+        "ingressSecretConfigured": bool(secret_env and os.environ.get(secret_env)),
+        "baseUrlEnv": base_url_env,
+        "baseUrlConfigured": bool(base_url) if adapter == "jira" else True,
+        "ingressReady": bool(secret_env and os.environ.get(secret_env)),
+        "egressReady": egress_ready,
+    }
+
+
 def connector_action_plan(connector: dict[str, Any], event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    origin = connector_payload_origin(payload)
     return {
         "schemaVersion": 1,
         "interface": ["plan", "preflight", "execute", "observe", "evidence", "rollback/export"],
@@ -2559,6 +3261,12 @@ def connector_action_plan(connector: dict[str, Any], event_type: str, payload: d
         "eventType": event_type,
         "mode": connector.get("mode") or "registry",
         "enabled": bool(connector.get("enabled")),
+        "interactionModel": "workflow-embedded",
+        "controlSurfaceRole": "administration-investigation-and-fallback",
+        "origin": origin,
+        "originContextPreserved": bool(origin),
+        "returnToOrigin": bool(origin and origin.get("sourceSystem") == connector.get("adapter")),
+        "investigationPath": payload.get("investigationPath") or "",
         "payloadHash": canonical_json_hash(payload),
     }
 
@@ -2566,9 +3274,6 @@ def connector_action_plan(connector: dict[str, Any], event_type: str, payload: d
 def connector_action_preflight(connector: dict[str, Any], event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     plan = connector_action_plan(connector, event_type, payload)
     blockers: list[str] = []
-    enterprise_feature = str(connector.get("enterpriseFeature") or "")
-    if enterprise_feature and not enterprise_feature_enabled(enterprise_feature):
-        blockers.append(enterprise_feature_lock(enterprise_feature)["reason"])
     if not connector.get("enabled"):
         blockers.append("connector is disabled")
     if not connector_supports_event(connector, event_type):
@@ -2579,6 +3284,11 @@ def connector_action_preflight(connector: dict[str, Any], event_type: str, paylo
         blockers.append("connector command is not configured")
     if mode == "webhook" and not str(connector.get("webhookUrl") or "").strip():
         blockers.append("connector webhookUrl is not configured")
+    origin = connector_payload_origin(payload)
+    native_readiness = native_connector_readiness(connector) if mode == "native" else {}
+    native_targets_origin = bool(origin and origin.get("sourceSystem") == connector.get("adapter"))
+    if mode == "native" and native_targets_origin and native_readiness.get("egressReady") is not True:
+        blockers.append(f"native {connector.get('adapter') or connector.get('id')} egress credentials are not configured")
     blocked_patterns = command_matches_blocked_pattern(command, control_policy()) if command else []
     blockers.extend(f"connector command matches blocked policy pattern: {pattern}" for pattern in blocked_patterns)
     decision = "allow" if not blockers else "block"
@@ -2589,53 +3299,31 @@ def connector_action_preflight(connector: dict[str, Any], event_type: str, paylo
         "plan": plan,
         "risk": "medium" if mode in {"command", "webhook"} else "low",
         "blockers": blockers,
-        "enterpriseFeature": enterprise_feature,
         "modelIndependent": True,
         "customerControlled": True,
+        "nativeReadiness": native_readiness,
         "policyHash": canonical_json_hash(control_policy()),
     }
 
 
 def run_connector_command(command: str, payload: dict[str, Any], *, timeout: int = 60) -> dict[str, Any]:
-    try:
-        argv = shlex.split(command)
-    except ValueError as exc:
-        return {"ok": False, "status": "blocked", "error": f"connector command could not be parsed: {exc}"}
-    if not argv:
-        return {"ok": False, "status": "blocked", "error": "connector command is not configured"}
-    started = time.time()
-    env = {**os.environ, "PRESENT_CONNECTOR_PAYLOAD_SHA256": canonical_json_hash(payload)}
-    try:
-        result = subprocess.run(
-            argv,
-            cwd=str(WORKER_DIR),
-            input=json.dumps(payload, sort_keys=True),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-            env=env,
-        )
-    except FileNotFoundError as exc:
-        return {"ok": False, "status": "failed", "error": str(exc), "argv": argv}
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "ok": False,
-            "status": "timeout",
-            "argv": argv,
-            "timeoutSeconds": timeout,
-            "stdout": limited_text(exc.stdout or ""),
-            "stderr": limited_text(exc.stderr or ""),
-        }
-    return {
-        "ok": result.returncode == 0,
-        "status": "succeeded" if result.returncode == 0 else "failed",
-        "argv": argv,
-        "exitCode": result.returncode,
-        "durationSeconds": round(time.time() - started, 1),
-        "stdout": limited_text(result.stdout or ""),
-        "stderr": limited_text(result.stderr or ""),
-    }
+    nested = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    payload_hash = canonical_json_hash(payload)
+    mission_id = str(nested.get("missionId") or "")
+    if not re.fullmatch(r"ms-[a-f0-9]{24}", mission_id):
+        mission_id = "ms-" + payload_hash[:24]
+    task_id = str(nested.get("taskId") or "")
+    if not re.fullmatch(r"DEV-[0-9]{6}", task_id):
+        task_id = f"DEV-{int(payload_hash[24:36], 16) % 1_000_000:06d}"
+    return run_delivery_private_runner(
+        command,
+        WORKER_DIR,
+        {"missionId": mission_id, "taskId": task_id},
+        "inspect",
+        timeout=timeout,
+        stdin_text=json.dumps(payload, sort_keys=True),
+        request_environment={"PRESENT_CONNECTOR_PAYLOAD_SHA256": payload_hash},
+    )
 
 
 def post_connector_webhook(connector: dict[str, Any], payload: dict[str, Any], *, timeout: int = 30) -> dict[str, Any]:
@@ -2666,6 +3354,399 @@ def post_connector_webhook(connector: dict[str, Any], payload: dict[str, Any], *
             }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "status": "failed", "error": str(exc), "durationSeconds": round(time.time() - started, 1)}
+
+
+def workflow_event_message(envelope: dict[str, Any]) -> str:
+    payload = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {}
+    event_type = str(envelope.get("eventType") or "status")
+    mission_id = str(payload.get("missionId") or "")
+    title = {
+        "approval-requested": "Approval needed",
+        "control-decision": "Control decision recorded",
+        "evidence": "Evidence recorded",
+        "mission-completed": "Mission completed",
+        "status": "Mission status",
+    }.get(event_type, event_type.replace("-", " ").title())
+    detail = str(payload.get("summary") or payload.get("title") or payload.get("state") or payload.get("decision") or "").strip()
+    investigation = str(payload.get("investigationUrl") or payload.get("investigationPath") or "").strip()
+    lines = [f"Steel Mission · {title}"]
+    if mission_id:
+        lines.append(f"Mission: {mission_id}")
+    if detail:
+        lines.append(detail[:1500])
+    if investigation:
+        lines.append(f"Investigate: {investigation}")
+    return "\n".join(lines)
+
+
+def post_native_json(url: str, body: dict[str, Any], headers: dict[str, str], *, timeout: int = 30) -> dict[str, Any]:
+    started = time.time()
+    request = Request(
+        url,
+        data=json.dumps(body, sort_keys=True).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "Steel-Mission-Control-Plane/alpha", **headers},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read(65536).decode("utf-8", errors="replace")
+            try:
+                response_payload = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                response_payload = {"body": limited_text(raw, limit=4000)}
+            ok = 200 <= int(response.status) < 300
+            return {
+                "ok": ok,
+                "status": "succeeded" if ok else "failed",
+                "httpStatus": int(response.status),
+                "durationSeconds": round(time.time() - started, 1),
+                "response": response_payload,
+                "url": url,
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": "failed", "error": str(exc), "durationSeconds": round(time.time() - started, 1), "url": url}
+
+
+def run_native_github_connector(connector: dict[str, Any], envelope: dict[str, Any], origin: dict[str, Any]) -> dict[str, Any]:
+    repository = str(origin.get("repository") or "").strip()
+    issue_number = str(origin.get("issueNumber") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not issue_number.isdigit():
+        return {"ok": False, "status": "blocked", "error": "GitHub origin is missing repository or issue number"}
+    token_env = str(connector.get("tokenEnv") or "GITHUB_TOKEN")
+    token = str(os.environ.get(token_env) or os.environ.get("GH_TOKEN") or "")
+    if not token:
+        return {"ok": False, "status": "blocked", "error": f"GitHub token is unavailable in {token_env}"}
+    url = f"https://api.github.com/repos/{repository}/issues/{quote(issue_number, safe='')}/comments"
+    return post_native_json(
+        url,
+        {"body": workflow_event_message(envelope)},
+        {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
+    )
+
+
+def run_native_slack_connector(connector: dict[str, Any], envelope: dict[str, Any], origin: dict[str, Any]) -> dict[str, Any]:
+    channel = str(origin.get("channelId") or origin.get("returnTarget") or "").strip()
+    if not channel:
+        return {"ok": False, "status": "blocked", "error": "Slack origin is missing channel id"}
+    token_env = str(connector.get("tokenEnv") or "SLACK_BOT_TOKEN")
+    token = str(os.environ.get(token_env) or "")
+    if not token:
+        return {"ok": False, "status": "blocked", "error": f"Slack token is unavailable in {token_env}"}
+    body: dict[str, Any] = {"channel": channel, "text": workflow_event_message(envelope), "unfurl_links": False}
+    if origin.get("threadTs"):
+        body["thread_ts"] = origin["threadTs"]
+    result = post_native_json("https://slack.com/api/chat.postMessage", body, {"Authorization": f"Bearer {token}"})
+    response = result.get("response") if isinstance(result.get("response"), dict) else {}
+    if result.get("ok") is True and response.get("ok") is False:
+        return {**result, "ok": False, "status": "failed", "error": str(response.get("error") or "Slack API rejected the message")}
+    return result
+
+
+def run_native_jira_connector(connector: dict[str, Any], envelope: dict[str, Any], origin: dict[str, Any]) -> dict[str, Any]:
+    issue_key = str(origin.get("issueKey") or origin.get("returnTarget") or "").strip()
+    base_url_env = str(connector.get("baseUrlEnv") or "JIRA_BASE_URL")
+    base_url = str(connector.get("baseUrl") or os.environ.get(base_url_env) or "").rstrip("/")
+    if not issue_key or not base_url:
+        return {"ok": False, "status": "blocked", "error": "Jira origin or base URL is not configured"}
+    token_env = str(connector.get("tokenEnv") or "JIRA_API_TOKEN")
+    token = str(os.environ.get(token_env) or "")
+    if not token:
+        return {"ok": False, "status": "blocked", "error": f"Jira token is unavailable in {token_env}"}
+    url = f"{base_url}/rest/api/2/issue/{quote(issue_key, safe='')}/comment"
+    return post_native_json(url, {"body": workflow_event_message(envelope)}, {"Authorization": f"Bearer {token}", "Accept": "application/json"})
+
+
+def run_native_connector(connector: dict[str, Any], envelope: dict[str, Any]) -> dict[str, Any]:
+    origin = connector_payload_origin(envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {})
+    adapter = str(connector.get("adapter") or connector.get("id") or "")
+    if not origin or origin.get("sourceSystem") != adapter:
+        return {
+            "ok": True,
+            "status": "skipped",
+            "message": "native connector does not own the originating workflow",
+            "originSourceSystem": origin.get("sourceSystem") or "",
+        }
+    if adapter == "github":
+        return run_native_github_connector(connector, envelope, origin)
+    if adapter == "slack":
+        return run_native_slack_connector(connector, envelope, origin)
+    if adapter == "jira":
+        return run_native_jira_connector(connector, envelope, origin)
+    return {"ok": False, "status": "blocked", "error": f"native connector adapter {adapter!r} is not supported"}
+
+
+def normalized_request_headers(headers: Any) -> dict[str, str]:
+    if isinstance(headers, dict):
+        items = headers.items()
+    elif hasattr(headers, "items"):
+        items = headers.items()
+    else:
+        items = []
+    return {str(key).lower(): str(value) for key, value in items}
+
+
+def verify_workflow_ingress_signature(source: str, connector: dict[str, Any], headers: Any, raw_body: bytes) -> dict[str, Any]:
+    normalized = normalized_request_headers(headers)
+    secret_env = str(connector.get("secretEnv") or {
+        "github": "GITHUB_WEBHOOK_SECRET", "slack": "SLACK_SIGNING_SECRET", "jira": "JIRA_WEBHOOK_SECRET"
+    }.get(source, ""))
+    secret = str(os.environ.get(secret_env) or "")
+    if not secret:
+        return {"ok": False, "error": f"{source} ingress secret is unavailable in {secret_env}"}
+    if source == "slack":
+        timestamp = normalized.get("x-slack-request-timestamp", "")
+        signature = normalized.get("x-slack-signature", "")
+        try:
+            replay_safe = abs(int(time.time()) - int(timestamp)) <= 300
+        except (TypeError, ValueError):
+            replay_safe = False
+        expected = "v0=" + hmac.new(secret.encode("utf-8"), b"v0:" + timestamp.encode("ascii", errors="ignore") + b":" + raw_body, hashlib.sha256).hexdigest()
+        return {
+            "ok": replay_safe and bool(signature) and hmac.compare_digest(signature, expected),
+            "algorithm": "slack-v0-hmac-sha256",
+            "replaySafe": replay_safe,
+            **({"error": "Slack signature is invalid or outside the five-minute replay window"} if not (replay_safe and signature and hmac.compare_digest(signature, expected)) else {}),
+        }
+    signature_header = "x-hub-signature-256" if source == "github" else "x-steel-mission-signature"
+    signature = normalized.get(signature_header, "")
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    ok = bool(signature) and hmac.compare_digest(signature, expected)
+    return {
+        "ok": ok,
+        "algorithm": "hmac-sha256",
+        **({"error": f"{source} webhook signature is invalid"} if not ok else {}),
+    }
+
+
+def parse_workflow_ingress_payload(source: str, raw_body: bytes, content_type: str) -> dict[str, Any]:
+    text = raw_body.decode("utf-8")
+    if source == "slack" and "application/x-www-form-urlencoded" in content_type.lower():
+        form = parse_qs(text, keep_blank_values=True)
+        return {key: values[-1] if values else "" for key, values in form.items()}
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("workflow ingress payload must be an object")
+    return payload
+
+
+def command_after_steel_mission(value: Any) -> str:
+    text = str(value or "").strip()
+    match = re.search(r"(?:^|\s)/?steel-mission(?:\s+|$)(.*)", text, flags=re.I | re.S)
+    if match:
+        return match.group(1).strip()
+    text = re.sub(r"<@[A-Z0-9]+>", "", text, flags=re.I).strip()
+    return text
+
+
+def normalize_github_ingress(headers: dict[str, str], payload: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
+    event_type = headers.get("x-github-event", "unknown")
+    repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
+    issue = payload.get("issue") if isinstance(payload.get("issue"), dict) else {}
+    pull_request = payload.get("pull_request") if isinstance(payload.get("pull_request"), dict) else {}
+    subject = issue or pull_request
+    comment = payload.get("comment") if isinstance(payload.get("comment"), dict) else {}
+    actor = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
+    repo_name = str(repository.get("full_name") or "")
+    number = str(subject.get("number") or payload.get("number") or "")
+    body = str(comment.get("body") or subject.get("body") or "")
+    labels = [
+        str(item.get("name") or "").strip().lower()
+        for item in subject.get("labels", []) if isinstance(item, dict)
+    ] if isinstance(subject.get("labels"), list) else []
+    explicit = bool(re.search(r"(?:^|\s)/?steel-mission(?:\s|$)", body, flags=re.I))
+    accepted = explicit or "steel-mission" in labels
+    command = command_after_steel_mission(body) if explicit else ""
+    objective = command or "\n\n".join(item for item in [str(subject.get("title") or "").strip(), body.strip()] if item)
+    source_type = "pull-request" if pull_request else "issue"
+    return {
+        "schemaVersion": 1,
+        "eventId": headers.get("x-github-delivery") or "github-" + hashlib.sha256(raw_body).hexdigest()[:24],
+        "sourceSystem": "github",
+        "eventType": event_type,
+        "action": str(payload.get("action") or ""),
+        "accepted": accepted and bool(objective),
+        "reason": "explicit command or steel-mission label" if accepted else "event does not request Steel Mission",
+        "objective": objective[:12000],
+        "actor": {"id": str(actor.get("id") or actor.get("login") or ""), "name": str(actor.get("login") or "")},
+        "origin": normalize_workflow_origin({
+            "sourceSystem": "github",
+            "sourceType": source_type,
+            "sourceId": f"{repo_name}#{number}" if repo_name and number else repo_name,
+            "threadId": f"github:{repo_name}:{number}" if repo_name and number else "",
+            "actorId": str(actor.get("login") or actor.get("id") or ""),
+            "returnChannel": "github-comment",
+            "returnTarget": f"{repo_name}#{number}" if repo_name and number else "",
+            "deepLink": str(comment.get("html_url") or subject.get("html_url") or ""),
+            "repository": repo_name,
+            "issueNumber": number,
+        }),
+        "payloadHash": hashlib.sha256(raw_body).hexdigest(),
+        "receivedAt": utc_now(),
+    }
+
+
+def normalize_slack_ingress(headers: dict[str, str], payload: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
+    event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    is_slash = bool(payload.get("command"))
+    text = str(payload.get("text") if is_slash else event.get("text") or "")
+    command = command_after_steel_mission(text)
+    channel = str(payload.get("channel_id") if is_slash else event.get("channel") or "")
+    thread_ts = str(event.get("thread_ts") or event.get("ts") or payload.get("trigger_id") or "")
+    actor_id = str(payload.get("user_id") if is_slash else event.get("user") or "")
+    event_type = str(event.get("type") or "")
+    explicit = bool(re.search(r"(?:^|\s)/?steel-mission(?:\s|$)", text, flags=re.I))
+    from_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")
+    accepted = not from_bot and (is_slash or event_type == "app_mention" or (event_type == "message" and explicit))
+    return {
+        "schemaVersion": 1,
+        "eventId": str(payload.get("event_id") or headers.get("x-slack-request-id") or "slack-" + hashlib.sha256(raw_body).hexdigest()[:24]),
+        "sourceSystem": "slack",
+        "eventType": "slash-command" if is_slash else str(event.get("type") or payload.get("type") or "event"),
+        "action": "request",
+        "accepted": accepted and bool(command),
+        "reason": "signed Slack command or app mention" if accepted else "Slack event does not request Steel Mission",
+        "objective": command[:12000],
+        "actor": {"id": actor_id, "name": str(payload.get("user_name") or actor_id)},
+        "origin": normalize_workflow_origin({
+            "sourceSystem": "slack",
+            "sourceType": "thread",
+            "sourceId": channel,
+            "threadId": f"slack:{channel}:{thread_ts}" if channel and thread_ts else channel,
+            "actorId": actor_id,
+            "returnChannel": "slack-thread",
+            "returnTarget": channel,
+            "channelId": channel,
+            "threadTs": thread_ts,
+        }),
+        "payloadHash": hashlib.sha256(raw_body).hexdigest(),
+        "receivedAt": utc_now(),
+    }
+
+
+def normalize_jira_ingress(headers: dict[str, str], payload: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
+    issue = payload.get("issue") if isinstance(payload.get("issue"), dict) else {}
+    fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else {}
+    comment = payload.get("comment") if isinstance(payload.get("comment"), dict) else {}
+    actor = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+    issue_key = str(issue.get("key") or "")
+    body = str(comment.get("body") or fields.get("description") or "")
+    labels = [str(item).lower() for item in fields.get("labels", [])] if isinstance(fields.get("labels"), list) else []
+    explicit = bool(re.search(r"(?:^|\s)/?steel-mission(?:\s|$)", body, flags=re.I))
+    accepted = explicit or "steel-mission" in labels
+    command = command_after_steel_mission(body) if explicit else ""
+    objective = command or "\n\n".join(item for item in [str(fields.get("summary") or "").strip(), body.strip()] if item)
+    return {
+        "schemaVersion": 1,
+        "eventId": headers.get("x-atlassian-webhook-identifier") or "jira-" + hashlib.sha256(raw_body).hexdigest()[:24],
+        "sourceSystem": "jira",
+        "eventType": str(payload.get("webhookEvent") or "jira:issue_updated"),
+        "action": "request",
+        "accepted": accepted and bool(objective),
+        "reason": "explicit command or steel-mission label" if accepted else "Jira event does not request Steel Mission",
+        "objective": objective[:12000],
+        "actor": {"id": str(actor.get("accountId") or actor.get("key") or ""), "name": str(actor.get("displayName") or "")},
+        "origin": normalize_workflow_origin({
+            "sourceSystem": "jira",
+            "sourceType": "issue",
+            "sourceId": issue_key,
+            "threadId": f"jira:{issue_key}",
+            "actorId": str(actor.get("accountId") or actor.get("key") or ""),
+            "returnChannel": "jira-comment",
+            "returnTarget": issue_key,
+            "deepLink": str(issue.get("self") or ""),
+            "issueKey": issue_key,
+        }),
+        "payloadHash": hashlib.sha256(raw_body).hexdigest(),
+        "receivedAt": utc_now(),
+    }
+
+
+def workflow_ingress_receipt_path(source: str, event_id: str) -> Path:
+    return MISSION_ROOT / "_workflow-ingress" / safe_path_part(source, "source") / f"{safe_path_part(event_id, 'event')}.json"
+
+
+def process_workflow_ingress(source: str, headers: Any, raw_body: bytes, content_type: str = "application/json") -> tuple[int, dict[str, Any]]:
+    if source not in {"github", "slack", "jira"}:
+        return 404, {"ok": False, "error": "workflow ingress source is not supported"}
+    connector = connector_by_id(source, "admin")
+    if not connector or connector.get("enabled") is not True or connector.get("mode") != "native":
+        return 404, {"ok": False, "error": f"native {source} connector is not enabled"}
+    signature = verify_workflow_ingress_signature(source, connector, headers, raw_body)
+    if signature.get("ok") is not True:
+        return 401, {"ok": False, "error": signature.get("error") or "workflow ingress signature is invalid", "signature": signature}
+    try:
+        payload = parse_workflow_ingress_payload(source, raw_body, content_type)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return 400, {"ok": False, "error": str(exc)}
+    if source == "slack" and payload.get("type") == "url_verification":
+        return 200, {"ok": True, "challenge": str(payload.get("challenge") or "")}
+    normalized_headers = normalized_request_headers(headers)
+    event = {
+        "github": normalize_github_ingress,
+        "slack": normalize_slack_ingress,
+        "jira": normalize_jira_ingress,
+    }[source](normalized_headers, payload, raw_body)
+    receipt_path = workflow_ingress_receipt_path(source, str(event.get("eventId") or "event"))
+    with WORKFLOW_INGRESS_LOCK:
+        existing = read_json_file(receipt_path)
+        if existing:
+            return 200, {**existing, "duplicate": True}
+        if event.get("accepted") is not True:
+            receipt = {"schemaVersion": 1, "ok": True, "status": "ignored", "duplicate": False, "event": event}
+            atomic_write_json(receipt_path, receipt)
+            return 202, receipt
+        atomic_write_json(receipt_path, {
+            "schemaVersion": 1,
+            "ok": True,
+            "status": "accepting",
+            "duplicate": False,
+            "event": event,
+        })
+    actor = event.get("actor") if isinstance(event.get("actor"), dict) else {}
+    mapped_actor = resolve_external_identity(source, actor, connector)
+    if not mapped_actor and identity_mode() == "oidc-required":
+        denied = {
+            "schemaVersion": 1,
+            "ok": False,
+            "status": "denied",
+            "duplicate": False,
+            "event": event,
+            "error": f"{source} actor is not mapped to an active registered user",
+        }
+        atomic_write_json(receipt_path, denied)
+        append_auth_audit("workflow-identity-denied", ok=False, details={"source": source, "externalActor": actor.get("id") or actor.get("name")})
+        return 403, denied
+    if not mapped_actor:
+        mapped_actor = {
+            "actorId": f"{source}:{actor.get('id') or actor.get('name') or 'external-user'}",
+            "role": corporate_role(str(connector.get("ingressRole") or "user")),
+            "organizationId": str(organization_registry().get("activeOrganizationId") or ""),
+        }
+    try:
+        started = start_orchestrated_mission(
+            "investigate",
+            str(event.get("objective") or "")[:12000],
+            mock=False,
+            profile=active_runtime_profile(),
+            operator_role=corporate_role(str(mapped_actor.get("role") or "user")),
+            actor_user_id=str(mapped_actor.get("actorId") or "external-user"),
+            organization_id=str(mapped_actor.get("organizationId") or ""),
+            workflow_origin=event.get("origin"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        failed = {"schemaVersion": 1, "ok": False, "status": "failed", "duplicate": False, "event": event, "error": str(exc)}
+        atomic_write_json(receipt_path, failed)
+        return 500, failed
+    receipt = {
+        "schemaVersion": 1,
+        "ok": True,
+        "status": "accepted",
+        "duplicate": False,
+        "event": event,
+        "mission": started,
+        "investigationPath": f"/mission/{started.get('missionId')}",
+    }
+    atomic_write_json(receipt_path, receipt)
+    return 202, receipt
 
 
 def write_connector_outbox(connector: dict[str, Any], event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2700,6 +3781,8 @@ def execute_connector_action(connector_id: str, event_type: str, payload: dict[s
         execution = run_connector_command(str(connector.get("command") or ""), envelope)
     elif connector.get("mode") == "webhook":
         execution = post_connector_webhook(connector, envelope)
+    elif connector.get("mode") == "native":
+        execution = run_native_connector(connector, envelope)
     elif connector.get("mode") == "outbox":
         execution = write_connector_outbox(connector, event_id, {**envelope, "preflight": preflight})
     else:
@@ -2729,9 +3812,17 @@ def execute_connector_action(connector_id: str, event_type: str, payload: dict[s
 
 def execute_configured_connectors(event_type: str, payload: dict[str, Any], *, role: str = "admin") -> list[dict[str, Any]]:
     registry = integration_registry(role)
+    origin = connector_payload_origin(payload)
     results: list[dict[str, Any]] = []
     for connector in registry.get("connectors", []) if isinstance(registry.get("connectors"), list) else []:
         if not isinstance(connector, dict) or not connector.get("enabled") or not connector_supports_event(connector, event_type):
+            continue
+        if connector.get("mode") == "native" and (
+            not origin or origin.get("sourceSystem") != connector.get("adapter")
+        ):
+            # Native workflow adapters are return channels, not broadcast
+            # sinks. Do not create empty/skipped delivery evidence for a
+            # mission that did not originate in that provider.
             continue
         results.append(execute_connector_action(str(connector.get("id") or ""), event_type, payload, role=role))
     return results
@@ -2751,10 +3842,20 @@ def write_connector_event_evidence(
     task_id = str(record.get("taskId") or "") or None
     job_id = str(record.get("jobId") or "") or None
     operator = corporate_role(str(record.get("operatorRole") or "user"))
+    workflow_origin = normalize_workflow_origin(record.get("workflowOrigin"))
+    public_base = str(os.environ.get("STEEL_MISSION_PUBLIC_URL") or "").rstrip("/")
+    investigation_path = f"/mission/{mission_id}"
+    connector_payload = {
+        **payload,
+        "investigationPath": investigation_path,
+        "investigationUrl": f"{public_base}{investigation_path}" if public_base else investigation_path,
+        "returnToOrigin": bool(workflow_origin),
+        **({"origin": workflow_origin} if workflow_origin else {}),
+    }
     results = [
-        execute_connector_action(connector_id, event_type, payload, role="admin")
+        execute_connector_action(connector_id, event_type, connector_payload, role="admin")
         for connector_id in connector_ids
-    ] if connector_ids else execute_configured_connectors(event_type, payload, role="admin")
+    ] if connector_ids else execute_configured_connectors(event_type, connector_payload, role="admin")
     refs: list[dict[str, Any]] = []
     for result in results:
         ref = write_mission_evidence(
@@ -3222,8 +4323,23 @@ def append_mission_audit(
     return event
 
 
-def mission_list(role: str = "user", limit: int = 25) -> dict[str, Any]:
+def mission_visible_to_actor(record: dict[str, Any], actor: dict[str, Any]) -> bool:
+    role = corporate_role(str(actor.get("role") or "user"))
+    actor_id = str(actor.get("actorId") or "")
+    actor_orgs = set(clean_string_list(actor.get("organizationIds"), limit=50))
+    if actor.get("organizationId"):
+        actor_orgs.add(str(actor.get("organizationId")))
+    mission_org = str(record.get("organizationId") or "")
+    if mission_org and actor_orgs and mission_org not in actor_orgs:
+        return False
+    mission_users = record.get("missionUsers") if isinstance(record.get("missionUsers"), list) else []
+    assigned_ids = {str(user.get("id")) for user in mission_users if isinstance(user, dict) and user.get("id")}
+    return role in {"owner", "admin"} or actor_id == str(record.get("actorUserId") or "") or actor_id in assigned_ids
+
+
+def mission_list(role: str = "user", limit: int = 25, actor: dict[str, Any] | None = None) -> dict[str, Any]:
     selected = corporate_role(role)
+    selected_actor = actor or {"actorId": selected, "role": selected, "organizationIds": []}
     records: list[dict[str, Any]] = []
     for path in sorted(MISSION_ROOT.glob("ms-*/mission.json")) if MISSION_ROOT.exists() else []:
         try:
@@ -3232,10 +4348,8 @@ def mission_list(role: str = "user", limit: int = 25) -> dict[str, Any]:
             continue
         if not isinstance(payload, dict):
             continue
-        mission_users = payload.get("missionUsers") if isinstance(payload.get("missionUsers"), list) else []
-        mission_roles = {corporate_role(str(user.get("role"))) for user in mission_users if isinstance(user, dict)}
-        visible = selected in {"owner", "admin"} or payload.get("operatorRole") in {selected, "user"} or selected in mission_roles
-        if visible:
+        legacy_visible = selected in {"owner", "admin"} or payload.get("operatorRole") in {selected, "user"}
+        if mission_visible_to_actor(payload, selected_actor) if actor is not None else legacy_visible:
             records.append(payload)
     records.sort(key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
     return {
@@ -3246,14 +4360,16 @@ def mission_list(role: str = "user", limit: int = 25) -> dict[str, Any]:
     }
 
 
-def mission_detail(mission_id: str, role: str = "user") -> dict[str, Any]:
+def mission_detail(mission_id: str, role: str = "user", actor: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id, include_audit=True)
     if record is None:
         return {"ok": False, "error": "mission not found"}
     selected = corporate_role(role)
+    selected_actor = actor or {"actorId": selected, "role": selected, "organizationIds": []}
     mission_users = record.get("missionUsers") if isinstance(record.get("missionUsers"), list) else []
     mission_roles = {corporate_role(str(user.get("role"))) for user in mission_users if isinstance(user, dict)}
-    if selected not in {"owner", "admin"} and record.get("operatorRole") not in {selected, "user"} and selected not in mission_roles:
+    legacy_visible = selected in {"owner", "admin"} or record.get("operatorRole") in {selected, "user"} or selected in mission_roles
+    if not (mission_visible_to_actor(record, selected_actor) if actor is not None else legacy_visible):
         return {"ok": False, "error": "mission is not visible from this endpoint"}
     return {"ok": True, "role": selected, "mission": record}
 
@@ -3786,6 +4902,9 @@ def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[st
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(data)))
     handler.send_header("Cache-Control", "no-store")
+    for name, value in getattr(handler, "response_headers", []):
+        handler.send_header(str(name), str(value))
+    handler.response_headers = []
     handler.end_headers()
     handler.wfile.write(data)
 
@@ -3796,6 +4915,9 @@ def html_response(handler: BaseHTTPRequestHandler, status: int, html: str) -> No
     handler.send_header("Content-Type", "text/html; charset=utf-8")
     handler.send_header("Content-Length", str(len(data)))
     handler.send_header("Cache-Control", "no-store")
+    for name, value in getattr(handler, "response_headers", []):
+        handler.send_header(str(name), str(value))
+    handler.response_headers = []
     handler.end_headers()
     handler.wfile.write(data)
 
@@ -4403,6 +5525,13 @@ def read_json(handler: BaseHTTPRequestHandler, max_bytes: int = MAX_REQUEST_BYTE
     return payload
 
 
+def read_request_bytes(handler: BaseHTTPRequestHandler, max_bytes: int = MAX_REQUEST_BYTES) -> bytes:
+    length = int(handler.headers.get("Content-Length", "0") or "0")
+    if length <= 0 or length > max_bytes:
+        raise ValueError(f"request body must be 1..{max_bytes} bytes")
+    return handler.rfile.read(length)
+
+
 def clean_messages(value: Any) -> list[dict[str, str]]:
     if not isinstance(value, list):
         return []
@@ -4623,7 +5752,7 @@ def run_coordinator_report(task_id: str, question: str, messages: list[dict[str,
 
 def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile: str | None = None,
               operator_role: str | None = None, uploads: Any = None, work_mode: str | None = None,
-              actor_user_id: str | None = None) -> str:
+              actor_user_id: str | None = None, organization_id: str | None = None) -> str:
     job_id = secrets.token_urlsafe(12)
     mission_id = "ms-" + secrets.token_hex(12)
     # The task id is minted here, not inside the run, so that a failed job still
@@ -4638,6 +5767,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
     snapshot_policy = runtime.get("snapshotPolicy") if isinstance(runtime.get("snapshotPolicy"), dict) else {}
     operator = corporate_role(operator_role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
+    selected_organization_id = clean_optional_string(organization_id, limit=120) or str(organization_registry().get("activeOrganizationId") or "")
     mode = normalize_work_mode(work_mode)
     mode_context = (
         "# Work mode\n\n"
@@ -4649,6 +5779,19 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         "chat transcript available as user intent and conversational context."
     )
     messages = [*messages, {"role": "user", "content": mode_context}]
+    knowledge_quality = knowledge_quality_report()
+    if knowledge_quality.get("issues"):
+        issue_lines = [
+            f"- [{str(item.get('severity') or 'warning').upper()}] {item.get('message') or item.get('id') or 'knowledge issue'}"
+            for item in knowledge_quality.get("issues", [])[:8]
+            if isinstance(item, dict)
+        ]
+        messages = [*messages, {
+            "role": "user",
+            "content": "# Knowledge quality\n\n"
+            + str(knowledge_quality.get("confidenceDirective") or "")
+            + ("\n\n" + "\n".join(issue_lines) if issue_lines else ""),
+        }]
     upload_summaries, upload_context = chat_upload_context(uploads)
     if upload_context:
         messages = [*messages, {"role": "user", "content": "# Uploaded chat context\n\n" + upload_context}]
@@ -4659,9 +5802,11 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
                "taskId": task_id, "mock": mock, "question": question, "scope": scope,
                "profile": selected_profile, "missionId": mission_id, "operatorRole": operator,
                "actorUserId": actor_id,
+               "organizationId": selected_organization_id,
                "workMode": mode,
                "messages": messages,
                "chatUploads": upload_summaries,
+               "knowledgeQuality": knowledge_quality,
                "followUps": [], "steeringRevision": 0, "restartRequested": False,
                "restartCount": 0}
         if initial_decision_demo:
@@ -4677,6 +5822,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         state="waiting_for_decision" if initial_decision_demo else "running",
         operatorRole=operator,
         actorUserId=actor_id,
+        organizationId=selected_organization_id,
         mock=mock,
         missionKind="advisory-chat",
         question=question[:12000],
@@ -4687,6 +5833,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         modelPolicy=model_policy,
         snapshotPolicySummary=snapshot_policy_summary(snapshot_policy),
         snapshotCollections=scope,
+        knowledgeQuality=knowledge_quality,
         steeringRevision=1 if initial_decision_demo else 0,
         followUpCount=0,
         restartCount=0,
@@ -4708,6 +5855,9 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
             "model": model_policy.get("selectedModel"),
             "workMode": mode,
             "snapshotPolicyHash": snapshot_policy_summary(snapshot_policy).get("policyHash"),
+            "knowledgeQualityStatus": knowledge_quality.get("status"),
+            "knowledgeContextSufficient": knowledge_quality.get("contextSufficient") is True,
+            "knowledgeQualityHash": knowledge_quality.get("qualityHash"),
             "chatUploadCount": len(upload_summaries),
         },
     )
@@ -4898,9 +6048,11 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
     return job_id
 
 
-def mission_visible_to(record: dict[str, Any], role: str) -> bool:
+def mission_visible_to(record: dict[str, Any], role: str, actor: dict[str, Any] | None = None) -> bool:
     selected = corporate_role(role)
-    return selected in {"owner", "admin"} or record.get("operatorRole") in {selected, "user"}
+    if actor is None:
+        return selected in {"owner", "admin"} or record.get("operatorRole") in {selected, "user"}
+    return mission_visible_to_actor(record, actor)
 
 
 def mission_node_approved(record: dict[str, Any], node_id: str) -> bool:
@@ -5104,6 +6256,7 @@ def delivery_action_preflight(
         decision = "block"
         blockers.extend(str(item) for item in risk.get("reasons", []) if item)
     execution_boundary = policy.get("executionBoundary") if isinstance(policy.get("executionBoundary"), dict) else {}
+    runner_health = private_runner_health() if command and execution_boundary.get("privateRunnerRequired") is True else {}
     if (
         command
         and execution_boundary.get("guardedRunnerRequired") is True
@@ -5112,6 +6265,9 @@ def delivery_action_preflight(
     ):
         decision = "block"
         blockers.append("command execution must use the signed guarded control-plane runner")
+    elif command and execution_boundary.get("privateRunnerRequired") is True and runner_health.get("ok") is not True:
+        decision = "block"
+        blockers.append(str(runner_health.get("error") or "private runner is not ready"))
     elif risk.get("requiresApproval") and not approved:
         decision = "require_approval"
         blockers.append("human approval is required before this action can execute")
@@ -5129,6 +6285,8 @@ def delivery_action_preflight(
         "deploymentBoundary": policy.get("customerBoundary", {}).get("deployment", "customer-vpc-or-private-cloud") if isinstance(policy.get("customerBoundary"), dict) else "customer-vpc-or-private-cloud",
         "guardedRunnerRequired": execution_boundary.get("guardedRunnerRequired") is True,
         "controlPlaneExecution": record.get("controlPlaneExecution") is True,
+        "privateRunnerRequired": execution_boundary.get("privateRunnerRequired") is True,
+        "privateRunner": runner_health,
         "phase": phase,
         "commandConfigured": bool(command),
         "workspacePath": workspace.get("path") or "",
@@ -5315,6 +6473,225 @@ def run_delivery_subprocess(command: str, cwd: Path, *, timeout: int = DELIVERY_
     }
 
 
+def private_runner_command(status: bool = False) -> list[str]:
+    boundary = control_policy().get("executionBoundary")
+    boundary = boundary if isinstance(boundary, dict) else {}
+    field = "privateRunnerStatusCommand" if status else "privateRunnerCommand"
+    configured = boundary.get(field)
+    fallback = [str(PRIVATE_RUNNER_BIN), "status" if status else "execute"]
+    raw = configured if isinstance(configured, list) and configured else fallback
+    return [
+        str(item).replace("${WORKER_DIR}", str(WORKER_DIR)).replace("${PRIVATE_RUNNER_BIN}", str(PRIVATE_RUNNER_BIN))
+        for item in raw
+        if isinstance(item, str) and item.strip()
+    ] or fallback
+
+
+def private_runner_process_environment(mode: str, signing_key: bytes | None = None) -> dict[str, str]:
+    selected_mode = os.environ.get(PRIVATE_RUNNER_MODE_ENV) or ("docker" if mode == "container" else "local")
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        PRIVATE_RUNNER_MODE_ENV: selected_mode,
+        PRIVATE_RUNNER_ALLOW_LOCAL_ENV: "1" if selected_mode == "local" and mode == "development-local" else "0",
+        PRIVATE_RUNNER_SIGNER_ID_ENV: "steel-mission-private-runner",
+    }
+    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "XDG_RUNTIME_DIR", "PRESENT_PRIVATE_RUNNER_IMAGE",
+                "PRESENT_PRIVATE_RUNNER_NETWORK", "PRESENT_PRIVATE_RUNNER_USER", "PRESENT_PRIVATE_RUNNER_MEMORY",
+                "PRESENT_PRIVATE_RUNNER_CPUS", "PRESENT_PRIVATE_RUNNER_PIDS"):
+        if os.environ.get(key):
+            env[key] = str(os.environ[key])
+    if signing_key is not None:
+        env[PRIVATE_RUNNER_SIGNING_KEY_ENV] = signing_key.decode("utf-8", errors="surrogateescape")
+    return env
+
+
+def private_runner_health() -> dict[str, Any]:
+    boundary = control_policy().get("executionBoundary")
+    boundary = boundary if isinstance(boundary, dict) else {}
+    mode = str(boundary.get("privateRunnerMode") or "development-local")
+    command = private_runner_command(status=True)
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(WORKER_DIR),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            env=private_runner_process_environment(mode),
+        )
+        raw = completed.stdout or completed.stderr or "{}"
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("private-runner status must be an object")
+        return {
+            **payload,
+            "ok": completed.returncode == 0 and payload.get("ok") is True,
+            "command": command,
+            "configuredMode": mode,
+        }
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        return {
+            "schemaVersion": 1,
+            "ok": False,
+            "status": "blocked",
+            "error": str(exc),
+            "command": command,
+            "configuredMode": mode,
+        }
+
+
+def verify_private_runner_attestation(payload: dict[str, Any], key: bytes) -> dict[str, Any]:
+    attestation = payload.get("attestation") if isinstance(payload.get("attestation"), dict) else {}
+    basis = {field: value for field, value in payload.items() if field != "attestation"}
+    payload_hash = canonical_json_hash(basis)
+    expected = hmac.new(key, payload_hash.encode("ascii"), hashlib.sha256).hexdigest()
+    signature = str(attestation.get("signature") or "")
+    valid = (
+        attestation.get("algorithm") == "hmac-sha256"
+        and attestation.get("signerId") == "steel-mission-private-runner"
+        and hmac.compare_digest(str(attestation.get("payloadHash") or ""), payload_hash)
+        and bool(signature)
+        and hmac.compare_digest(signature, expected)
+    )
+    return {
+        "valid": valid,
+        "algorithm": attestation.get("algorithm") or "",
+        "signerId": attestation.get("signerId") or "",
+        "payloadHash": payload_hash,
+    }
+
+
+def run_delivery_private_runner(
+    command: str,
+    cwd: Path,
+    record: dict[str, Any],
+    phase: str,
+    *,
+    timeout: int = DELIVERY_COMMAND_TIMEOUT_SECONDS,
+    stdin_text: str = "",
+    request_environment: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if not command.strip():
+        return {"ok": False, "status": "planned", "error": "command is not configured"}
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        return {"ok": False, "status": "blocked", "error": f"command could not be parsed: {exc}"}
+    if not argv:
+        return {"ok": False, "status": "planned", "error": "command is not configured"}
+    boundary = control_policy().get("executionBoundary")
+    boundary = boundary if isinstance(boundary, dict) else {}
+    mode = str(boundary.get("privateRunnerMode") or "development-local")
+    allowed_environment = boundary.get("allowedEnvironment") if isinstance(boundary.get("allowedEnvironment"), list) else []
+    scoped_environment = {
+        str(name): str(os.environ[name])
+        for name in allowed_environment
+        if isinstance(name, str) and name in os.environ and os.environ[name]
+    }
+    for name, value in (request_environment or {}).items():
+        if re.fullmatch(r"[A-Z][A-Z0-9_]{0,79}", str(name)) and isinstance(value, str):
+            scoped_environment[str(name)] = value
+    identity_hash = canonical_json_hash({
+        "workspacePath": str(cwd.resolve()),
+        "phase": phase,
+        "argv": argv,
+        "missionId": record.get("missionId") or "",
+        "taskId": record.get("taskId") or "",
+    })
+    mission_id = str(record.get("missionId") or "")
+    if not re.fullmatch(r"ms-[a-f0-9]{24}", mission_id):
+        mission_id = "ms-" + identity_hash[:24]
+    task_id = str(record.get("taskId") or "")
+    if not re.fullmatch(r"DEV-[0-9]{6}", task_id):
+        task_id = f"DEV-{int(identity_hash[24:36], 16) % 1_000_000:06d}"
+    request = {
+        "schemaVersion": 1,
+        "requestId": "pre-" + secrets.token_hex(12),
+        "missionId": mission_id,
+        "taskId": task_id,
+        "phase": phase,
+        "workspacePath": str(cwd.resolve()),
+        "argv": argv,
+        "timeoutSeconds": timeout,
+        "environment": scoped_environment,
+        "stdin": stdin_text,
+    }
+    signing_key = base64.b64encode(private_runner_signing_key())
+    request_hash = canonical_json_hash(request)
+    request["attestation"] = {
+        "algorithm": "hmac-sha256",
+        "signerId": "steel-mission-control-plane",
+        "payloadHash": request_hash,
+        "signature": hmac.new(signing_key, request_hash.encode("ascii"), hashlib.sha256).hexdigest(),
+    }
+    runner = private_runner_command(status=False)
+    started = time.time()
+    try:
+        completed = subprocess.run(
+            runner,
+            cwd=str(WORKER_DIR),
+            input=json.dumps(request, sort_keys=True),
+            capture_output=True,
+            text=True,
+            timeout=timeout + 30,
+            check=False,
+            env=private_runner_process_environment(mode, signing_key),
+        )
+        raw = completed.stdout or completed.stderr or "{}"
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("private-runner result must be an object")
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "status": "timeout",
+            "runnerCommand": runner,
+            "timeoutSeconds": timeout + 30,
+            "durationSeconds": round(time.time() - started, 1),
+            "stdout": limited_text(exc.stdout or ""),
+            "stderr": limited_text(exc.stderr or ""),
+        }
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "runnerCommand": runner,
+            "error": str(exc),
+            "durationSeconds": round(time.time() - started, 1),
+        }
+    verification = verify_private_runner_attestation(payload, signing_key)
+    expected_request_hash = canonical_json_hash({
+        key: request[key] for key in request if key != "attestation"
+    })
+    binding_valid = (
+        payload.get("requestId") == request["requestId"]
+        and payload.get("missionId") == request["missionId"]
+        and payload.get("taskId") == request["taskId"]
+        and payload.get("phase") == request["phase"]
+        and payload.get("requestHash") == expected_request_hash
+    )
+    verification["requestBindingValid"] = binding_valid
+    verification["expectedRequestHash"] = expected_request_hash
+    if verification.get("valid") is not True or not binding_valid:
+        return {
+            **payload,
+            "ok": False,
+            "status": "blocked",
+            "error": "private-runner result attestation or request binding is missing or invalid",
+            "attestationVerification": verification,
+            "runnerCommand": runner,
+        }
+    return {
+        **payload,
+        "ok": completed.returncode == 0 and payload.get("ok") is True,
+        "attestationVerification": verification,
+        "runnerCommand": runner,
+    }
+
+
 def delivery_git_state(repo: Path | None) -> dict[str, Any]:
     if repo is None:
         return {"ok": False, "error": "repositoryPath is not bound"}
@@ -5478,19 +6855,20 @@ def github_pr_adapter(record: dict[str, Any], workspace: dict[str, Any], change_
     if mock:
         return {**payload, "status": "mocked", "url": "mock://github-pr"}
     if context.get("pushBeforePr"):
-        push = run_git_command(["push", "-u", "origin", "HEAD"], repo, timeout=120)
+        push = run_delivery_private_runner("git push -u origin HEAD", repo, record, "pr", timeout=120)
         payload["pushResult"] = push
         if push.get("ok") is not True:
             return {**payload, "ok": False, "status": "failed", "blockers": [*blockers, "git push failed"]}
-    result = subprocess.run(command, cwd=str(repo), text=True, capture_output=True, timeout=120, check=False)
-    url = (result.stdout or "").strip().splitlines()[-1] if result.stdout.strip() else ""
+    result = run_delivery_private_runner(shlex.join(command), repo, record, "pr", timeout=120)
+    url = str(result.get("stdout") or "").strip().splitlines()[-1] if str(result.get("stdout") or "").strip() else ""
     return {
         **payload,
-        "ok": result.returncode == 0,
-        "status": "succeeded" if result.returncode == 0 else "failed",
-        "exitCode": result.returncode,
-        "stdout": limited_text(result.stdout or ""),
-        "stderr": limited_text(result.stderr or ""),
+        "ok": result.get("ok") is True,
+        "status": result.get("status") or "failed",
+        "exitCode": result.get("exitCode"),
+        "stdout": limited_text(str(result.get("stdout") or "")),
+        "stderr": limited_text(str(result.get("stderr") or "")),
+        "privateRunner": result,
         "url": url,
     }
 
@@ -5503,7 +6881,7 @@ def github_actions_ci_adapter(record: dict[str, Any], workspace: dict[str, Any],
     if provider == "manual":
         return {"provider": "manual", "status": "ready", "ok": not context.get("ciRequired"), "required": bool(context.get("ciRequired"))}
     if provider == "command" and context.get("ciCommand") and repo is not None:
-        result = {"ok": True, "status": "mocked", "command": context.get("ciCommand")} if mock else run_delivery_subprocess(str(context.get("ciCommand") or ""), repo)
+        result = {"ok": True, "status": "mocked", "command": context.get("ciCommand")} if mock else run_delivery_private_runner(str(context.get("ciCommand") or ""), repo, record, "inspect")
         return {"provider": "command", "status": result.get("status"), "ok": result.get("ok") is True, "required": bool(context.get("ciRequired")), "commandResult": result}
     target = context.get("githubRepository") or context.get("prTarget") or github_repo_from_remote(repo)
     branch = workspace.get("branch") or workspace.get("deliveryBranch") or context.get("branch") or ""
@@ -5528,17 +6906,16 @@ def github_actions_ci_adapter(record: dict[str, Any], workspace: dict[str, Any],
         return {**payload, "ok": False, "status": "blocked", "blockers": ["GitHub CLI is not ready"]}
     if mock:
         return {**payload, "ok": True, "status": "mocked", "runs": [{"name": "mock-ci", "status": "completed", "conclusion": "success"}]}
-    result = subprocess.run(
-        ["gh", "run", "list", "--repo", target, "--branch", branch, "--limit", "5", "--json", "databaseId,name,status,conclusion,url,createdAt"],
-        cwd=str(repo) if repo else None,
-        text=True,
-        capture_output=True,
+    result = run_delivery_private_runner(
+        shlex.join(["gh", "run", "list", "--repo", target, "--branch", branch, "--limit", "5", "--json", "databaseId,name,status,conclusion,url,createdAt"]),
+        repo or WORKER_DIR,
+        record,
+        "inspect",
         timeout=60,
-        check=False,
     )
     runs: list[dict[str, Any]] = []
     try:
-        parsed = json.loads(result.stdout or "[]")
+        parsed = json.loads(str(result.get("stdout") or "[]"))
         if isinstance(parsed, list):
             runs = [item for item in parsed if isinstance(item, dict)]
     except json.JSONDecodeError:
@@ -5546,11 +6923,12 @@ def github_actions_ci_adapter(record: dict[str, Any], workspace: dict[str, Any],
     ok = any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in runs)
     return {
         **payload,
-        "ok": ok if context.get("ciRequired") else result.returncode == 0,
+        "ok": ok if context.get("ciRequired") else result.get("ok") is True,
         "status": "succeeded" if ok else "blocked" if context.get("ciRequired") else "observed",
-        "exitCode": result.returncode,
-        "stdout": limited_text(result.stdout or ""),
-        "stderr": limited_text(result.stderr or ""),
+        "exitCode": result.get("exitCode"),
+        "stdout": limited_text(str(result.get("stdout") or "")),
+        "stderr": limited_text(str(result.get("stderr") or "")),
+        "privateRunner": result,
         "runs": runs,
     }
 
@@ -5882,18 +7260,9 @@ def write_delivery_proof_pack(
     patch_path = evidence_dir / "changes.patch"
     atomic_write_text(patch_path, str(change_set.get("patchPreview") or ""))
     siem_path = evidence_dir / "siem-events.jsonl"
-    siem_ref: dict[str, Any]
-    if enterprise_feature_enabled("siem-connectors"):
-        siem_payload = mission_siem_jsonl(mission_id, corporate_role(str(record.get("operatorRole") or "user")))
-        atomic_write_text(siem_path, str(siem_payload.get("jsonl") or ""))
-        siem_ref = {"kind": "siem-jsonl", "path": str(siem_path), "sha256": file_sha256(siem_path) or ""}
-    else:
-        siem_ref = {
-            "kind": "siem-jsonl",
-            "status": "locked",
-            "enterpriseFeature": "siem-connectors",
-            "lockReason": enterprise_feature_lock("siem-connectors")["reason"],
-        }
+    siem_payload = mission_siem_jsonl(mission_id, corporate_role(str(record.get("operatorRole") or "user")))
+    atomic_write_text(siem_path, str(siem_payload.get("jsonl") or ""))
+    siem_ref = {"kind": "siem-jsonl", "path": str(siem_path), "sha256": file_sha256(siem_path) or ""}
     manifest = {
         "schemaVersion": 1,
         "missionId": mission_id,
@@ -5916,7 +7285,7 @@ def write_delivery_proof_pack(
         ]:
             if source.exists():
                 archive.write(source, arcname)
-        if enterprise_feature_enabled("siem-connectors") and siem_path.exists():
+        if siem_path.exists():
             archive.write(siem_path, "siem-events.jsonl")
         refs = record.get("evidenceLedger") if isinstance(record.get("evidenceLedger"), list) else []
         for ref in refs:
@@ -5945,19 +7314,6 @@ def mission_proof_bundle(mission_id: str, role: str = "user") -> dict[str, Any]:
 
 
 def mission_siem_events(mission_id: str, role: str = "user") -> dict[str, Any]:
-    if not enterprise_feature_enabled("siem-connectors"):
-        return {
-            "ok": False,
-            "status": "locked",
-            "role": corporate_role(role),
-            "missionId": mission_id,
-            "stream": "present.control-plane.siem",
-            "eventCount": 0,
-            "events": [],
-            "enterpriseFeature": "siem-connectors",
-            "error": enterprise_feature_lock("siem-connectors")["reason"],
-            "entitlement": license_entitlement(),
-        }
     detail = mission_detail(mission_id, role)
     if not detail.get("ok"):
         return detail
@@ -6251,7 +7607,7 @@ def delivery_step_payload(record: dict[str, Any], node: dict[str, Any]) -> dict[
         workspace.get("deliveryBranch") if context.get("worktreeMode") == "isolated" else context.get("branch") or ""
     ).strip()
     actual_branch = str(git_state.get("branch") or "").strip() if isinstance(git_state, dict) else ""
-    if expected_branch and git_state and (git_state.get("ok") is not True or actual_branch != expected_branch):
+    if not mock and expected_branch and git_state and (git_state.get("ok") is not True or actual_branch != expected_branch):
         status = "blocked"
         ok = False
         blockers.append(f"repository branch is {actual_branch or 'unknown'}, expected {expected_branch}")
@@ -6271,14 +7627,14 @@ def delivery_step_payload(record: dict[str, Any], node: dict[str, Any]) -> dict[
             ok = True
             commandResult = {"ok": True, "status": "mocked", "command": command}
         else:
-            commandResult = run_delivery_subprocess(command, repo)
+            commandResult = run_delivery_private_runner(command, repo, record, phase)
             status = str(commandResult.get("status") or "failed")
             ok = commandResult.get("ok") is True
     elif phase in {"modify", "repair", "pr", "deploy"} and repo_bound and status != "blocked":
         ok = git_state.get("ok") is True
         status = "ready" if ok else "blocked"
     if ok and phase == "deploy" and context.get("deployHealthCommand") and repo_bound and not mock:
-        health = run_delivery_subprocess(str(context.get("deployHealthCommand") or ""), repo)
+        health = run_delivery_private_runner(str(context.get("deployHealthCommand") or ""), repo, record, "deploy")
         commandResult = {**commandResult, "deployHealth": health}
         ok = health.get("ok") is True
         status = "succeeded" if ok else "failed"
@@ -6398,6 +7754,7 @@ def control_plane_execute_action(payload: dict[str, Any], actor: dict[str, str])
         state="running",
         operatorRole=corporate_role(actor.get("role")),
         actorUserId=actor.get("actorId") or actor.get("role") or "control-plane",
+        organizationId=actor.get("organizationId") or str(organization_registry().get("activeOrganizationId") or ""),
         mock=bool(payload.get("mock")),
         controlPlaneExecution=True,
         controlPlaneEntrypoint="api-or-cli",
@@ -6553,10 +7910,12 @@ def execute_mission_node(record: dict[str, Any], node: dict[str, Any]) -> tuple[
             operator_role=operator,
             summary=f"Prepared {payload['availableSourceCount']} of {payload['sourceCount']} organization knowledge sources.",
         )
-        update_mission(mission_id, knowledgeSnapshot=payload, knowledgeSnapshotRef=ref)
+        update_mission(mission_id, knowledgeSnapshot=payload, knowledgeSnapshotRef=ref, knowledgeQuality=payload.get("knowledgeQuality"))
         return True, "Knowledge snapshot prepared.", {
             "sourceCount": payload["sourceCount"],
             "missingSourceCount": payload["missingSourceCount"],
+            "knowledgeQualityStatus": (payload.get("knowledgeQuality") or {}).get("status"),
+            "contextSufficient": payload.get("contextSufficient") is True,
         }, [ref]
 
     if kind == "broker-overview":
@@ -6638,7 +7997,7 @@ def execute_mission_node(record: dict[str, Any], node: dict[str, Any]) -> tuple[
                 repair_result = (
                     {"ok": False, "status": "blocked", "error": "; ".join(repair_preflight.get("blockers", []))}
                     if repair_preflight.get("ok") is not True else
-                    {"ok": True, "status": "mocked", "command": repair_command} if mock else run_delivery_subprocess(repair_command, repo)
+                    {"ok": True, "status": "mocked", "command": repair_command} if mock else run_delivery_private_runner(repair_command, repo, record, "repair")
                 )
                 repair_payload = {
                     "phase": "repair",
@@ -6885,6 +8244,18 @@ def run_mission_orchestrator(mission_id: str) -> None:
             details = {"error": str(exc)}
             artifact_refs = []
         if not ok:
+            failure_connector_refs = write_connector_event_evidence(
+                read_mission_record(mission_id) or record,
+                node_id,
+                "status",
+                {
+                    "missionId": mission_id,
+                    "nodeId": node_id,
+                    "state": "error",
+                    "summary": summary,
+                    "details": details,
+                },
+            )
             update_mission_node(mission_id, node_id, state="error", completedAt=utc_now(), resultSummary=summary)
             update_mission(mission_id, state="error", completedAt=utc_now(), error=summary,
                            lastPhase=f"Mission stopped at {next_node.get('title') or node_id}.")
@@ -6898,10 +8269,24 @@ def run_mission_orchestrator(mission_id: str) -> None:
                 operator_role=operator,
                 summary=summary,
                 details={"nodeId": node_id, **details},
-                artifact_refs=artifact_refs,
+                artifact_refs=artifact_refs + failure_connector_refs,
             )
             return
         update_mission_node(mission_id, node_id, state="done", completedAt=utc_now(), resultSummary=summary)
+        event_type = "control-decision" if next_node.get("kind") == "delivery-step" else "status"
+        status_connector_refs = write_connector_event_evidence(
+            read_mission_record(mission_id) or record,
+            node_id,
+            event_type,
+            {
+                "missionId": mission_id,
+                "nodeId": node_id,
+                "state": "done",
+                "summary": summary,
+                "details": details,
+                "artifactRefs": artifact_refs,
+            },
+        )
         append_mission_audit(
             mission_id,
             "mission-node-completed",
@@ -6911,7 +8296,7 @@ def run_mission_orchestrator(mission_id: str) -> None:
             operator_role=operator,
             summary=summary,
             details={"nodeId": node_id, **details},
-            artifact_refs=artifact_refs,
+            artifact_refs=artifact_refs + status_connector_refs,
         )
 
 
@@ -6926,12 +8311,15 @@ def start_orchestrated_mission(
     domain_capability_keys: Any = None,
     delivery_context: Any = None,
     actor_user_id: str | None = None,
+    organization_id: str | None = None,
+    workflow_origin: Any = None,
 ) -> dict[str, Any]:
     template = mission_template(template_id)
     if not template:
         raise ValueError("mission template is not available")
     operator = corporate_role(operator_role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
+    selected_organization_id = clean_optional_string(organization_id, limit=120) or str(organization_registry().get("activeOrganizationId") or "")
     if operator not in set(template.get("allowedRoles", [])):
         raise ValueError("this endpoint cannot start that mission template")
     clean_objective = objective.strip()
@@ -6949,6 +8337,7 @@ def start_orchestrated_mission(
     users = mission_user_bindings(user_ids)
     work_set = domain_capability_work_set(domain_capability_keys)
     delivery = normalize_delivery_context(delivery_context)
+    origin = normalize_workflow_origin(workflow_origin)
     nodes = new_mission_nodes(template)
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -6967,9 +8356,11 @@ def start_orchestrated_mission(
             "controlPlaneEntrypoint": "mission-orchestrator" if template_id == "delivery-execution" else "",
             "operatorRole": operator,
             "actorUserId": actor_id,
+            "organizationId": selected_organization_id,
             "missionUsers": users,
             "capabilityWorkSet": work_set,
             "deliveryContext": delivery,
+            "workflowOrigin": origin,
             "repairAttemptsUsed": 0,
             "messages": [],
             "followUps": [],
@@ -6984,6 +8375,7 @@ def start_orchestrated_mission(
         state="running",
         operatorRole=operator,
         actorUserId=actor_id,
+        organizationId=selected_organization_id,
         mock=mock,
         missionKind="orchestrated",
         templateId=template_id,
@@ -7001,6 +8393,7 @@ def start_orchestrated_mission(
         capabilityWorkSet=work_set,
         capabilityKeys=[item.get("capabilityKey") or item.get("roleKey") for item in work_set if item.get("capabilityKey") or item.get("roleKey")],
         deliveryContext=delivery,
+        workflowOrigin=origin,
         repairAttemptsUsed=0,
         snapshotCollections=[],
         nodes=nodes,
@@ -7029,24 +8422,40 @@ def start_orchestrated_mission(
             "domainCapabilityKeys": [item.get("roleKey") for item in work_set if item.get("roleKey")],
             "capabilityKeys": [item.get("capabilityKey") or item.get("roleKey") for item in work_set if item.get("capabilityKey") or item.get("roleKey")],
             "deliveryContext": delivery,
+            "workflowOrigin": origin,
             "runtimeProfileId": runtime_profile.get("id"),
             "provider": model_policy.get("provider"),
             "model": model_policy.get("selectedModel"),
             "snapshotPolicyHash": snapshot_policy_summary(snapshot_policy).get("policyHash"),
         },
     )
+    write_connector_event_evidence(
+        read_mission_record(mission_id) or {},
+        "mission-start",
+        "status",
+        {
+            "missionId": mission_id,
+            "templateId": template_id,
+            "state": "running",
+            "summary": f"Started {template.get('title')} mission.",
+        },
+    )
     launch_mission_orchestrator(mission_id)
     return {"ok": True, "missionId": mission_id, "jobId": job_id, "taskId": task_id, "state": "running"}
 
 
-def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: str | None = None) -> dict[str, Any]:
+def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: str | None = None, actor_context: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id)
     if not record:
         raise KeyError("mission not found")
     operator = corporate_role(role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
-    if operator not in {"owner", "admin", "publisher"} or not mission_visible_to(record, operator):
+    if operator not in {"owner", "admin", "publisher"} or not mission_visible_to(record, operator, actor_context):
         raise PermissionError("this endpoint cannot approve the mission")
+    authorization = auth_policy().get("authorization")
+    prevent_self = not isinstance(authorization, dict) or authorization.get("preventSelfApproval") is not False
+    if prevent_self and (actor_context is not None or identity_mode() == "oidc-required") and actor_id == str(record.get("actorUserId") or ""):
+        raise PermissionError("separation of duties prevents a mission initiator from approving the same mission")
     nodes = [node for node in record.get("nodes", []) if isinstance(node, dict)]
     node = next((item for item in nodes if item.get("state") == "waiting_for_approval"), None)
     if not node:
@@ -7058,6 +8467,7 @@ def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: s
         "decision": "approved",
         "approvedAt": utc_now(),
         "actorRole": operator,
+        "actorId": actor_id,
         "note": note.strip()[:2000],
     }
     with MISSION_LOCK:
@@ -7086,13 +8496,13 @@ def approve_mission(mission_id: str, role: str, note: str = "", actor_user_id: s
     return {"ok": True, "missionId": mission_id, "approval": approval, "state": "running"}
 
 
-def pause_mission(mission_id: str, role: str, actor_user_id: str | None = None) -> dict[str, Any]:
+def pause_mission(mission_id: str, role: str, actor_user_id: str | None = None, actor_context: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id)
     if not record:
         raise KeyError("mission not found")
     operator = corporate_role(role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
-    if not mission_visible_to(record, operator):
+    if not mission_visible_to(record, operator, actor_context):
         raise PermissionError("mission is not visible from this endpoint")
     state = str(record.get("state") or "")
     if state not in {"running", "waiting_for_approval"}:
@@ -7111,13 +8521,13 @@ def pause_mission(mission_id: str, role: str, actor_user_id: str | None = None) 
     return {"ok": True, "missionId": mission_id, "state": "paused"}
 
 
-def resume_mission(mission_id: str, role: str, actor_user_id: str | None = None) -> dict[str, Any]:
+def resume_mission(mission_id: str, role: str, actor_user_id: str | None = None, actor_context: dict[str, Any] | None = None) -> dict[str, Any]:
     record = read_mission_record(mission_id)
     if not record:
         raise KeyError("mission not found")
     operator = corporate_role(role)
     actor_id = clean_optional_string(actor_user_id, limit=120) or operator
-    if not mission_visible_to(record, operator):
+    if not mission_visible_to(record, operator, actor_context):
         raise PermissionError("mission is not visible from this endpoint")
     if str(record.get("state") or "") not in {"paused", "waiting_for_approval", "running"}:
         raise RuntimeError("mission cannot be resumed")
@@ -7184,6 +8594,24 @@ def supervise_missions_on_startup() -> dict[str, Any]:
 class Handler(BaseHTTPRequestHandler):
     server_version = "SteelMission/0.1"
 
+    def redirect(self, location: str, status: int = 303) -> None:
+        self.send_response(status)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        for name, value in getattr(self, "response_headers", []):
+            self.send_header(str(name), str(value))
+        self.response_headers = []
+        self.end_headers()
+
+    def authenticate(self, path: str, method: str) -> dict[str, Any] | None:
+        try:
+            actor = authenticate_http_request(self, path, method)
+            self.auth_actor = actor
+            return actor
+        except PermissionError as exc:
+            json_response(self, 401, {"ok": False, "error": str(exc), "loginPath": "/auth/login"})
+            return None
+
     def do_HEAD(self) -> None:
         path = urlparse(self.path).path
         if is_page_path(path):
@@ -7207,24 +8635,68 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path == "/auth/login":
+            try:
+                location = begin_oidc_login(self)
+                state = (parse_qs(urlparse(location).query).get("state") or [""])[0]
+                secure = "; Secure" if oidc_redirect_uri(self, auth_policy().get("oidc", {})).startswith("https://") else ""
+                self.response_headers = [("Set-Cookie", f"present_oidc_state={state}; Path=/auth/callback; HttpOnly; SameSite=Lax; Max-Age=600{secure}")]
+                self.redirect(location)
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+            return
+        if path == "/auth/callback":
+            try:
+                session, csrf = complete_oidc_login(self, parse_qs(urlparse(self.path).query))
+                secure = "; Secure" if oidc_redirect_uri(self, auth_policy().get("oidc", {})).startswith("https://") else ""
+                self.response_headers = [
+                    ("Set-Cookie", f"present_session={session['accessToken']}; Path=/; HttpOnly; SameSite=Lax{secure}"),
+                    ("Set-Cookie", f"present_csrf={csrf}; Path=/; SameSite=Lax{secure}"),
+                    ("Set-Cookie", f"present_oidc_state=; Path=/auth/callback; HttpOnly; SameSite=Lax; Max-Age=0{secure}"),
+                ]
+                self.redirect("/")
+            except Exception as exc:  # noqa: BLE001
+                append_auth_audit("oidc-login-failed", ok=False, details={"error": str(exc)})
+                json_response(self, 401, {"ok": False, "error": str(exc), "loginPath": "/auth/login"})
+            return
+        actor: dict[str, Any] | None = None
+        if path.startswith("/api/") and path != "/api/health":
+            actor = self.authenticate(path, "GET")
+            if actor is None:
+                return
+        elif path.startswith(("/job/", "/mission/")) and identity_mode() == "oidc-required":
+            actor = self.authenticate(path, "GET")
+            if actor is None:
+                return
         if path in {"/api/owner/workspace", "/api/admin/workspace", "/api/publisher/workspace", "/api/user/workspace"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, corporate_workspace(role))
             return
         if path in {"/api/owner/assignments", "/api/admin/assignments"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
+            if role not in {"owner", "admin"}:
+                json_response(self, 403, {"ok": False, "error": "owner or admin role is required"})
+                return
             payload = corporate_workspace(role)
             json_response(self, 200, {"ok": True, "role": payload["role"], "assignments": payload["assignments"]})
             return
         if path in {"/api/owner/organizations", "/api/admin/organizations", "/api/publisher/organizations", "/api/user/organizations"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             registry = organization_registry()
-            active = active_organization()
-            payload = registry if role in {"owner", "admin"} else {
+            actor_org_ids = set(clean_string_list(actor.get("organizationIds"), limit=50)) if actor else set()
+            visible_organizations = [
+                item for item in registry.get("organizations", [])
+                if isinstance(item, dict) and (not actor_org_ids or item.get("id") in actor_org_ids)
+            ]
+            actor_active_id = str(actor.get("organizationId") if actor else registry.get("activeOrganizationId") or "")
+            active = next((item for item in visible_organizations if item.get("id") == actor_active_id), visible_organizations[0] if visible_organizations else {})
+            payload = {
                 "schemaVersion": 1,
                 "activeOrganizationId": active.get("id") or "",
-                "organizations": [active] if active else [],
+                "organizations": visible_organizations,
             }
+            if role in {"owner", "admin"}:
+                payload = {**registry, **payload}
             json_response(self, 200, {
                 "ok": True,
                 "role": role,
@@ -7234,14 +8706,14 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         if path in {"/api/owner/knowledge", "/api/admin/knowledge", "/api/publisher/knowledge", "/api/user/knowledge"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             payload = knowledge_registry()
             payload["role"] = role
             payload["canManageGeneralKnowledge"] = role in {"owner", "admin"}
             json_response(self, 200 if payload.get("ok") else 503, payload)
             return
         if path in {"/api/owner/knowledge/prepared", "/api/admin/knowledge/prepared"}:
-            actor = actor_from_request(self, path.strip("/").split("/")[1])
+            actor = actor or {"actorId": "user", "role": "user"}
             try:
                 require_actor_role(actor, {"owner", "admin"})
                 json_response(self, 200, {"ok": True, "payload": prepare_knowledge_snapshot_payload(active_runtime_profile())})
@@ -7249,7 +8721,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, 403, {"ok": False, "error": str(exc)})
             return
         if path in {"/api/owner/users", "/api/admin/users", "/api/publisher/users", "/api/user/users"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             payload = user_registry()
             payload["role"] = role
             payload["canManageUsers"] = role in {"owner", "admin"}
@@ -7262,20 +8734,20 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, **payload})
             return
         if path in {"/api/owner/missions", "/api/admin/missions", "/api/publisher/missions", "/api/user/missions"}:
-            role = path.strip("/").split("/")[1]
-            json_response(self, 200, mission_list(role))
+            role = corporate_role(str(actor.get("role") if actor else "user"))
+            json_response(self, 200, mission_list(role, actor=actor))
             return
         if path in {"/api/owner/mutations", "/api/admin/mutations", "/api/publisher/mutations", "/api/user/mutations"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             payload = read_mutation_ledger(role)
             json_response(self, 200 if payload.get("ok") else 403, payload)
             return
         if path in {"/api/owner/integrations", "/api/admin/integrations", "/api/publisher/integrations", "/api/user/integrations"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, integration_registry(role))
             return
         if path in {"/api/owner/control-policy", "/api/admin/control-policy", "/api/publisher/control-policy", "/api/user/control-policy"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             policy = control_policy()
             if role not in {"owner", "admin"}:
                 policy = {
@@ -7287,7 +8759,7 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, "role": role, "policy": policy, "canManagePolicy": role in {"owner", "admin"}})
             return
         if path in {"/api/owner/auth-policy", "/api/admin/auth-policy", "/api/publisher/auth-policy", "/api/user/auth-policy"}:
-            role = corporate_role(path.strip("/").split("/")[1])
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             policy = auth_policy()
             if role not in {"owner", "admin"}:
                 policy = {
@@ -7299,18 +8771,21 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, "role": role, "policy": policy, "canManagePolicy": role in {"owner", "admin"}})
             return
         if path in {"/api/owner/mission-templates", "/api/admin/mission-templates", "/api/publisher/mission-templates", "/api/user/mission-templates"}:
-            role = path.strip("/").split("/")[1]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, public_mission_templates(role))
             return
         if path.startswith("/api/missions/"):
             parts = path.strip("/").split("/")
+            role = corporate_role(str(actor.get("role") if actor else "user"))
+            visible_detail = mission_detail(parts[2], role, actor=actor) if len(parts) >= 3 else {"ok": False}
+            if not visible_detail.get("ok"):
+                json_response(self, 403, visible_detail)
+                return
             if len(parts) == 4 and parts[3] == "proof":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
                 payload = mission_proof_bundle(parts[2], role)
                 json_response(self, 200 if payload.get("ok") else 404, payload)
                 return
             if len(parts) == 4 and parts[3] == "report":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
                 payload = mission_report_markdown(parts[2], role)
                 if payload.get("ok"):
                     text_response(self, 200, str(payload.get("markdown") or ""), "text/markdown; charset=utf-8")
@@ -7318,7 +8793,6 @@ class Handler(BaseHTTPRequestHandler):
                     json_response(self, 404, payload)
                 return
             if len(parts) == 4 and parts[3] == "siem":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
                 payload = mission_siem_jsonl(parts[2], role)
                 if payload.get("ok"):
                     text_response(self, 200, str(payload.get("jsonl") or ""), "application/x-ndjson; charset=utf-8")
@@ -7326,8 +8800,7 @@ class Handler(BaseHTTPRequestHandler):
                     json_response(self, 403 if payload.get("status") == "locked" else 404, payload)
                 return
             if len(parts) == 4 and parts[3] == "export":
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
-                detail = mission_detail(parts[2], role)
+                detail = visible_detail
                 if not detail.get("ok"):
                     json_response(self, 404, detail)
                     return
@@ -7346,8 +8819,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             if len(parts) == 3:
-                role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
-                payload = mission_detail(parts[2], role)
+                payload = visible_detail
                 json_response(self, 200 if payload.get("ok") else 404, payload)
                 return
         if path == "/api/health":
@@ -7365,16 +8837,23 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, 200, {"ok": True, "registry": model_role_registry()})
             return
         if path == "/api/integrations":
-            json_response(self, 200, integration_registry("user"))
+            json_response(self, 200, integration_registry(str(actor.get("role") if actor else "user")))
             return
         if path == "/api/control-policy":
             json_response(self, 200, {"ok": True, "policy": control_policy()})
             return
         if path == "/api/auth-policy":
-            json_response(self, 200, {"ok": True, "policy": auth_policy()})
+            policy = auth_policy()
+            if corporate_role(str(actor.get("role") if actor else "user")) not in {"owner", "admin"}:
+                policy = {"policyId": policy.get("policyId"), "identityBoundary": policy.get("identityBoundary"), "oidc": {"enabled": policy.get("oidc", {}).get("enabled") is True}}
+            json_response(self, 200, {"ok": True, "policy": policy})
+            return
+        if path == "/api/auth/whoami":
+            public_actor = {key: actor.get(key) for key in ("actorId", "role", "organizationId", "organizationIds", "capabilities", "identitySource", "sessionVerified") if actor and key in actor}
+            json_response(self, 200, {"ok": True, "actor": public_actor, "identityMode": identity_mode()})
             return
         if path == "/api/control-plane/readiness":
-            role = parse_qs(urlparse(self.path).query).get("role", ["admin"])[0]
+            role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, control_plane_production_readiness(role))
             return
         if path == "/api/knowledge":
@@ -7391,6 +8870,9 @@ class Handler(BaseHTTPRequestHandler):
             if payload is None:
                 json_response(self, 404, {"ok": False, "error": "chat job not found"})
                 return
+            if not mission_visible_to_actor(payload, actor or {"actorId": "user", "role": "user"}):
+                json_response(self, 403, {"ok": False, "error": "chat job is not visible to this actor"})
+                return
             json_response(self, 200, job_api_payload(job_id, payload))
             return
         if path.startswith("/job/"):
@@ -7400,10 +8882,16 @@ class Handler(BaseHTTPRequestHandler):
             if payload is None:
                 html_response(self, 404, render_shell('<section class="panel"><h2>Job not found</h2><p><a href="/">Ask a question</a></p></section>'))
                 return
+            if actor is not None and not mission_visible_to_actor(payload, actor):
+                json_response(self, 403, {"ok": False, "error": "job is not visible to this actor"})
+                return
             html_response(self, 200, render_job(job_id, payload))
             return
         if path.startswith("/mission/"):
-            role = parse_qs(urlparse(self.path).query).get("role", ["user"])[0]
+            role = corporate_role(str(actor.get("role") if actor else parse_qs(urlparse(self.path).query).get("role", ["user"])[0]))
+            if actor is not None and not mission_detail(path.rsplit("/", 1)[-1], role, actor=actor).get("ok"):
+                json_response(self, 403, {"ok": False, "error": "mission is not visible to this actor"})
+                return
             html_response(self, 200, render_mission_detail_page(path.rsplit("/", 1)[-1], role))
             return
         if is_page_path(path):
@@ -7422,10 +8910,38 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        ingress_source = {
+            "/api/integrations/github/webhook": "github",
+            "/api/integrations/slack/events": "slack",
+            "/api/integrations/jira/webhook": "jira",
+        }.get(path)
+        if ingress_source:
+            try:
+                raw_body = read_request_bytes(self)
+                status, payload = process_workflow_ingress(
+                    ingress_source,
+                    self.headers,
+                    raw_body,
+                    str(self.headers.get("Content-Type") or "application/json"),
+                )
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+                return
+            json_response(self, status, payload)
+            return
+        actor: dict[str, Any] | None = None
+        if path.startswith("/api/") and path != "/api/auth/session":
+            actor = self.authenticate(path, "POST")
+            if actor is None:
+                return
+        elif path == "/ask" and identity_mode() == "oidc-required":
+            actor = self.authenticate(path, "POST")
+            if actor is None:
+                return
         if path in {"/api/owner/assignments", "/api/admin/assignments"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_domain_capability_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -7436,7 +8952,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/knowledge", "/api/admin/knowledge"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_general_knowledge_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -7447,7 +8963,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/organizations", "/api/admin/organizations"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_organization_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -7458,7 +8974,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/knowledge/upload", "/api/admin/knowledge/upload"}:
             try:
                 body = read_json(self, MAX_UPLOAD_REQUEST_BYTES)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 payload = upload_organization_knowledge(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -7469,7 +8985,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/users", "/api/admin/users"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_user_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
@@ -7483,18 +8999,16 @@ class Handler(BaseHTTPRequestHandler):
                 template_id = body.get("templateId")
                 objective = body.get("objective")
                 profile = body.get("profile")
-                operator = body.get("operatorRole")
                 if not isinstance(template_id, str) or not template_id.strip():
                     raise ValueError("templateId is required")
                 if not isinstance(objective, str) or not objective.strip():
                     raise ValueError("objective is required")
                 if profile is not None and not isinstance(profile, str):
                     raise ValueError("profile must be a string")
-                if operator is not None and not isinstance(operator, str):
-                    raise ValueError("operatorRole must be a string")
-                actor = actor_from_payload(body, operator.strip() if isinstance(operator, str) else "user")
+                actor = actor or {"actorId": "user", "role": "user", "organizationId": str(organization_registry().get("activeOrganizationId") or "")}
                 user_ids = clean_string_list(body.get("userIds"), limit=50)
                 domain_capability_keys = clean_string_list(body.get("domainCapabilityKeys"), limit=50)
+                authorize_mission_bindings(actor, user_ids, domain_capability_keys)
                 delivery_context = normalize_delivery_context(body.get("delivery"))
                 payload = start_orchestrated_mission(
                     template_id.strip(),
@@ -7506,6 +9020,8 @@ class Handler(BaseHTTPRequestHandler):
                     domain_capability_keys=domain_capability_keys,
                     delivery_context=delivery_context,
                     actor_user_id=actor["actorId"],
+                    organization_id=str(actor.get("organizationId") or ""),
+                    workflow_origin=body.get("origin"),
                 )
             except PermissionError as exc:
                 json_response(self, 403, {"ok": False, "error": str(exc)})
@@ -7518,7 +9034,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/control-policy", "/api/admin/control-policy"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 policy = save_control_policy(body, actor["role"])
             except PermissionError as exc:
@@ -7532,7 +9048,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/integrations", "/api/admin/integrations"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_integration_registry(body, actor["role"])
             except PermissionError as exc:
@@ -7546,7 +9062,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in {"/api/owner/auth-policy", "/api/admin/auth-policy"}:
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, path.strip("/").split("/")[1])
+                actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 policy = save_auth_policy(body, actor["role"])
             except PermissionError as exc:
@@ -7560,25 +9076,40 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/session":
             try:
                 body = read_json(self)
-                actor = actor_from_payload(body, str(body.get("operatorRole") or "user"))
-                payload = issue_enterprise_session(actor["actorId"], actor["role"])
+                oidc_token = str(body.get("oidcToken") or body.get("idToken") or "")
+                if oidc_token:
+                    payload = issue_oidc_exchange_session(oidc_token)
+                else:
+                    if identity_mode() != "development-local" or not is_loopback_request(self):
+                        raise PermissionError("OIDC token exchange is required")
+                    local_actor = actor_from_payload(body, str(body.get("operatorRole") or "user"))
+                    payload = issue_control_plane_session(local_actor["actorId"], local_actor["role"])
+                append_auth_audit("session-issued", str(payload.get("claims", {}).get("sub") or ""), details={"authnMethod": payload.get("claims", {}).get("authn_method")})
+            except PermissionError as exc:
+                json_response(self, 403, {"ok": False, "error": str(exc)})
+                return
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
                 return
             json_response(self, 200, {"ok": True, "session": payload, "payload": payload})
             return
+        if path == "/api/auth/logout":
+            try:
+                payload = revoke_control_plane_session(str(actor.get("accessToken") or ""), str(actor.get("actorId") or "")) if actor else {"ok": True}
+                self.response_headers = [
+                    ("Set-Cookie", "present_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
+                    ("Set-Cookie", "present_csrf=; Path=/; SameSite=Lax; Max-Age=0"),
+                ]
+            except Exception as exc:  # noqa: BLE001
+                json_response(self, 400, {"ok": False, "error": str(exc)})
+                return
+            json_response(self, 200, payload)
+            return
         if path == "/api/control-plane/execute":
             try:
                 body = read_json(self)
-                session = verify_enterprise_session(str(body.get("accessToken") or body.get("session") or bearer_token_from_handler(self)))
-                if session.get("ok") is not True:
-                    raise PermissionError(str(session.get("error") or "signed session is required"))
-                actor = {
-                    "actorId": str(session.get("actorId") or ""),
-                    "role": corporate_role(str(session.get("role") or "user")),
-                    "authPolicyHash": str(session.get("authPolicyHash") or ""),
-                    "sessionVerified": True,
-                }
+                if not actor or actor.get("sessionVerified") is not True:
+                    raise PermissionError("signed session is required")
                 payload = control_plane_execute_action(body, actor)
             except PermissionError as exc:
                 json_response(self, 401, {"ok": False, "error": str(exc)})
@@ -7596,19 +9127,16 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) != 4 or parts[0] != "api" or parts[1] != "missions":
                     raise ValueError("invalid mission action path")
                 body = read_json(self)
-                role = body.get("operatorRole")
-                if role is not None and not isinstance(role, str):
-                    raise ValueError("operatorRole must be a string")
-                actor = actor_from_payload(body, role.strip() if isinstance(role, str) and role.strip() else "user")
+                actor = actor or {"actorId": "user", "role": "user"}
                 if parts[3] == "approve":
                     note = body.get("note", "")
                     if not isinstance(note, str):
                         raise ValueError("note must be a string")
-                    payload = approve_mission(parts[2], actor["role"], note, actor["actorId"])
+                    payload = approve_mission(parts[2], actor["role"], note, actor["actorId"], actor)
                 elif parts[3] == "pause":
-                    payload = pause_mission(parts[2], actor["role"], actor["actorId"])
+                    payload = pause_mission(parts[2], actor["role"], actor["actorId"], actor)
                 else:
-                    payload = resume_mission(parts[2], actor["role"], actor["actorId"])
+                    payload = resume_mission(parts[2], actor["role"], actor["actorId"], actor)
             except KeyError as exc:
                 json_response(self, 404, {"ok": False, "error": str(exc)})
                 return
@@ -7626,6 +9154,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/runtime-profiles/validate":
             try:
                 body = read_json(self)
+                require_actor_role(actor or {}, {"owner", "admin"})
                 profile = body.get("profile")
                 if not isinstance(profile, dict):
                     raise ValueError("profile is required")
@@ -7638,7 +9167,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/runtime-profiles/save":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 profile = body.get("profile")
                 if not isinstance(profile, dict):
                     raise ValueError("profile is required")
@@ -7661,7 +9191,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/runtime-profiles/clone":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 source = body.get("sourceId")
                 new_id = body.get("newId")
                 label = body.get("label") or ""
@@ -7691,7 +9222,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/model-roles/save":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 role = body.get("role")
                 if not isinstance(role, dict):
                     raise ValueError("role is required")
@@ -7714,7 +9246,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/model-roles/delete":
             try:
                 body = read_json(self)
-                operator = worker_operator_role(str(body.get("operatorRole") or "user"))
+                require_actor_role(actor or {}, {"owner", "admin"})
+                operator = worker_operator_role(str(actor.get("role") if actor else "user"))
                 role_id = body.get("roleId")
                 if not isinstance(role_id, str) or not role_id.strip():
                     raise ValueError("roleId is required")
@@ -7744,7 +9277,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not question:
                     raise ValueError("question is required")
                 profile = (form.get("profile") or [""])[0].strip() or None
-                job_id = start_job(question[:12000], [], bool(form.get("mock")), profile)
+                job_id = start_job(
+                    question[:12000], [], bool(form.get("mock")), profile,
+                    str(actor.get("role") if actor else "user"), actor_user_id=str(actor.get("actorId") if actor else "user"),
+                    organization_id=str(actor.get("organizationId") if actor else ""),
+                )
             except Exception as exc:  # noqa: BLE001
                 html_response(self, 400, render_shell(f'<section class="panel"><h2>Could not start DC13</h2><p>{escape_html(exc)}</p><p><a href="/">Try again</a></p></section>'))
                 return
@@ -7761,6 +9298,12 @@ class Handler(BaseHTTPRequestHandler):
                 content = body.get("content")
                 if not isinstance(content, str) or not content.strip():
                     raise ValueError("follow-up is required")
+                with JOBS_LOCK:
+                    existing_job = dict(JOBS.get(parts[2], {}))
+                if not existing_job:
+                    raise KeyError("chat job not found")
+                if not mission_visible_to_actor(existing_job, actor or {"actorId": "user", "role": "user"}):
+                    raise PermissionError("chat job is not visible to this actor")
                 event = append_follow_up(parts[2], content)
                 with JOBS_LOCK:
                     payload = dict(JOBS.get(parts[2], {}))
@@ -7769,6 +9312,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             except RuntimeError as exc:
                 json_response(self, 409, {"ok": False, "error": str(exc)})
+                return
+            except PermissionError as exc:
+                json_response(self, 403, {"ok": False, "error": str(exc)})
                 return
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
@@ -7789,6 +9335,12 @@ class Handler(BaseHTTPRequestHandler):
                     option_id = ""
                 if not isinstance(free_text, str):
                     raise ValueError("decision free text must be a string")
+                with JOBS_LOCK:
+                    existing_job = dict(JOBS.get(parts[2], {}))
+                if not existing_job:
+                    raise KeyError("chat job not found")
+                if not mission_visible_to_actor(existing_job, actor or {"actorId": "user", "role": "user"}):
+                    raise PermissionError("chat job is not visible to this actor")
                 event = append_decision_response(parts[2], option_id, free_text)
                 with JOBS_LOCK:
                     payload = dict(JOBS.get(parts[2], {}))
@@ -7797,6 +9349,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             except RuntimeError as exc:
                 json_response(self, 409, {"ok": False, "error": str(exc)})
+                return
+            except PermissionError as exc:
+                json_response(self, 403, {"ok": False, "error": str(exc)})
                 return
             except Exception as exc:  # noqa: BLE001
                 json_response(self, 400, {"ok": False, "error": str(exc)})
@@ -7818,10 +9373,7 @@ class Handler(BaseHTTPRequestHandler):
             profile = body.get("profile")
             if profile is not None and not isinstance(profile, str):
                 raise ValueError("profile must be a string")
-            operator = body.get("operatorRole")
-            if operator is not None and not isinstance(operator, str):
-                raise ValueError("operatorRole must be a string")
-            actor = actor_from_payload(body, operator.strip() if isinstance(operator, str) else "user")
+            actor = actor or {"actorId": "user", "role": "user"}
             work_mode = body.get("workMode")
             if work_mode is not None and not isinstance(work_mode, str):
                 raise ValueError("workMode must be a string")
@@ -7830,7 +9382,7 @@ class Handler(BaseHTTPRequestHandler):
                                actor["role"],
                                uploads,
                                work_mode.strip() if isinstance(work_mode, str) and work_mode.strip() else None,
-                               actor["actorId"])
+                               actor["actorId"], str(actor.get("organizationId") or ""))
         except Exception as exc:  # noqa: BLE001
             json_response(self, 400, {"ok": False, "error": str(exc)})
             return

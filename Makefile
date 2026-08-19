@@ -1,4 +1,4 @@
-.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop release-check
+.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop private-runner-image private-runner-status release-check
 
 PYTHON ?= python3
 HOST ?= 127.0.0.1
@@ -36,7 +36,13 @@ glimmer-status:
 glimmer-stop:
 	bin/present-worker glimmer stop
 
+private-runner-image:
+	docker build -f Dockerfile.private-runner -t steel-mission-private-runner:alpha .
+
+private-runner-status:
+	PRESENT_PRIVATE_RUNNER_MODE=docker bin/present-private-runner status
+
 release-check:
 	git diff --check
-	$(PYTHON) -m py_compile steel-mission-chat/server.py bin/present-worker bin/present-control-plane bin/present-evidence-signer
+	$(PYTHON) -m py_compile steel-mission-chat/server.py bin/present-worker bin/present-control-plane bin/present-private-runner bin/present-evidence-signer
 	$(PYTHON) -m pytest

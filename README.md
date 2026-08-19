@@ -8,10 +8,10 @@ Steel Mission is part of the Present family of products. Present stands for capa
 
 Steel Mission uses an open-core release model.
 
-- Core: open source under Apache-2.0 for teams to download, inspect, run, modify, and evaluate with the included synthetic starter company.
-- Enterprise Edition: closed-source, proprietary, commercially licensed features and services for production governance, including SSO/OIDC, KMS or external evidence signing, managed evidence retention, SIEM export, enterprise approval routing, private-cloud deployment templates, and managed integrations.
+- Core: open source under Apache-2.0 for teams to download, inspect, run, modify, and deploy. Core includes self-managed SSO/OIDC, audit logging, SIEM/security-monitoring export, and the included synthetic starter company.
+- Enterprise Edition: proprietary software and services for operational scale, including multi-organization fleet governance, managed deployment and upgrades, managed evidence retention, managed KMS/HSM operations, advanced separation-of-duties workflows, private-cloud operations, managed integrations, and support.
 
-Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Enterprise Edition functionality is gated behind a commercial license key or equivalent entitlement check in the official distribution.
+Copyright is held by Andrew Hermann, Switzerland. Contributions are welcome under the published contribution policy. Core trust controls are not license-gated; separately distributed Enterprise functionality may use a commercial entitlement.
 
 See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICENSE](LICENSE) for the Apache-2.0 core license text.
 
@@ -19,10 +19,13 @@ See [LICENSE.md](LICENSE.md) for the plain-language licensing boundary and [LICE
 
 - Keeps model choice separate from organizational role. Delivery Coordinator can run on different model providers.
 - Lets owners and admins configure users, capabilities, knowledge, runtime profiles, control policy, auth policy, and integrations.
-- Forces executable agent actions through the guarded runner.
+- Forces executable agent and command-adapter actions through an authenticated private runner; the included production path uses an ephemeral hardened container.
 - Blocks unsafe commands before execution.
 - Requires external evidence signing when production policy is enabled.
 - Creates signed, hash-chained mission evidence.
+- Checks organizational knowledge for availability, freshness, ownership, provenance, expiration, conflicts, and context sufficiency before relying on it.
+- Preserves provider-native capability requirements inside a common policy and evidence envelope.
+- Returns work to existing SCM, issue, chat, CI, and provider workflows instead of requiring the control UI as the daily work surface.
 - Maps proof packs to SOC 2, ISO 27001, and ISO 42001 evidence.
 - Starts with a synthetic company, Northstar Forge, so the product is usable immediately.
 
@@ -43,6 +46,8 @@ The starter company is not private data. Owners and admins can replace it with t
 - Delivery Coordinator is responsible for mission state, evidence, approvals, and closure.
 
 Delivery Coordinator is a role/capability. Binding it to Claude, OpenAI, Glimmer, or another model creates a model instance; it does not create a new role.
+
+Snapshots are reproducibility artifacts, not an assertion that their contents are correct. Each mission records a knowledge-quality report and warns the model and operator when required sources are missing or expired, when ownership or freshness is unknown, or when authoritative sources conflict. Insufficient context must be disclosed rather than filled with a confident guess.
 
 ## Running Locally
 
@@ -79,6 +84,7 @@ Optional provider tools:
 - Codex CLI for the repair-agent path;
 - Ollama and a local coding model for the `dc13.local` profile;
 - GitHub CLI for release and PR flows.
+- Docker for production-eligible private-runner isolation.
 
 See [INSTALL.md](INSTALL.md) for the complete setup guide.
 
@@ -99,11 +105,46 @@ bin/present-control-plane exec --token "$TOKEN" --json '{"phase":"inspect","repo
 
 Direct command execution paths are blocked by default when the control policy requires the guarded runner.
 
-## External Signing
+The guarded control plane signs a bounded request to `bin/present-private-runner` and verifies the runner's signed result. For a production-eligible boundary, build the included image and select container mode:
 
-Core uses local HMAC signing for downloadable evaluation. Customer-held signing custody is Enterprise-only and is locked unless a valid Enterprise entitlement is active.
+```bash
+make private-runner-image
+PRESENT_PRIVATE_RUNNER_MODE=docker bin/present-private-runner status
+```
 
-The Enterprise signing adapter can use:
+Set `executionBoundary.privateRunnerMode` to `container` in `config/control-plane-policy.json`. The container runs as a non-root host-mapped user with a read-only root filesystem, dropped capabilities, no-new-privileges, bounded CPU/memory/processes, a tmpfs scratch directory, and only the mission workspace mounted. Network access defaults to `none`; use a reviewed Docker network when a PR/provider phase needs outbound access. `development-local` mode is explicitly non-production and exists for local evaluation and tests.
+
+The alpha image contains Python, the release-test dependencies, Git, and GitHub CLI. Derive a customer image and set `PRESENT_PRIVATE_RUNNER_IMAGE` when a repository needs another toolchain. HTTPS GitHub pushes can use the allowlisted `GITHUB_TOKEN`/`GH_TOKEN`; token values remain in the process environment rather than Docker argv or image files.
+
+## Identity Boundary
+
+Local evaluation uses `identityBoundary.mode: development-local`. In that mode only loopback requests may use the role/actor development headers, and locally issued CLI sessions remain available.
+
+Before exposing the service, set `identityBoundary.mode` to `oidc-required` in `config/auth-policy.json` and configure the OIDC issuer, audience, JWKS source, authorization endpoint, token endpoint, client ID, redirect URI, and scopes. Set the client secret only through the environment named by `oidc.clientSecretEnv` (default `PRESENT_OIDC_CLIENT_SECRET`). The browser uses Authorization Code with PKCE, state, and nonce, then receives a short-lived HttpOnly session cookie with CSRF protection. CLI callers exchange an ID token with:
+
+```bash
+bin/present-control-plane session --oidc-token "$OIDC_ID_TOKEN"
+```
+
+OIDC claims prove identity but never grant a Steel Mission role. `config/users.json` maps the verified issuer/subject or email to a server-owned role, capabilities, and `organizationIds`; disabled or unknown identities fail closed. The same registry can map `externalIdentities.github`, `.slack`, and `.jira` identifiers (or a connector `serviceUserId`) so signed workflow ingress preserves the registered actor. Mission reads and actions are scoped to organization membership and actor assignment, and `authorization.preventSelfApproval` enforces separation of duties.
+
+Auth sessions use a signing key independent from evidence and private-runner keys, have bounded `iat`/`nbf`/`exp` claims, and can be revoked through `POST /api/auth/logout`. Authentication events and revocations are written to dedicated audit ledgers under the mission root.
+
+## Native Workflow Adapters
+
+GitHub, Slack, and Jira can start an investigation from signed webhook or command events and receive mission status, approval requests, control decisions, evidence links, and completion in the original issue or thread. Configure the corresponding token and signing-secret variables from `.env.example`, then point the provider at:
+
+- GitHub: `/api/integrations/github/webhook`;
+- Slack: `/api/integrations/slack/events`;
+- Jira or a Jira webhook-signing gateway: `/api/integrations/jira/webhook`.
+
+GitHub accepts an explicit `/steel-mission …` comment or a `steel-mission` label. Slack accepts the slash command or an app mention. Jira accepts the explicit command or label. Duplicate deliveries are idempotent. Jira ingress requires the gateway/provider to attach `X-Steel-Mission-Signature: sha256=<HMAC>` because Jira Cloud webhooks do not provide the same shared-secret signature contract as GitHub and Slack.
+
+## Evidence Signing
+
+Core uses local HMAC signing by default and can require a customer-controlled KMS, Vault Transit service, HSM, or private signing service for evidence custody.
+
+The external signing adapter can use:
 
 ```bash
 bin/present-evidence-signer --key-file ~/.present/control-plane/evidence-signing-key --signer-id present-external-signer sign
@@ -111,29 +152,24 @@ bin/present-evidence-signer --key-file ~/.present/control-plane/evidence-signing
 
 The signing key is created outside the repository. A customer KMS, Vault Transit service, HSM, or private signing service can replace this command without changing the evidence contract.
 
-## Enterprise Entitlement
+## Open-Core Boundary
 
-The official runtime keeps the following features locked in Core:
+Core includes the controls teams need to admit Steel Mission into an enterprise pilot:
 
-- OIDC/JWKS customer identity configuration;
-- customer KMS, Vault Transit, HSM, or equivalent external evidence signing;
-- SIEM/security-monitoring connectors and exports.
+- self-managed SSO/OIDC through OIDC issuer and JWKS configuration;
+- audit logging and SIEM/security-monitoring JSONL export;
+- self-managed native GitHub/Slack/Jira, command, webhook, and outbox connectors;
+- customer-controlled external evidence signing.
 
-For licensed Enterprise environments, configure:
-
-```bash
-STEEL_MISSION_EDITION=enterprise
-STEEL_MISSION_LICENSE_KEY=...
-STEEL_MISSION_LICENSE_KEY_SHA256=...
-```
-
-The hash is the SHA-256 digest of the configured license key. The key value is never returned by the API.
+Enterprise monetizes operational scale rather than access to baseline security: managed deployment and upgrades, multi-organization fleet governance, managed retention and integrations, advanced governance workflows, private-cloud operations, and support. Core trust controls do not require a license key.
 
 ## n8n And Orchestration
 
 Steel Mission does not depend on n8n. n8n should be treated as a replaceable orchestration adapter that can request work, receive events, or coordinate external workflows. It is not the source of truth for policy, approval, evidence, or execution authority.
 
-Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
+Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and remote private-runner scheduling. The local/container private-runner contract and native GitHub, Slack, and Jira workflow paths are included now.
+
+The intended interaction model is existing-tools-first: requests originate in repositories, issue trackers, chat, CI, IDEs, or provider-native tools, and Steel Mission returns status, approval requests, control decisions, and evidence links to the originating workflow. The built-in UI is primarily for configuration, investigation, and fallback.
 
 ## Protocol Status
 

@@ -14,15 +14,18 @@ Steel Mission Enterprise Edition features and services are proprietary and comme
 
 Enterprise features may include, without limitation:
 
-- production SSO/OIDC and enterprise identity integrations;
-- customer KMS, Vault Transit, HSM, or equivalent external signing custody;
-- advanced compliance packs and managed evidence retention;
-- SIEM/security-monitoring export and managed integration connectors;
-- enterprise approval routing and separation-of-duties workflows;
-- private-cloud deployment templates and production hardening services;
-- managed orchestration adapters and hosted operational services.
+- multi-organization fleet governance and centralized policy rollout;
+- managed deployment, upgrades, monitoring, backup, and recovery;
+- managed KMS, Vault Transit, HSM, or equivalent key operations;
+- advanced compliance workflows and managed evidence retention;
+- advanced approval routing and separation-of-duties workflows;
+- private-cloud operational tooling and production hardening services;
+- managed integration and orchestration adapters;
+- commercial support, service commitments, and hosted operational services.
 
-Enterprise functionality is technically gated behind a commercial license key or equivalent entitlement check in the official distribution. Core source remains Apache-2.0; do not rely on an open-source fork to preserve commercial feature locks.
+Core includes self-managed OIDC/JWKS identity, audit logging, SIEM/security-monitoring export, connector configuration, and customer-controlled external evidence signing. Those trust controls are governed by Apache-2.0 and are not Enterprise entitlements.
+
+Separately distributed Enterprise software or managed services may require a commercial license key, account entitlement, or service agreement. The commercial boundary does not restrict the Apache-2.0 rights granted for Core source.
 
 ## Naming And Marks
 

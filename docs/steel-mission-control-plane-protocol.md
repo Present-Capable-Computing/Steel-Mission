@@ -17,6 +17,8 @@ The protocol defines how an agent delivery system requests work, resolves contex
 - mission audit event;
 - mission evidence record;
 - guarded control-plane execution request;
+- authenticated private-runner request and attested result;
+- normalized GitHub, Slack, and Jira workflow connector event;
 - worker status and doctor payloads;
 - workflow admission and result records;
 - proof bundle and SIEM JSONL export.
@@ -41,6 +43,8 @@ The delivery lifecycle is:
 - Jobs resolve a bounded snapshot before model execution.
 - Runtime profiles bind providers without changing organizational capabilities.
 - Guarded execution checks policy before action.
+- Executable delivery/provider/command-adapter actions cross the private-runner boundary; request and result integrity are verified on both sides.
+- Signed workflow ingress is replay/idempotency protected and retains origin/thread context for bidirectional updates.
 - Unsafe actions can be blocked before execution.
 - Approval gates can stop sensitive phases.
 - Mission evidence is content-hashed and hash-chained.

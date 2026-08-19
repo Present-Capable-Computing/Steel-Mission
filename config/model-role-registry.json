@@ -8,6 +8,7 @@
       "provider": "claude",
       "transport": "claude-code",
       "roles": ["dc13.coordination-report"],
+      "nativeCapabilities": ["provider-native-cli", "structured-output", "streaming-progress", "model-effort-controls"],
       "requiresNetwork": true,
       "local": false
     },
@@ -16,6 +17,7 @@
       "provider": "glimmer",
       "transport": "ollama",
       "roles": ["dc13.coordination-report"],
+      "nativeCapabilities": ["local-inference", "structured-json-output", "persistent-model-residency", "offline-operation"],
       "requiresNetwork": false,
       "local": true
     }
@@ -26,6 +28,7 @@
       "title": "Delivery Coordinator",
       "primaryModel": "claude-sonnet-5",
       "fallbackModels": ["qwen2.5-coder:14b"],
+      "governanceCapabilities": ["role-binding", "bounded-snapshot", "guarded-execution", "audit-evidence"],
       "snapshotProfile": "steel-mission-starter"
     }
   ]

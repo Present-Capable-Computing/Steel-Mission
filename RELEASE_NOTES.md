@@ -51,25 +51,30 @@ Local:
 - Publisher/user assignment model.
 - Per-job snapshot policy.
 - Mission control lifecycle: understand, plan, modify, build, test, inspect, repair, PR, deploy, close.
-- Guarded control-plane execution boundary.
+- Guarded control-plane execution boundary with authenticated private-runner requests and attested results.
+- Included ephemeral Docker private runner with non-root execution, read-only root filesystem, dropped capabilities, resource bounds, workspace-only mounting, secret filtering, and default-deny network access.
 - Pre-execution blocking for unsafe actions.
 - Signed and hash-chained mission evidence.
-- Core local evidence signing with Enterprise-locked customer KMS, Vault Transit, HSM, or equivalent external signing.
+- Core local evidence signing plus customer-controlled KMS, Vault Transit, HSM, or equivalent external signing.
 - Compliance evidence mappings for SOC 2, ISO 27001, and ISO 42001.
-- Connector contracts for GitHub/GitHub Actions, GitLab, Jira, Linear, Slack, CI/CD, SIEM, and replaceable orchestration adapters.
-- Technical Enterprise entitlement boundary for OIDC/JWKS, external signing custody, and SIEM/security-monitoring exports.
+- Native bidirectional GitHub, Slack, and Jira adapters with signed ingress, replay/idempotency protection, preserved origin/thread identity, and return-to-origin mission updates.
+- Connector contracts for GitHub Actions, GitLab, Linear, CI/CD, SIEM, and replaceable orchestration adapters; executable command adapters now use the private runner.
+- Core OIDC/JWKS identity, audit logging, SIEM/security-monitoring export, and customer-controlled external signing.
+- Knowledge-quality reports for source availability, freshness, ownership, provenance, expiration, conflicts, and context sufficiency.
+- Provider-native capability declarations and runtime requirements that prevent silent lowest-common-denominator fallback.
+- Existing-tools-first connector contract for bidirectional workflow embedding.
 - Optional n8n adapter posture; n8n is not a product dependency.
 - CI workflow for Python 3.11 and 3.12.
 
 ## Known Limitations
 
 - The release is a public alpha, not a production support commitment.
-- Enterprise Edition features are proprietary, commercially licensed, and technically locked in the official runtime distribution.
-- Container deployment is not included yet.
+- Enterprise Edition focuses on operational scale: multi-organization fleet governance, managed operation and upgrades, advanced governance, managed integrations, and support.
+- The hardened Docker execution image is included; remote private-worker scheduling and turnkey cluster deployment are not yet packaged.
 - The local UI is functional, but not yet packaged as a desktop or hosted distribution.
 - Provider setup is manual.
 - The control-plane protocol is experimental and may change before v1.0.
-- Connectors are represented by contracts and registries; managed production connectors are Enterprise scope.
+- Native connectors require customer-supplied webhook configuration, scoped credentials, and a public ingress endpoint; managed connector operation remains Enterprise scope.
 - Compliance mappings are support material, not an auditor certification.
 
 ## Validation
@@ -80,4 +85,4 @@ The release branch was validated with:
 python3 -m pytest
 ```
 
-Expected result for Alpha v0.1: 211 tests pass.
+Expected result for Alpha v0.1: 220 tests pass.

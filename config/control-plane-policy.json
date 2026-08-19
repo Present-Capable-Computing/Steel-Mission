@@ -58,13 +58,28 @@
     "required": true
   },
   "executionBoundary": {
-    "description": "Executable agent actions must enter through the signed guarded runner boundary.",
+    "allowedEnvironment": [
+      "GH_TOKEN",
+      "GITHUB_TOKEN"
+    ],
+    "description": "Executable agent actions must enter through the signed guarded runner and execute on an attested private-worker surface.",
     "directCommandMode": "block",
     "guardedEntrypoints": [
       "bin/present-control-plane",
       "/api/control-plane/execute"
     ],
-    "guardedRunnerRequired": true
+    "guardedRunnerRequired": true,
+    "privateRunnerCommand": [
+      "${WORKER_DIR}/bin/present-private-runner",
+      "execute"
+    ],
+    "privateRunnerMode": "development-local",
+    "privateRunnerRequired": true,
+    "privateRunnerStatusCommand": [
+      "${WORKER_DIR}/bin/present-private-runner",
+      "status"
+    ],
+    "requiredProductionIsolation": "container"
   },
   "modelIndependence": {
     "description": "The same pre-execution policy is applied regardless of model provider.",

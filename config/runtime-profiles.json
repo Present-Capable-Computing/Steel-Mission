@@ -9,6 +9,7 @@
       "status": "active",
       "modelRole": "dc13.coordination-report",
       "modelProvider": "auto",
+      "requiredProviderCapabilities": [],
       "snapshotProfile": "worker-local-default",
       "defaultFor": ["steel-mission-chat"],
       "editableBy": ["owner", "admin", "publisher"],
@@ -62,7 +63,7 @@
         "documentPaths": [
           {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
           {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
           {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
         ]
       }
@@ -73,6 +74,7 @@
       "status": "active",
       "modelRole": "dc13.coordination-report",
       "modelProvider": "glimmer",
+      "requiredProviderCapabilities": ["local-inference", "structured-json-output", "persistent-model-residency"],
       "snapshotProfile": "worker-local-glimmer-fallback",
       "defaultFor": [],
       "editableBy": ["owner", "admin", "publisher"],
@@ -124,7 +126,7 @@
         "documentPaths": [
           {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
           {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
           {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
         ]
       }
@@ -135,6 +137,7 @@
       "status": "active",
       "modelRole": "dc13.coordination-report",
       "modelProvider": "claude",
+      "requiredProviderCapabilities": ["provider-native-cli", "structured-output", "streaming-progress", "model-effort-controls"],
       "snapshotProfile": "worker-local-default",
       "defaultFor": [],
       "editableBy": ["owner", "admin", "publisher"],
@@ -188,7 +191,7 @@
         "documentPaths": [
           {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md"},
           {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md"},
-          {"title": "Starter Organization Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
+          {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md"},
           {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md"}
         ]
       }

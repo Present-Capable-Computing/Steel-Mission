@@ -22,6 +22,10 @@ Steel Mission starts with the synthetic Northstar Forge organization:
 
 Owners and admins can replace starter data from Settings.
 
+## Knowledge Hygiene
+
+Give each durable source an accountable owner plus review or expiration metadata. Treat an `insufficient` knowledge-quality result as an operational blocker for claims about organizational policy or intent: repair the source, resolve conflicts, or ask the owner. Do not solve quality warnings by copying the same documents into a second Steel Mission-only documentation system; bind the authoritative repositories and systems that teams already maintain.
+
 ## Production Controls
 
 Before production use:
@@ -36,6 +40,14 @@ Before production use:
 
 Use `bin/present-control-plane` for executable delivery work. Direct command paths are blocked by policy.
 
+For production isolation, build the included image with `make private-runner-image`, set `executionBoundary.privateRunnerMode` to `container`, and require `bin/present-private-runner status` to report `productionEligible: true`. Local mode is only for development. Docker egress defaults to disabled; provision an egress-controlled network only for phases that need a provider API. Review the environment allowlist whenever credentials change.
+
+## Native Workflow Operations
+
+GitHub, Slack, and Jira connectors expose the webhook paths documented in `INSTALL.md`. Monitor `_workflow-ingress` receipts under the mission root for accepted, ignored, duplicate, or failed delivery state. Use scoped bot/app tokens; rotate signing secrets; retain webhook delivery IDs; and set `STEEL_MISSION_PUBLIC_URL` for investigation deep links. Jira requires a signing gateway that attaches the Steel Mission HMAC header.
+
 ## Adapter Roadmap
 
-n8n is optional. Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and a private job runner.
+n8n is optional. Native GitHub, Slack, and Jira plus the local/container private runner are included. Upcoming orchestration adapters include Temporal, GitHub Actions, GitLab, and remote private-runner scheduling.
+
+Adapters should support bidirectional workflow embedding. Preserve the source event and thread identity on ingress, and publish approvals, status, decisions, evidence, and completion back to that same surface. Use the built-in control UI for setup, investigation, and recovery.
