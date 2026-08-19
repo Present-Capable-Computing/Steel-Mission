@@ -1218,7 +1218,9 @@
       "owner": "worker",
       "artifactKind": "private-runner-request",
       "producer": "steel-mission-chat",
-      "validationPoints": ["private-runner-admission"],
+      "validationPoints": [
+        "private-runner-admission"
+      ],
       "lifecycle": "active",
       "compatibility": "initial",
       "introducedAt": "2026-08-19"
@@ -1230,7 +1232,10 @@
       "owner": "worker",
       "artifactKind": "private-runner-result",
       "producer": "present-private-runner",
-      "validationPoints": ["private-runner-result", "mission-evidence-write"],
+      "validationPoints": [
+        "private-runner-result",
+        "mission-evidence-write"
+      ],
       "lifecycle": "active",
       "compatibility": "initial",
       "introducedAt": "2026-08-19"
@@ -1259,7 +1264,10 @@
       "owner": "worker",
       "artifactKind": "workflow-connector-event",
       "producer": "steel-mission-chat",
-      "validationPoints": ["workflow-connector-ingress", "mission-start"],
+      "validationPoints": [
+        "workflow-connector-ingress",
+        "mission-start"
+      ],
       "lifecycle": "active",
       "compatibility": "initial",
       "introducedAt": "2026-08-19"
@@ -1327,6 +1335,34 @@
       "lifecycle": "active",
       "compatibility": "initial",
       "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "project-v1",
+      "version": 1,
+      "schemaFile": "project-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "project",
+      "producer": "present-control",
+      "validationPoints": [
+        "contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-19"
+    },
+    {
+      "id": "milestone-v1",
+      "version": 1,
+      "schemaFile": "milestone-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "milestone",
+      "producer": "present-control",
+      "validationPoints": [
+        "contract-read"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-19"
     }
   ]
 }

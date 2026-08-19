@@ -1,0 +1,22 @@
+# Review ownership. A path listed here requires its owner's review before merge
+# once branch protection is enforcing reviews.
+#
+# Default owner for anything not matched below.
+*                               @andrewHermann
+
+# Authority-owned contracts. These are the schema surface; changing one can
+# require ratification independently of the pull request that carries it.
+/schemas/                       @andrewHermann
+/schemas/canonical/             @andrewHermann
+/schemas/schema-registry.json   @andrewHermann
+
+# Trust boundaries: the SSH forced-command guard, the control plane, and any
+# network-listening service.
+/bin/                           @andrewHermann
+/steel-mission-chat/            @andrewHermann
+/adapters/                      @andrewHermann
+
+# Supply chain and release surface.
+/.github/workflows/             @andrewHermann
+/Dockerfile.private-runner      @andrewHermann
+/requirements-dev.txt           @andrewHermann

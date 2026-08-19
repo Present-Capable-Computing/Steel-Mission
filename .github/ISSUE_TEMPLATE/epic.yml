@@ -1,0 +1,33 @@
+name: Epic
+description: A milestone-sized outcome that decomposes into tasks.
+labels: ["epic"]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is true at the end that is not true now. One paragraph.
+    validations:
+      required: true
+  - type: textarea
+    id: notdoing
+    attributes:
+      label: Explicitly not in scope
+      description: The boundary matters more than the list of work. Say what this does not cover.
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Link the tasks. Add them as they are identified rather than guessing up front.
+      placeholder: |
+        - [ ] #12
+        - [ ] #13
+  - type: textarea
+    id: done
+    attributes:
+      label: How the milestone is judged complete
+      description: The evidence that closes it, not a feeling of doneness.
+    validations:
+      required: true

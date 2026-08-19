@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/milestone-v1.json",
+  "title": "Milestone v1",
+  "description": "A dated delivery boundary that tasks are scheduled against. Infrastructure record only; it schedules work and carries no authority over evidence, verification, or gates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "milestoneId", "title", "state", "createdAt"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "milestoneId": {
+      "type": "string",
+      "pattern": "^MS-[0-9]{4}$",
+      "description": "Stable identifier. Distinct from a task id so a milestone can never be mistaken for executable work."
+    },
+    "producedAt": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "mock": {"type": "boolean"},
+    "provenance": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["worker", "control-plain", "mock-adapter", "control-plane"]},
+        "host": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "projectId": {"type": "string", "pattern": "^PRJ-[0-9]{4}$"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 200},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "targetDate": {
+      "type": "string",
+      "format": "date",
+      "description": "Intended completion date. A target, never a commitment, and never evidence that work is on schedule."
+    },
+    "state": {
+      "enum": ["PLANNED", "ACTIVE", "AT_RISK", "COMPLETE", "ABANDONED"],
+      "description": "AT_RISK is a statement about the schedule, never about the work's correctness. COMPLETE means every task closed or explicitly dropped, not that anything passed verification."
+    },
+    "outcome": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What is true at the end that is not true now."
+    },
+    "notInScope": {
+      "type": "string",
+      "description": "The boundary of the milestone. Recorded because omitting it is how scope grows unnoticed."
+    },
+    "taskIds": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {"type": "string", "pattern": "^DEV-[0-9]{6}$"},
+      "description": "Tasks scheduled against this milestone. Membership schedules work; it confers no authority on any task."
+    },
+    "completionEvidence": {
+      "type": "string",
+      "description": "What settles that the milestone is done. Absent means unestablished, never done."
+    },
+    "metadata": {"type": "object"}
+  }
+}

@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # Pin drift in the CI actions is a supply-chain surface: the workflows run
+  # with repository credentials, so an unreviewed action bump is a real change.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps"
+    groups:
+      dev-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "security"]
+    commit-message:
+      prefix: "docker"
