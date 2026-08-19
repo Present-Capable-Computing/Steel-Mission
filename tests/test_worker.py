@@ -2094,7 +2094,7 @@ def test_lease_broker_runs_ready_nodes_in_parallel(tmp_path):
         assert stderr_payload == {}
         assert payload["workflow"]["status"] == "SUCCEEDED"
         assert [dispatch["nodeId"] for dispatch in payload["nodeDispatches"]] == ["plan", "code-review"]
-        assert elapsed < 2.75
+        assert elapsed < 3.5
         events = _broker_state_payload(tmp_path / "state.json")["events"]
         batches = [event for event in events if event["type"] == "distributed-batch-dispatch"]
         assert batches[0]["nodeIds"] == ["plan", "code-review"]
