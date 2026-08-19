@@ -2470,19 +2470,34 @@ def verify_control_plane_session(
     }
 
 
-def bearer_token_from_handler(handler: BaseHTTPRequestHandler) -> str:
+def session_token_and_source(handler: BaseHTTPRequestHandler) -> tuple[str, str]:
+    """The session token and where it came from.
+
+    The source matters when the token turns out to be invalid. A bearer header or
+    an explicit session header is a deliberate assertion by the caller, and a bad
+    one is an error. A cookie is ambient: the browser attaches it because some
+    other instance set it, and cookies are not scoped by port -- a session issued
+    by a container on one port is sent to a development server on another. An
+    expired credential the user never chose to present should not lock them out of
+    a server that would otherwise have admitted them.
+    """
     authorization = handler.headers.get("Authorization") or ""
     if authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
+        return authorization[7:].strip(), "header"
     explicit = handler.headers.get("X-Present-Session") or ""
     if explicit:
-        return explicit
+        return explicit, "header"
     cookie = SimpleCookie()
     try:
         cookie.load(handler.headers.get("Cookie") or "")
     except Exception:  # noqa: BLE001
-        return ""
-    return cookie.get("present_session").value if cookie.get("present_session") else ""
+        return "", ""
+    value = cookie.get("present_session")
+    return (value.value, "cookie") if value else ("", "")
+
+
+def bearer_token_from_handler(handler: BaseHTTPRequestHandler) -> str:
+    return session_token_and_source(handler)[0]
 
 
 def request_cookie(handler: BaseHTTPRequestHandler, name: str) -> str:
@@ -2501,29 +2516,55 @@ def is_loopback_request(handler: BaseHTTPRequestHandler) -> bool:
 
 def authenticate_http_request(handler: BaseHTTPRequestHandler, path: str, method: str) -> dict[str, Any]:
     policy = auth_policy()
-    token = bearer_token_from_handler(handler)
+    token, token_source = session_token_and_source(handler)
     cookie_authenticated = bool(request_cookie(handler, "present_session")) and not bool((handler.headers.get("Authorization") or "").strip())
     if token:
         verified = verify_control_plane_session(token)
         if verified.get("ok") is not True:
-            append_auth_audit("request-denied", "", ok=False, details={"path": path, "error": verified.get("error")})
-            raise PermissionError(str(verified.get("error") or "valid session is required"))
-        actor = dict(verified.get("actor") if isinstance(verified.get("actor"), dict) else {})
-        actor.update({
-            "actorId": verified.get("actorId"),
-            "role": verified.get("role"),
-            "sessionVerified": True,
-            "authPolicyHash": verified.get("authPolicyHash"),
-            "claims": verified.get("claims"),
-            "accessToken": token,
-            "cookieAuthenticated": cookie_authenticated,
-        })
-        if cookie_authenticated and method in {"POST", "PUT", "PATCH", "DELETE"}:
-            csrf_cookie = request_cookie(handler, "present_csrf")
-            csrf_header = str(handler.headers.get("X-Present-CSRF") or "")
-            if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
-                raise PermissionError("CSRF validation failed")
-        return actor
+            boundary = policy.get("identityBoundary") if isinstance(policy.get("identityBoundary"), dict) else {}
+            development_available = (
+                identity_mode(policy) == "development-local"
+                and boundary.get("allowLoopbackDevelopmentIdentity") is True
+                and is_loopback_request(handler)
+            )
+            if token_source == "cookie" and development_available:
+                # A stale cookie from another instance, on a request development
+                # identity would have accepted anyway. Discard it and carry on
+                # rather than sending the caller to sign in for a credential they
+                # never offered. Recorded, because a rejected credential is worth
+                # seeing even when it is survivable.
+                append_auth_audit("stale-session-cookie-discarded", "", ok=True,
+                                  details={"path": path, "error": verified.get("error")})
+                # Clear it on the way out, so the browser stops sending it and
+                # the next request is clean without anyone opening devtools.
+                expiring = list(getattr(handler, "response_headers", None) or [])
+                expiring += [
+                    ("Set-Cookie", "present_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
+                    ("Set-Cookie", "present_csrf=; Path=/; SameSite=Lax; Max-Age=0"),
+                ]
+                handler.response_headers = expiring
+                token = ""
+                cookie_authenticated = False
+            else:
+                append_auth_audit("request-denied", "", ok=False, details={"path": path, "error": verified.get("error")})
+                raise PermissionError(str(verified.get("error") or "valid session is required"))
+        else:
+            actor = dict(verified.get("actor") if isinstance(verified.get("actor"), dict) else {})
+            actor.update({
+                "actorId": verified.get("actorId"),
+                "role": verified.get("role"),
+                "sessionVerified": True,
+                "authPolicyHash": verified.get("authPolicyHash"),
+                "claims": verified.get("claims"),
+                "accessToken": token,
+                "cookieAuthenticated": cookie_authenticated,
+            })
+            if cookie_authenticated and method in {"POST", "PUT", "PATCH", "DELETE"}:
+                csrf_cookie = request_cookie(handler, "present_csrf")
+                csrf_header = str(handler.headers.get("X-Present-CSRF") or "")
+                if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+                    raise PermissionError("CSRF validation failed")
+            return actor
     boundary = policy.get("identityBoundary") if isinstance(policy.get("identityBoundary"), dict) else {}
     if identity_mode(policy) == "oidc-required":
         raise PermissionError("OIDC-authenticated session is required")
