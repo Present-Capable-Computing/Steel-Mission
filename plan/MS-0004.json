@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0004",
+  "projectId": "PRJ-0001",
+  "title": "P3 - Durable connector inbox and outbox",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-10-28",
+  "outcome": "Signed inbound events land in a transactional inbox where a unique deduplication key decides which single transaction starts a mission, replacing a receipt file and a lock released before the work begins. Outbound connector actions are written to an outbox in the same transaction as the evidence they record, and are delivered by a worker with exponential backoff, jitter, honoured retry hints and an attempt cap that ends in a dead-letter queue rather than a dropped exception.",
+  "notInScope": "No change to signature verification on ingress. No new connectors. Exactly-once reply is effective, not absolute: it rests on connector-specific idempotency markers, and where a connector cannot be queried for a marker the behaviour degrades to a retry with a visible duplicate annotation rather than a silent second message.",
+  "taskIds": [],
+  "completionEvidence": "A duplicate-webhook test posts five concurrent correctly signed requests and asserts exactly one mission directory exists. A connector-retry test drives a fake endpoint that answers 429 with a retry hint twice and then 200, and asserts exactly one reply was delivered. A crash variant sets the crash point after the post and asserts that restart verifies the in-flight row by marker query and does not send a second message. Tests that asserted on receipt files are consciously rewritten to assert on inbox rows, and that rewrite is stated in the pull request rather than absorbed.",
+  "metadata": {
+    "phase": "P3",
+    "focusedDaysBudget": 3.0,
+    "risk": "Marker-based exactly-once delivery is connector-specific. GitHub ships first because a hidden marker in a comment body can be queried back. Slack and Jira follow. Where a marker cannot be read back the plan degrades honestly and says so in the operator documentation, rather than claiming a guarantee the connector does not support.",
+    "githubMilestone": 4
+  }
+}

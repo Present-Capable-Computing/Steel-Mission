@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0005",
+  "projectId": "PRJ-0001",
+  "title": "P4 - Single orchestration path",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-11-18",
+  "outcome": "There is one orchestration path. Mission control becomes a client of the broker rather than a parallel engine: the chat server runs an embedded control-plane runner that claims mission-node jobs and executes the existing node bodies unchanged, delivery steps become sandbox jobs, and an approval gate is a first-class waiting state on a job instead of a thread that exits and is relaunched. A restart resumes missions rather than marking them paused.",
+  "notInScope": "No new mission semantics. Node lists translate to a sequential chain, preserving today's ordering; parallel execution is possible under the new model but is not turned on here. Mission documents and the integrity chain stay authoritative and are referenced by digest, not replaced by the evidence table.",
+  "taskIds": [],
+  "completionEvidence": "The per-mission daemon threads are deleted, not merely bypassed, and the startup supervision that marked running missions paused is gone along with the field it set. A backup and restore test round-trips an archive taken mid-approval, verifies the hash chain, completes the approval after restore and asserts no duplicate connector delivery. The orchestrator rollout flag is removed at the end of the milestone rather than left as a permanent fork.",
+  "metadata": {
+    "phase": "P4",
+    "focusedDaysBudget": 3.0,
+    "risk": "The test churn of the whole project concentrates here. The chat server is loaded by path and monkeypatched at module scope, so a renamed module-level function silently breaks a patch rather than failing loudly. The rule is to wrap, never rename. Enumerate the affected tests by grepping for the startup-orphan field, the orchestrator launcher and the supervision entrypoint before writing any code.",
+    "githubMilestone": 5
+  }
+}

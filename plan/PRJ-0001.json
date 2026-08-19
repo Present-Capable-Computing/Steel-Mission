@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "projectId": "PRJ-0001",
+  "title": "Durable Broker Service and Remote Pull-Runner",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "ACTIVE",
+  "summary": "Replace the Steel-Mission execution core with a durable, transactional job service and a pull-based runner that executes in customer infrastructure. Today state is one unlocked JSON document with last-writer-wins semantics, execution is a synchronous subprocess call with a fixed cap and silent output truncation, job requests carry host-local paths, and two disjoint orchestration paths exist that never write to each other. Connector delivery has no retry, no backoff and no dead-letter path. The project ends when one storage interface with a SQLite default and a PostgreSQL option backs a single orchestration path, a remote runner claims work over gRPC and returns signed attested results, and connector ingress and egress are transactional.",
+  "milestoneIds": [
+    "MS-0001",
+    "MS-0002",
+    "MS-0003",
+    "MS-0004",
+    "MS-0005",
+    "MS-0006"
+  ],
+  "repository": "https://github.com/Present-Capable-Computing/Steel-Mission",
+  "metadata": {
+    "planDocument": "docs/workplan.md",
+    "technicalPlan": "docs/durable-core-plan.md",
+    "githubProject": "https://github.com/orgs/Present-Capable-Computing/projects/1",
+    "estimate": {
+      "rule": "PW-EST focused-effort, mid-range stance, security-sensitive and novel-integration at the cautious half of their ranges, empirical time at 1x",
+      "conventionalPersonDays": 140,
+      "focusedDays": 16.1,
+      "contingencyPercent": 25,
+      "focusedDaysWithContingency": 20.0,
+      "note": "A focused-day figure is a planning estimate, never a commitment and never evidence that work is on schedule. Re-defend at every milestone boundary and print the delta."
+    },
+    "decisions": [
+      {
+        "id": "PRJ-0001-D1",
+        "decision": "One storage interface. SQLite backend on the standard library is the default; a PostgreSQL backend on psycopg is the high-availability option.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0001-D2",
+        "decision": "gRPC bidirectional streaming is the pull-runner transport. Message bodies are canonical JSON validated against the v2 schemas; protobuf is framing only.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0001-D3",
+        "decision": "Scope is a full core replacement across P1 to P4. Enterprise high availability, multi-tenancy and regional failover are documented as later phases; the schema must not preclude them.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0001-D4",
+        "decision": "The new root package is steel_core/, not present_core/. The plan as written asked for both a present_core package and a repository that names only Steel-Mission; those conflict, and renaming later costs a second pass through a 227-test suite that drives the binaries as subprocesses.",
+        "status": "BINDING",
+        "supersedes": "The present_core/ package name in the originating plan."
+      },
+      {
+        "id": "PRJ-0001-D5",
+        "decision": "The database is the queue. The broker CLI, the daemon and the chat server are all direct clients of one transactional store sharing one command module and one state machine. There is no CLI-to-daemon RPC.",
+        "status": "BINDING"
+      }
+    ]
+  }
+}

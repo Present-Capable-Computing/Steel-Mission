@@ -184,6 +184,18 @@ Do not describe it as a stable public standard yet. See [docs/steel-mission-cont
 - [Architecture](architecture.md)
 - [Operations](operations.md)
 
+## Working On Steel Mission
+
+Delivery work is organised as one project with milestones and tasks, not as loose
+branches. Read the workplan before your first pull request: it is binding, and it
+states what "done" means here.
+
+- [Workplan](docs/workplan.md) — binding rules, milestone sequence, definition of done, how it is enforced
+- [Durable core plan](docs/durable-core-plan.md) — the technical design for the current project
+- [Plan records](plan/) — the project and milestone records, and how they map onto GitHub
+- [Contributing](CONTRIBUTING.md) — set up, test and land a change
+- [Milestones](https://github.com/Present-Capable-Computing/Steel-Mission/milestones) · [Issues](https://github.com/Present-Capable-Computing/Steel-Mission/issues)
+
 ## Release Posture
 
 This repository is prepared as a clean product distribution. The broader Present canon and internal development corpus are not included. The included company data is synthetic and exists only to make the first run understandable.

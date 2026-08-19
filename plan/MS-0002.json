@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0002",
+  "projectId": "PRJ-0001",
+  "title": "P1 - Durable broker service",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-09-16",
+  "outcome": "Broker state lives in one transactional store behind one interface, with a SQLite backend by default and a PostgreSQL backend available. Concurrent writers are serialized rather than overwriting each other. Every lease grant carries a fence token, expiry is swept rather than noticed lazily on the next read, and a daemon drives workflows so that killing the coordinator mid-job resumes the work instead of stranding it.",
+  "notInScope": "No remote runner and no gRPC surface; node invocation stays on the local subprocess path. No connector inbox or outbox. No change to mission orchestration in the chat server beyond routing its reads through the store. The legacy broker-state JSON document is still mirrored and is not retired in this milestone.",
+  "taskIds": [],
+  "completionEvidence": "The full existing test suite passes at every step with the JSON mirror on, proving the storage swap changed no observable behaviour. New unit tests cover the store and the state machine. A coordinator-kill test sends SIGKILL to the daemon at an injected crash point and asserts the workflow resumes, that the side-effect counter file reads exactly one, and that exactly one recovery ledger entry exists. The store-parity suite passes against both backends, with the PostgreSQL run gated behind its own marker and a continuous integration service container.",
+  "metadata": {
+    "phase": "P1",
+    "focusedDaysBudget": 6.0,
+    "risk": "The exclusive state transaction must never enclose worker invocation or heartbeat renewal, or batch throughput collapses. Heartbeats route to the leases table directly. A second risk is two drivers on one workflow, the synchronous command-line drive and the daemon; a driver-owner column and a controller leader lease prevent it.",
+    "githubMilestone": 2
+  }
+}

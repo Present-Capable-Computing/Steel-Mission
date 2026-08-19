@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestoneId": "MS-0003",
+  "projectId": "PRJ-0001",
+  "title": "P2 - Pull-runner agent and job protocol v2",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "producedAt": "2026-08-19T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "targetDate": "2026-10-14",
+  "outcome": "A runner process inside customer infrastructure dials out over mutually authenticated TLS, claims jobs from the broker, materializes its own source from a pinned commit or a bundle digest rather than a host-local path, executes in an image pinned by digest, and returns a result signed with its own key and bound to the job, the runner, the image and the inputs. Secrets are carried as references and resolved just in time, never as values in a job specification.",
+  "notInScope": "No change to the local subprocess execution path, which stays the default so the existing suite keeps exercising it. No connector work. No mission orchestration change. Multi-tenant runner pools and regional placement are later phases; the schema must not preclude them.",
+  "taskIds": [],
+  "completionEvidence": "An end-to-end test runs the daemon and two runner agent processes over loopback mutual TLS and drives a job to a signed result. A runner-death test kills agent A, waits out a short lease, and asserts agent B receives fence token plus one and that replaying agent A's old result is rejected as a stale fence. A secret test greps the captured process arguments, the store dump, the logs and the artifacts for a sentinel value and finds none. A binding test tampers with the reported image digest, then the input hashes, then presents an unenrolled key, and asserts each is rejected. The sandbox extraction is covered by a characterization test comparing the container arguments produced before and after the refactor.",
+  "metadata": {
+    "phase": "P2",
+    "focusedDaysBudget": 7.0,
+    "risk": "Extracting the container hardening logic out of the private runner binary is the riskiest pure refactor in the project: a regression there weakens an isolation boundary silently. It ships as its own pull request, gated on the argument characterization test. Reconnect behaviour on a bidirectional stream is the second risk; streams hold no durable truth, and a hello re-associates a runner after the stream dies.",
+    "githubMilestone": 3
+  }
+}
