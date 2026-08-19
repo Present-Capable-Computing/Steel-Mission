@@ -1543,6 +1543,13 @@
       return {"X-Present-Role": activeOperatorRole, "X-Present-Actor": currentActorUserId()};
     }
 
+    function jobActorHeaders(started) {
+      const headers = actorHeaders();
+      if (started && started.actorUserId) headers["X-Present-Actor"] = started.actorUserId;
+      if (started && started.operatorRole) headers["X-Present-Role"] = started.operatorRole;
+      return headers;
+    }
+
     function withActor(payload = {}) {
       return {...payload, operatorRole: payload.operatorRole || activeOperatorRole, actorUserId: currentActorUserId()};
     }
@@ -3703,8 +3710,12 @@
           // arrives as the default identity while the job is owned by whoever
           // posted it, and the server correctly refuses to show one actor another
           // actor's chat -- which reads as the server being broken.
+          // Poll as the identity the server recorded the job against, not as
+          // whatever this page would resolve now. A job is owned by whoever posted
+          // it, and the two only have to disagree once for the server to refuse
+          // the poll a chat the same person just started.
           const pollResponse = await fetch(new URL(`/api/chat/${started.jobId}`, window.location.href),
-            {headers: actorHeaders(), cache: "no-store"});
+            {headers: jobActorHeaders(started), cache: "no-store"});
           data = await pollResponse.json();
           if (!pollResponse.ok) {
             throw new Error(data.error || "Delivery Coordinator job status could not be read.");
