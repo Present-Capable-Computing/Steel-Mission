@@ -545,6 +545,10 @@ def _runtime_path_variables() -> dict[str, str]:
     missions_dir = Path(os.environ.get(MISSIONS_DIR_ENV) or MISSIONS_DIR_DEFAULT)
     return {
         "WORKER_DIR": str(common.WORKER_DIR),
+        # Config files say ${ORG_DIR} rather than a path under the product tree,
+        # so an installation redirects its organisation data with one variable
+        # instead of editing every runtime profile.
+        "ORG_DIR": str(common.ORG_DIR),
         "PRESENT_DEV": str(present_dev),
         "PRESENT_TASKS_DIR": str(tasks_dir),
         "PRESENT_LOGS_DIR": str(logs_dir),
@@ -1144,7 +1148,7 @@ def cmd_doctor(_args) -> int:
     release_checks = {
         "steel_mission_tree": common.WORKER_DIR.exists(),
         "schemas": (common.WORKER_DIR / "schemas").exists(),
-        "starter_company": (common.WORKER_DIR / "starter-company").exists(),
+        "starter_company": common.ORG_DIR.exists(),
         "steel_mission_chat": (common.WORKER_DIR / "steel-mission-chat").exists(),
         "config": (common.WORKER_DIR / "config").exists(),
     }
@@ -1854,7 +1858,7 @@ def cmd_adversarial(args) -> int:
 # The DC13 Delivery Coordinator manifest in the starter company checkout.
 # Read-only identity source for coordination-report; an unreadable or incomplete
 # manifest fails closed before any report is produced.
-COORDINATOR_PACK_MANIFEST = (common.WORKER_DIR / "starter-company" / "canon" / "Workspace Packs" /
+COORDINATOR_PACK_MANIFEST = (common.ORG_DIR / "canon" / "Workspace Packs" /
                      "DC13_Delivery-Coordinator" / "manifest" / "DC13_Delivery-Coordinator_pack.manifest.json")
 COORDINATOR_SNAPSHOT_MAX_TASKS = 30
 COORDINATOR_SNAPSHOT_MAX_BUILD_JOBS = 25

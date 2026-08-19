@@ -28,6 +28,20 @@ REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR", WORKER_DIR / "repos"))
 TEST_RESULTS_DIR = Path(os.environ.get("PRESENT_TEST_RESULTS_DIR", WORKER_DIR / "test-results"))
 JOBS_DIR = Path(os.environ.get("PRESENT_JOBS_DIR", WORKER_DIR / "jobs"))
 
+# The organisation whose canon, knowledge and roster this installation runs on.
+#
+# The default is the synthetic starter company shipped with the product, so a
+# fresh clone is usable immediately. An installation points this at its own
+# directory instead. It must never be made to work by replacing the contents of
+# the shipped directory: that destroys the demo data every other user relies on,
+# and puts one organisation's operating data in a tree that is distributed to
+# everyone.
+ORG_DIR = Path(
+    os.environ.get("STEEL_MISSION_ORG_DIR")
+    or os.environ.get("PRESENT_ORG_DIR")
+    or WORKER_DIR / "starter-company"
+)
+
 DEFAULT_REPO = Path(os.environ.get("STEEL_MISSION_DEFAULT_REPO", WORKER_DIR))
 
 SCHEMA_AUTHORITY = "present-control"

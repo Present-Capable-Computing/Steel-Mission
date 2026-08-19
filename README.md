@@ -37,7 +37,21 @@ The `starter-company/` directory contains synthetic data:
 - `knowledge/`: starter product, architecture, delivery, and compliance notes.
 - `Workspace Packs/_build/`: role and knowledge registries consumed by the app.
 
-The starter company is not private data. Owners and admins can replace it with their own files, folders, repositories, users, missions, and profiles.
+The starter company is not private data, and it is not your data. It ships with the
+product so a fresh clone is usable immediately.
+
+To run on your own organisation, point `STEEL_MISSION_ORG_DIR` at a directory
+outside this tree:
+
+```sh
+STEEL_MISSION_ORG_DIR=/srv/acme-org bin/steel-mission serve
+```
+
+Do not run on your own organisation by writing your files into `starter-company/`.
+That directory is distributed to every user: replacing its contents removes the
+demo company they start from, and commits your roster, clients and decisions to a
+repository published under an open-source licence. A test enforces this
+(`tests/test_org_data_boundary.py`).
 
 ## Organization Skeleton
 

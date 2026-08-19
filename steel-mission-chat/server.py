@@ -45,7 +45,17 @@ WORKER_BIN = WORKER_DIR / "bin" / "steel-mission"
 BROKER_BIN = WORKER_DIR / "bin" / "present-lease-broker"
 PRIVATE_RUNNER_BIN = WORKER_DIR / "bin" / "present-private-runner"
 INDEX = APP_DIR / "index.html"
-CANON_DIR = Path(os.environ.get("PRESENT_CANON_DIR") or WORKER_DIR / "starter-company" / "canon")
+# The organisation this installation runs on, defaulting to the synthetic starter
+# company shipped with the product. An installation points ORG_DIR at its own
+# directory; it never replaces the contents of the shipped one.
+ORG_DIR = Path(
+    os.environ.get("STEEL_MISSION_ORG_DIR")
+    or os.environ.get("PRESENT_ORG_DIR")
+    or WORKER_DIR / "starter-company"
+)
+# PRESENT_CANON_DIR predates ORG_DIR and still wins where it is set, so an
+# existing deployment keeps working.
+CANON_DIR = Path(os.environ.get("PRESENT_CANON_DIR") or ORG_DIR / "canon")
 ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.json"
 ROLE_KNOWLEDGE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-knowledge-registry.json"
 DOMAIN_CAPABILITIES_PATH = WORKER_DIR / "config" / "domain-capabilities.json"
@@ -584,13 +594,13 @@ def default_organization_registry() -> dict[str, Any]:
                 "knowledgeSources": {
                     "repositories": [
                         {"name": "steel-mission-product", "path": "${WORKER_DIR}", "owner": "platform-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"name": "starter-company", "path": "${WORKER_DIR}/starter-company", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"name": "starter-company", "path": "${ORG_DIR}", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
                     ],
                     "documents": [
-                        {"title": "Starter Organization Operating Context", "path": "${WORKER_DIR}/starter-company/canon/KD01 Operating Context.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"title": "Starter Organization Team Doctrine", "path": "${WORKER_DIR}/starter-company/canon/KD02 Team Doctrine.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"title": "Starter Organization Team Roster and Workflow", "path": "${WORKER_DIR}/starter-company/canon/KD03 Team Roster and Workflow.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
-                        {"title": "Starter Organization Capability Map", "path": "${WORKER_DIR}/starter-company/canon/Domain Capabilities.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Operating Context", "path": "${ORG_DIR}/canon/KD01 Operating Context.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Team Doctrine", "path": "${ORG_DIR}/canon/KD02 Team Doctrine.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Team Roster and Workflow", "path": "${ORG_DIR}/canon/KD03 Team Roster and Workflow.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
+                        {"title": "Starter Organization Capability Map", "path": "${ORG_DIR}/canon/Domain Capabilities.md", "owner": "organization-owner", "lastReviewedAt": utc_now(), "maxAgeDays": 90, "required": True, "authoritative": True},
                     ],
                 },
                 "notes": "Synthetic starter organization for first-run demonstrations. Owners and admins can rename it or create additional organizations.",
@@ -1535,6 +1545,7 @@ def resolve_config_path(value: str) -> Path:
     text = str(value or "")
     replacements = {
         "${WORKER_DIR}": str(WORKER_DIR),
+        "${ORG_DIR}": str(ORG_DIR),
         "${APP_DIR}": str(APP_DIR),
         "${PRESENT_DEV}": str(PRESENT_DEV_DIR),
         "${PRESENT_TASKS_DIR}": str(TASKS_DIR),
@@ -1620,7 +1631,7 @@ def default_snapshot_policy(provider: str = "claude", source_profile: str | None
             ],
             "repositoryRoots": [
                 {"name": "worker", "path": str(WORKER_DIR)},
-                {"name": "starter-company", "path": str(WORKER_DIR / "starter-company")},
+                {"name": "starter-company", "path": str(ORG_DIR)},
                 *general_repos,
             ],
             "documentPaths": general_documents,
