@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Create the Projects v2 board for PRJ-0001 and add every planned issue to it.
+# Create the Projects v2 board and add every planned issue to it. The board holds
+# every project in this repository; its title and description come from the manifest.
 #
 # Projects v2 needs a token scope that the repository scope does not include.
 # This script checks for it first and tells you exactly what to run, rather than
@@ -14,8 +15,12 @@ set -euo pipefail
 
 REPO="Present-Capable-Computing/Steel-Mission"
 OWNER="Present-Capable-Computing"
-TITLE="Steel-Mission — Durable Core (PRJ-0001)"
+# The board title comes from the manifest, not a literal here. A hardcoded title
+# means a rename lands on the live board while a fresh bootstrap recreates the old
+# name -- and, because the search is by title, fails to find the renamed board and
+# creates a second one beside it.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TITLE="$(python3 -c "import json;print(json.load(open('$ROOT/tooling/github-plan.json'))['project']['boardTitle'])")"
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "error: gh is not authenticated. Run: gh auth login" >&2
@@ -80,7 +85,7 @@ url="$(gh project view "$number" --owner "$OWNER" --format json | unwrap url)"
 # can find the record that governs it. plan/README.md states this link; setting it
 # here is what makes the statement true.
 description="$(python3 -c "import json;print(json.load(open('$ROOT/tooling/github-plan.json'))['project']['boardDescription'])")"
-gh project edit "$number" --owner "$OWNER" --description "$description" >/dev/null
+gh project edit "$number" --owner "$OWNER" --title "$TITLE" --description "$description" >/dev/null
 
 echo "Adding planned issues to the board"
 # One request per label. Repeated --label flags are an AND, not an OR, and no
@@ -125,7 +130,7 @@ cat <<MSG
 
 Board: $url
 
-The board is a working surface. plan/PRJ-0001.json is the source of truth for the
-shape of this work; where the two disagree, the record wins and the board is
+The board is a working surface. The records under plan/ are the source of truth for
+the shape of this work; where the two disagree, the record wins and the board is
 corrected.
 MSG
