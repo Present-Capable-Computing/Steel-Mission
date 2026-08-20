@@ -6354,6 +6354,40 @@ def test_steel_mission_shipped_capability_assignments_survive_save_and_remain_au
     assert by_key["DC04"]["users"] == ["jordan-lee"]
 
 
+def test_steel_mission_corrupt_capability_registry_is_recorded_and_refused(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    assignment_registry = tmp_path / "domain-capabilities.json"
+    mutation_ledger = tmp_path / "mutation-ledger.jsonl"
+    assignment_registry.write_text('{"schemaVersion": 1, "assignments": [')
+
+    globals_ = chat["domain_capability_registry"].__globals__
+    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["MUTATION_LEDGER_PATH"] = mutation_ledger
+    fallback_called = False
+    original_fallback = globals_["default_domain_capabilities"]
+
+    def watched_fallback():
+        nonlocal fallback_called
+        fallback_called = True
+        return original_fallback()
+
+    globals_["default_domain_capabilities"] = watched_fallback
+
+    with pytest.raises(RuntimeError, match="domain capability registry could not be read"):
+        chat["domain_capability_registry"]()
+
+    assert fallback_called is False, "a corrupt registry must not fabricate synthetic assignments"
+    events = [json.loads(line) for line in mutation_ledger.read_text().splitlines()]
+    assert len(events) == 1
+    event = events[0]
+    assert event["action"] == "domain-capability-registry-read"
+    assert event["status"] == "failed"
+    assert event["changed"] is False
+    assert event["targetPath"] == str(assignment_registry)
+    assert event["details"]["errorType"] == "JSONDecodeError"
+    assert schema_check.validate(event, "canonical/mutation-ledger-event-v1.json") == []
+
+
 def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     role_registry = tmp_path / "role-registry.json"
