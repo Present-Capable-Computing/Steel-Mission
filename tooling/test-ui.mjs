@@ -10,20 +10,22 @@ import {build} from "esbuild";
 const toolingDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = dirname(toolingDir);
 const testDir = await mkdtemp(join(tmpdir(), "steel-mission-ui-tests-"));
-const bundledTest = join(testDir, "work-mode.test.mjs");
+const testEntries = ["settings.test.ts", "work-mode.test.ts"];
+const bundledTests = testEntries.map((name) => join(testDir, name.replace(/\.ts$/, ".mjs")));
 
 try {
   await build({
-    entryPoints: [join(repoDir, "steel-mission-ui", "tests", "work-mode.test.ts")],
+    entryPoints: testEntries.map((name) => join(repoDir, "steel-mission-ui", "tests", name)),
     bundle: true,
     format: "esm",
     platform: "node",
     target: ["node24"],
-    outfile: bundledTest,
+    outdir: testDir,
+    outExtension: {".js": ".mjs"},
   });
 
   const exitCode = await new Promise((resolve, reject) => {
-    const testRun = spawn(process.execPath, ["--test", bundledTest], {stdio: "inherit"});
+    const testRun = spawn(process.execPath, ["--test", ...bundledTests], {stdio: "inherit"});
     testRun.on("error", reject);
     testRun.on("exit", (code) => resolve(code ?? 1));
   });

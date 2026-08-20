@@ -2,11 +2,14 @@ import {render} from "preact";
 import {useState} from "preact/hooks";
 
 import "./styles.css";
+import {SETTINGS_SECTIONS, type SettingsSectionId} from "./settings";
 import {WORK_MODES, type WorkMode} from "./work-mode";
 
 
 function App() {
   const [workMode, setWorkMode] = useState<WorkMode>("normal");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("organizations");
 
   return (
     <main class="app-shell">
@@ -55,6 +58,17 @@ function App() {
             <p id="normalModeDescription" class="visually-hidden">{WORK_MODES[0].description}</p>
             <p id="domainCapabilityModeDescription" class="visually-hidden">{WORK_MODES[1].description}</p>
           </div>
+
+          <button
+            id="openSettings"
+            class="settings-trigger"
+            type="button"
+            aria-controls="settingsPanel"
+            aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            {settingsOpen ? "Close settings" : "Settings"}
+          </button>
         </header>
 
         <p
@@ -65,7 +79,43 @@ function App() {
           Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
         </p>
 
-        <section class="empty-state" aria-labelledby="newConsoleTitle">
+        {settingsOpen && (
+          <section id="settingsPanel" class="settings-panel" aria-label="Settings">
+            <nav class="settings-nav" aria-label="Settings sections">
+              {SETTINGS_SECTIONS.map((section) => (
+                <button
+                  id={`settingsNav-${section.id}`}
+                  key={section.id}
+                  type="button"
+                  data-settings-target={section.id}
+                  aria-controls={`settingsSection-${section.id}`}
+                  aria-current={activeSettingsSection === section.id ? "page" : undefined}
+                  onClick={() => setActiveSettingsSection(section.id)}
+                >
+                  <strong>{section.label}</strong>
+                  <span>{section.hint}</span>
+                </button>
+              ))}
+            </nav>
+            <div class="settings-content">
+              {SETTINGS_SECTIONS.map((section) => (
+                <section
+                  id={`settingsSection-${section.id}`}
+                  key={section.id}
+                  class="settings-section"
+                  hidden={activeSettingsSection !== section.id}
+                  aria-labelledby={`settingsNav-${section.id}`}
+                >
+                  <p class="eyebrow">Settings</p>
+                  <h2>{section.label}</h2>
+                  <p>{section.hint}</p>
+                </section>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section class="empty-state" aria-labelledby="newConsoleTitle" hidden={settingsOpen}>
           <p class="eyebrow">Rebuilt console</p>
           <h1 id="newConsoleTitle">A typed shell, ready for parity work.</h1>
           <p>

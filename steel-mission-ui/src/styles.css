@@ -145,10 +145,75 @@ select {
   background: #2d695b;
 }
 
+.settings-trigger {
+  align-self: end;
+  min-height: 2.5rem;
+  border: 1px solid #76b6a5;
+  border-radius: 0.65rem;
+  background: transparent;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
+
 .definition {
   margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 0;
   color: #8d9aa8;
   font-size: 0.88rem;
+}
+
+.settings-panel {
+  display: grid;
+  grid-template-columns: minmax(14rem, 19rem) 1fr;
+  min-height: 32rem;
+  margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 4rem;
+  overflow: hidden;
+  border: 1px solid #34404c;
+  border-radius: 1rem;
+  background: rgba(15, 21, 28, 0.92);
+}
+
+.settings-nav {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-right: 1px solid #29323d;
+  background: #10161d;
+}
+
+.settings-nav button {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid transparent;
+  border-radius: 0.65rem;
+  background: transparent;
+  padding: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav button[aria-current="page"] {
+  border-color: #47796c;
+  background: #182a27;
+}
+
+.settings-nav span {
+  color: #8d9aa8;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.settings-content {
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.settings-section h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+}
+
+.settings-section > p:last-child {
+  color: #aab4bf;
 }
 
 .empty-state {
@@ -201,5 +266,14 @@ select {
 
   .rail dl {
     display: none;
+  }
+
+  .settings-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    border-right: 0;
+    border-bottom: 1px solid #29323d;
   }
 }

@@ -142,10 +142,66 @@ select {
 .mode-switch button[aria-pressed=true] {
   background: #2d695b;
 }
+.settings-trigger {
+  align-self: end;
+  min-height: 2.5rem;
+  border: 1px solid #76b6a5;
+  border-radius: 0.65rem;
+  background: transparent;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
 .definition {
   margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 0;
   color: #8d9aa8;
   font-size: 0.88rem;
+}
+.settings-panel {
+  display: grid;
+  grid-template-columns: minmax(14rem, 19rem) 1fr;
+  min-height: 32rem;
+  margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 4rem;
+  overflow: hidden;
+  border: 1px solid #34404c;
+  border-radius: 1rem;
+  background: rgba(15, 21, 28, 0.92);
+}
+.settings-nav {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-right: 1px solid #29323d;
+  background: #10161d;
+}
+.settings-nav button {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid transparent;
+  border-radius: 0.65rem;
+  background: transparent;
+  padding: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-nav button[aria-current=page] {
+  border-color: #47796c;
+  background: #182a27;
+}
+.settings-nav span {
+  color: #8d9aa8;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.settings-content {
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+.settings-section h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+}
+.settings-section > p:last-child {
+  color: #aab4bf;
 }
 .empty-state {
   max-width: 52rem;
@@ -196,6 +252,13 @@ select {
   .rail dl {
     display: none;
   }
+  .settings-panel {
+    grid-template-columns: 1fr;
+  }
+  .settings-nav {
+    border-right: 0;
+    border-bottom: 1px solid #29323d;
+  }
 }
   </style>
 </head>
@@ -227,10 +290,33 @@ select {
             <p id="normalModeDescription" class="visually-hidden">Normal chat uses direct prompts and answers while keeping assigned capabilities available as context.</p>
             <p id="domainCapabilityModeDescription" class="visually-hidden">Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens.</p>
           </div>
+          <button id="openSettings" class="settings-trigger" type="button" aria-controls="settingsPanel" aria-expanded="false">Settings</button>
         </header>
         <p id="domainCapabilityDefinition" class="definition" data-vocabulary-term="domain-capability">
           Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
         </p>
+        <section id="settingsPanel" class="settings-panel" aria-label="Settings" hidden>
+          <nav class="settings-nav" aria-label="Settings sections">
+            <button id="settingsNav-organizations" type="button" data-settings-target="organizations" aria-controls="settingsSection-organizations" aria-current="page"><strong>Organizations</strong><span>Identity, knowledge bindings, and capability sets</span></button>
+            <button id="settingsNav-people" type="button" data-settings-target="people" aria-controls="settingsSection-people"><strong>Users</strong><span>Create users and capability access</span></button>
+            <button id="settingsNav-missions" type="button" data-settings-target="missions" aria-controls="settingsSection-missions"><strong>Missions</strong><span>Delivery scope and mission starts</span></button>
+            <button id="settingsNav-knowledge" type="button" data-settings-target="knowledge" aria-controls="settingsSection-knowledge"><strong>Knowledge</strong><span>Knowledge Domains and Domain Capabilities</span></button>
+            <button id="settingsNav-profiles" type="button" data-settings-target="profiles" aria-controls="settingsSection-profiles"><strong>Runtime Profiles</strong><span>Snapshot policy and Coordinator model</span></button>
+            <button id="settingsNav-integrations" type="button" data-settings-target="integrations" aria-controls="settingsSection-integrations"><strong>Control Plane</strong><span>Policy, evidence, and integrations</span></button>
+            <button id="settingsNav-models" type="button" data-settings-target="models" aria-controls="settingsSection-models"><strong>Model Roles</strong><span>Provider and model-role registry</span></button>
+            <button id="settingsNav-audit" type="button" data-settings-target="audit" aria-controls="settingsSection-audit"><strong>Audit</strong><span>Configuration mutations</span></button>
+          </nav>
+          <div class="settings-content">
+            <section id="settingsSection-organizations" class="settings-section" aria-labelledby="settingsNav-organizations"><p class="eyebrow">Settings</p><h2>Organizations</h2><p>Identity, knowledge bindings, and capability sets</p></section>
+            <section id="settingsSection-people" class="settings-section" aria-labelledby="settingsNav-people" hidden><p class="eyebrow">Settings</p><h2>Users</h2><p>Create users and capability access</p></section>
+            <section id="settingsSection-missions" class="settings-section" aria-labelledby="settingsNav-missions" hidden><p class="eyebrow">Settings</p><h2>Missions</h2><p>Delivery scope and mission starts</p></section>
+            <section id="settingsSection-knowledge" class="settings-section" aria-labelledby="settingsNav-knowledge" hidden><p class="eyebrow">Settings</p><h2>Knowledge</h2><p>Knowledge Domains and Domain Capabilities</p></section>
+            <section id="settingsSection-profiles" class="settings-section" aria-labelledby="settingsNav-profiles" hidden><p class="eyebrow">Settings</p><h2>Runtime Profiles</h2><p>Snapshot policy and Coordinator model</p></section>
+            <section id="settingsSection-integrations" class="settings-section" aria-labelledby="settingsNav-integrations" hidden><p class="eyebrow">Settings</p><h2>Control Plane</h2><p>Policy, evidence, and integrations</p></section>
+            <section id="settingsSection-models" class="settings-section" aria-labelledby="settingsNav-models" hidden><p class="eyebrow">Settings</p><h2>Model Roles</h2><p>Provider and model-role registry</p></section>
+            <section id="settingsSection-audit" class="settings-section" aria-labelledby="settingsNav-audit" hidden><p class="eyebrow">Settings</p><h2>Audit</h2><p>Configuration mutations</p></section>
+          </div>
+        </section>
         <section class="empty-state" aria-labelledby="newConsoleTitle">
           <p class="eyebrow">Rebuilt console</p>
           <h1 id="newConsoleTitle">A typed shell, ready for parity work.</h1>
@@ -622,6 +708,18 @@ select {
     return "function" == typeof t3 ? t3(n2) : t3;
   }
 
+  // steel-mission-ui/src/settings.ts
+  var SETTINGS_SECTIONS = [
+    { id: "organizations", label: "Organizations", hint: "Identity, knowledge bindings, and capability sets" },
+    { id: "people", label: "Users", hint: "Create users and capability access" },
+    { id: "missions", label: "Missions", hint: "Delivery scope and mission starts" },
+    { id: "knowledge", label: "Knowledge", hint: "Knowledge Domains and Domain Capabilities" },
+    { id: "profiles", label: "Runtime Profiles", hint: "Snapshot policy and Coordinator model" },
+    { id: "integrations", label: "Control Plane", hint: "Policy, evidence, and integrations" },
+    { id: "models", label: "Model Roles", hint: "Provider and model-role registry" },
+    { id: "audit", label: "Audit", hint: "Configuration mutations" }
+  ];
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -650,6 +748,8 @@ select {
   // steel-mission-ui/src/app.tsx
   function App() {
     const [workMode, setWorkMode] = d2("normal");
+    const [settingsOpen, setSettingsOpen] = d2(false);
+    const [activeSettingsSection, setActiveSettingsSection] = d2("organizations");
     return /* @__PURE__ */ u3("main", { class: "app-shell", children: [
       /* @__PURE__ */ u3("aside", { class: "rail", "aria-label": "Steel Mission", children: [
         /* @__PURE__ */ u3("div", { class: "mark", "aria-hidden": "true", children: "SM" }),
@@ -699,7 +799,19 @@ select {
             ),
             /* @__PURE__ */ u3("p", { id: "normalModeDescription", class: "visually-hidden", children: WORK_MODES[0].description }),
             /* @__PURE__ */ u3("p", { id: "domainCapabilityModeDescription", class: "visually-hidden", children: WORK_MODES[1].description })
-          ] })
+          ] }),
+          /* @__PURE__ */ u3(
+            "button",
+            {
+              id: "openSettings",
+              class: "settings-trigger",
+              type: "button",
+              "aria-controls": "settingsPanel",
+              "aria-expanded": settingsOpen,
+              onClick: () => setSettingsOpen((open) => !open),
+              children: settingsOpen ? "Close settings" : "Settings"
+            }
+          )
         ] }),
         /* @__PURE__ */ u3(
           "p",
@@ -710,7 +822,40 @@ select {
             children: "Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge."
           }
         ),
-        /* @__PURE__ */ u3("section", { class: "empty-state", "aria-labelledby": "newConsoleTitle", children: [
+        settingsOpen && /* @__PURE__ */ u3("section", { id: "settingsPanel", class: "settings-panel", "aria-label": "Settings", children: [
+          /* @__PURE__ */ u3("nav", { class: "settings-nav", "aria-label": "Settings sections", children: SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ u3(
+            "button",
+            {
+              id: `settingsNav-${section.id}`,
+              type: "button",
+              "data-settings-target": section.id,
+              "aria-controls": `settingsSection-${section.id}`,
+              "aria-current": activeSettingsSection === section.id ? "page" : void 0,
+              onClick: () => setActiveSettingsSection(section.id),
+              children: [
+                /* @__PURE__ */ u3("strong", { children: section.label }),
+                /* @__PURE__ */ u3("span", { children: section.hint })
+              ]
+            },
+            section.id
+          )) }),
+          /* @__PURE__ */ u3("div", { class: "settings-content", children: SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ u3(
+            "section",
+            {
+              id: `settingsSection-${section.id}`,
+              class: "settings-section",
+              hidden: activeSettingsSection !== section.id,
+              "aria-labelledby": `settingsNav-${section.id}`,
+              children: [
+                /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Settings" }),
+                /* @__PURE__ */ u3("h2", { children: section.label }),
+                /* @__PURE__ */ u3("p", { children: section.hint })
+              ]
+            },
+            section.id
+          )) })
+        ] }),
+        /* @__PURE__ */ u3("section", { class: "empty-state", "aria-labelledby": "newConsoleTitle", hidden: settingsOpen, children: [
           /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Rebuilt console" }),
           /* @__PURE__ */ u3("h1", { id: "newConsoleTitle", children: "A typed shell, ready for parity work." }),
           /* @__PURE__ */ u3("p", { children: "This non-default application proves the committed single-file build. Existing work, settings, and mission behavior remains on the current console until each surface reaches parity." })

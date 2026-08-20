@@ -24,10 +24,33 @@
         <p id="normalModeDescription" class="visually-hidden">Normal chat uses direct prompts and answers while keeping assigned capabilities available as context.</p>
         <p id="domainCapabilityModeDescription" class="visually-hidden">Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens.</p>
       </div>
+      <button id="openSettings" class="settings-trigger" type="button" aria-controls="settingsPanel" aria-expanded="false">Settings</button>
     </header>
     <p id="domainCapabilityDefinition" class="definition" data-vocabulary-term="domain-capability">
       Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
     </p>
+    <section id="settingsPanel" class="settings-panel" aria-label="Settings" hidden>
+      <nav class="settings-nav" aria-label="Settings sections">
+        <button id="settingsNav-organizations" type="button" data-settings-target="organizations" aria-controls="settingsSection-organizations" aria-current="page"><strong>Organizations</strong><span>Identity, knowledge bindings, and capability sets</span></button>
+        <button id="settingsNav-people" type="button" data-settings-target="people" aria-controls="settingsSection-people"><strong>Users</strong><span>Create users and capability access</span></button>
+        <button id="settingsNav-missions" type="button" data-settings-target="missions" aria-controls="settingsSection-missions"><strong>Missions</strong><span>Delivery scope and mission starts</span></button>
+        <button id="settingsNav-knowledge" type="button" data-settings-target="knowledge" aria-controls="settingsSection-knowledge"><strong>Knowledge</strong><span>Knowledge Domains and Domain Capabilities</span></button>
+        <button id="settingsNav-profiles" type="button" data-settings-target="profiles" aria-controls="settingsSection-profiles"><strong>Runtime Profiles</strong><span>Snapshot policy and Coordinator model</span></button>
+        <button id="settingsNav-integrations" type="button" data-settings-target="integrations" aria-controls="settingsSection-integrations"><strong>Control Plane</strong><span>Policy, evidence, and integrations</span></button>
+        <button id="settingsNav-models" type="button" data-settings-target="models" aria-controls="settingsSection-models"><strong>Model Roles</strong><span>Provider and model-role registry</span></button>
+        <button id="settingsNav-audit" type="button" data-settings-target="audit" aria-controls="settingsSection-audit"><strong>Audit</strong><span>Configuration mutations</span></button>
+      </nav>
+      <div class="settings-content">
+        <section id="settingsSection-organizations" class="settings-section" aria-labelledby="settingsNav-organizations"><p class="eyebrow">Settings</p><h2>Organizations</h2><p>Identity, knowledge bindings, and capability sets</p></section>
+        <section id="settingsSection-people" class="settings-section" aria-labelledby="settingsNav-people" hidden><p class="eyebrow">Settings</p><h2>Users</h2><p>Create users and capability access</p></section>
+        <section id="settingsSection-missions" class="settings-section" aria-labelledby="settingsNav-missions" hidden><p class="eyebrow">Settings</p><h2>Missions</h2><p>Delivery scope and mission starts</p></section>
+        <section id="settingsSection-knowledge" class="settings-section" aria-labelledby="settingsNav-knowledge" hidden><p class="eyebrow">Settings</p><h2>Knowledge</h2><p>Knowledge Domains and Domain Capabilities</p></section>
+        <section id="settingsSection-profiles" class="settings-section" aria-labelledby="settingsNav-profiles" hidden><p class="eyebrow">Settings</p><h2>Runtime Profiles</h2><p>Snapshot policy and Coordinator model</p></section>
+        <section id="settingsSection-integrations" class="settings-section" aria-labelledby="settingsNav-integrations" hidden><p class="eyebrow">Settings</p><h2>Control Plane</h2><p>Policy, evidence, and integrations</p></section>
+        <section id="settingsSection-models" class="settings-section" aria-labelledby="settingsNav-models" hidden><p class="eyebrow">Settings</p><h2>Model Roles</h2><p>Provider and model-role registry</p></section>
+        <section id="settingsSection-audit" class="settings-section" aria-labelledby="settingsNav-audit" hidden><p class="eyebrow">Settings</p><h2>Audit</h2><p>Configuration mutations</p></section>
+      </div>
+    </section>
     <section class="empty-state" aria-labelledby="newConsoleTitle">
       <p class="eyebrow">Rebuilt console</p>
       <h1 id="newConsoleTitle">A typed shell, ready for parity work.</h1>
