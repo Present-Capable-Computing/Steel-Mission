@@ -4692,6 +4692,46 @@ def test_runtime_profile_registry_validates_and_resolves_local_profile():
     assert "${" not in json.dumps(resolution["snapshotPolicy"])
 
 
+def test_steel_mission_refuses_unknown_runtime_profile_before_starting_mission(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["start_orchestrated_mission"].__globals__
+    globals_["MISSION_ROOT"] = tmp_path / "missions"
+    globals_["TASKS_DIR"] = tmp_path / "tasks"
+    globals_["launch_mission_orchestrator"] = lambda _mission_id: None
+    jobs_before = set(chat["JOBS"])
+
+    try:
+        with pytest.raises(ValueError, match="unknown runtime profile.*dc13.never-existed"):
+            chat["start_orchestrated_mission"](
+                "investigate",
+                "Reject a profile that was never registered.",
+                mock=True,
+                profile="dc13.never-existed",
+                operator_role="owner",
+            )
+        assert set(chat["JOBS"]) == jobs_before
+        assert not globals_["MISSION_ROOT"].exists()
+    finally:
+        for job_id in set(chat["JOBS"]) - jobs_before:
+            chat["JOBS"].pop(job_id, None)
+
+
+def test_steel_mission_known_runtime_profile_keeps_offline_fallback(monkeypatch):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["resolve_runtime_profile"].__globals__
+    globals_["RUNTIME_PROFILE_REGISTRY_PATH"] = WORKER_DIR / "config" / "runtime-profiles.json"
+
+    def offline_worker(*_args, **_kwargs):
+        raise OSError("worker is offline")
+
+    monkeypatch.setattr(globals_["subprocess"], "run", offline_worker)
+    resolution = chat["resolve_runtime_profile"]("dc13.local")
+
+    assert resolution["runtimeProfile"]["id"] == "dc13.local"
+    assert resolution["runtimeProfile"]["status"] == "active"
+    assert resolution["modelPolicy"]["provider"] in {"claude", "glimmer"}
+
+
 def test_runtime_profile_manager_publisher_can_save_and_clone(tmp_path, monkeypatch):
     runtime_path = tmp_path / "runtime-profiles.json"
     model_path = tmp_path / "model-role-registry.json"

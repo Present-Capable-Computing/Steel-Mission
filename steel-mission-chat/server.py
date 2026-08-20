@@ -349,6 +349,7 @@ def authorize_mission_bindings(actor: dict[str, Any], user_ids: list[str], capab
 
 def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
     selected_profile = profile or active_runtime_profile()
+    failure: dict[str, Any] = {}
     try:
         result = subprocess.run(
             [str(WORKER_BIN), "runtime-profile-resolve", selected_profile],
@@ -361,8 +362,24 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
         payload = json.loads(result.stdout or "{}")
         if result.returncode == 0 and isinstance(payload, dict) and isinstance(payload.get("runtimeProfile"), dict):
             return payload
+        failure = payload if isinstance(payload, dict) else {}
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         pass
+    registry = read_json_file(RUNTIME_PROFILE_REGISTRY_PATH)
+    profiles = registry.get("profiles", []) if isinstance(registry, dict) else []
+    registered_profile = next(
+        (
+            item
+            for item in profiles
+            if isinstance(item, dict) and item.get("id") == selected_profile
+        ),
+        None,
+    )
+    if not registered_profile:
+        reason = str(failure.get("reason") or f"unknown runtime profile {selected_profile!r}")
+        raise ValueError(reason)
+    if registered_profile.get("status") != "active":
+        raise ValueError(f"runtime profile {selected_profile!r} is disabled")
     model_policy = resolve_model_policy()
     return {
         "schemaVersion": 1,
