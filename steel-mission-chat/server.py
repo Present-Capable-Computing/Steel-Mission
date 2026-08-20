@@ -37,6 +37,11 @@ except Exception:  # noqa: BLE001
 
 APP_DIR = Path(__file__).resolve().parent
 WORKER_DIR = APP_DIR.parent
+if str(WORKER_DIR) not in sys.path:
+    sys.path.insert(0, str(WORKER_DIR))
+
+from adapters import schema_check  # noqa: E402
+
 TASKS_DIR = Path(os.environ.get("PRESENT_TASKS_DIR") or WORKER_DIR / "tasks")
 TEST_RESULTS_DIR = Path(os.environ.get("PRESENT_TEST_RESULTS_DIR") or WORKER_DIR / "test-results")
 REPOS_DIR = Path(os.environ.get("PRESENT_REPOS_DIR") or WORKER_DIR / "repos")
@@ -80,6 +85,7 @@ MODEL_ROLE_REGISTRY_PATH = CONFIG_DIR / "model-role-registry.json"
 CONTROL_POLICY_PATH = CONFIG_DIR / "control-plane-policy.json"
 INTEGRATION_REGISTRY_PATH = CONFIG_DIR / "integration-registry.json"
 AUTH_POLICY_PATH = CONFIG_DIR / "auth-policy.json"
+SCHEMA_REGISTRY_PATH = WORKER_DIR / "schemas" / "schema-registry.json"
 MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
 AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")
@@ -911,6 +917,14 @@ def save_organization_registry(payload: dict[str, Any], actor: str) -> dict[str,
         raise ValueError("only owner and admin endpoints can manage organizations")
     before = read_json_file(ORGANIZATION_REGISTRY_PATH)
     registry = normalize_organization_registry({**payload, "producedAt": utc_now()})
+    validate_configuration_write(
+        "organizations-saved",
+        role,
+        ORGANIZATION_REGISTRY_PATH,
+        before,
+        registry,
+        "organization-registry-v1.json",
+    )
     atomic_write_json(ORGANIZATION_REGISTRY_PATH, registry)
     record_mutation(
         "organizations-saved",
@@ -1300,6 +1314,14 @@ def save_user_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
         raise ValueError("unknown assigned capability keys: " + ", ".join(unknown_capabilities))
     before = read_json_file(USER_REGISTRY_PATH)
     registry = normalize_user_registry({**payload, "producedAt": utc_now()})
+    validate_configuration_write(
+        "users-saved",
+        role,
+        USER_REGISTRY_PATH,
+        before,
+        registry,
+        "user-registry-v1.json",
+    )
     atomic_write_json(USER_REGISTRY_PATH, registry)
     record_mutation(
         "users-saved",
@@ -1451,6 +1473,14 @@ def save_domain_capability_registry(payload: dict[str, Any], actor: str) -> dict
         raise ValueError("capability assignments name unknown users: " + ", ".join(unknown_ids))
     before = read_json_file(DOMAIN_CAPABILITIES_PATH)
     registry = normalize_assignment_registry({**payload, "producedAt": utc_now()})
+    validate_configuration_write(
+        "domain-capabilities-saved",
+        role,
+        DOMAIN_CAPABILITIES_PATH,
+        before,
+        registry,
+        "domain-capability-registry-v1.json",
+    )
     tmp = DOMAIN_CAPABILITIES_PATH.with_name(f".{DOMAIN_CAPABILITIES_PATH.name}.{os.getpid()}.tmp")
     DOMAIN_CAPABILITIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -1869,6 +1899,43 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             tmp.unlink()
         except FileNotFoundError:
             pass
+
+
+def validate_configuration_write(
+    action: str,
+    actor: str,
+    target: Path,
+    before: dict[str, Any] | None,
+    payload: dict[str, Any],
+    schema_file: str,
+) -> None:
+    errors: list[str] = []
+    try:
+        registry = json.loads(SCHEMA_REGISTRY_PATH.read_text())
+        registered = any(
+            isinstance(item, dict)
+            and item.get("schemaFile") == schema_file
+            and item.get("lifecycle") == "active"
+            for item in registry.get("schemas", [])
+        )
+        if not registered:
+            errors.append(f"schema {schema_file!r} is not active in the schema registry")
+        else:
+            errors.extend(schema_check.validate(payload, f"canonical/{schema_file}"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        errors.append(f"schema authority could not be read: {exc}")
+    if not errors:
+        return
+    record_mutation(
+        action,
+        actor,
+        target,
+        before=before,
+        after=before,
+        status="rejected",
+        details={"schemaFile": schema_file, "errors": errors[:20]},
+    )
+    raise ValueError(f"{action} payload violates registered schema {schema_file}: {errors[0]}")
 
 
 def atomic_write_text(path: Path, payload: str) -> None:
@@ -2313,6 +2380,14 @@ def save_auth_policy(payload: dict[str, Any], actor: str) -> dict[str, Any]:
         raise ValueError("only owner and admin endpoints can manage auth policy")
     before = read_json_file(AUTH_POLICY_PATH)
     policy = normalize_auth_policy(payload)
+    validate_configuration_write(
+        "auth-policy-saved",
+        role,
+        AUTH_POLICY_PATH,
+        before,
+        policy,
+        "auth-policy-v1.json",
+    )
     atomic_write_json(AUTH_POLICY_PATH, policy)
     record_mutation(
         "auth-policy-saved",
