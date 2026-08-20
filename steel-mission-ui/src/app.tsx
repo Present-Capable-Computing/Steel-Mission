@@ -3,6 +3,12 @@ import {useEffect, useState} from "preact/hooks";
 
 import "./styles.css";
 import {
+  assignmentControlsAvailable,
+  saveCapabilityAssignment,
+  type AssignmentCapability,
+  type AssignmentUser,
+} from "./assignments";
+import {
   CAPABILITY_EMPTY_STATE,
   capabilityWorkspaceView,
   type CapabilityWorkspaceView,
@@ -11,6 +17,24 @@ import {SETTINGS_SECTIONS, type SettingsSectionId} from "./settings";
 import {WORK_MODES, type WorkMode} from "./work-mode";
 
 
+function browserCookie(name: string): string {
+  return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1) || "";
+}
+
+function apiRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const localRole = localStorage.getItem("steel-mission-operator-role");
+  const localActor = localStorage.getItem("steel-mission-actor-user");
+  if (localRole) headers.set("X-Present-Role", localRole);
+  if (localActor) headers.set("X-Present-Actor", localActor);
+  const method = String(init.method || "GET").toUpperCase();
+  const csrf = browserCookie("present_csrf");
+  if (csrf && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    headers.set("X-Present-CSRF", decodeURIComponent(csrf));
+  }
+  return fetch(path, {...init, headers, credentials: "same-origin"});
+}
+
 function App() {
   const [workMode, setWorkMode] = useState<WorkMode>("normal");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -18,19 +42,48 @@ function App() {
   const [capabilityState, setCapabilityState] = useState<
     {status: "loading" | "ready" | "error"; view?: CapabilityWorkspaceView; error?: string}
   >({status: "loading"});
+  const [assignmentUsers, setAssignmentUsers] = useState<AssignmentUser[]>([]);
+  const [assignmentCapabilities, setAssignmentCapabilities] = useState<AssignmentCapability[]>([]);
+  const [selectedAssignmentUser, setSelectedAssignmentUser] = useState("");
+  const [selectedAssignmentCapabilities, setSelectedAssignmentCapabilities] = useState<string[]>([]);
+  const [assignmentStatus, setAssignmentStatus] = useState("");
 
   useEffect(() => {
     let current = true;
     Promise.all([
-      fetch("/api/auth/whoami", {cache: "no-store"}),
-      fetch("/api/vocabulary", {cache: "no-store"}),
+      apiRequest("/api/auth/whoami", {cache: "no-store"}),
+      apiRequest("/api/vocabulary", {cache: "no-store"}),
     ])
       .then(async ([identityResponse, vocabularyResponse]) => {
         const identity = await identityResponse.json() as {ok?: boolean; actor?: unknown; error?: string};
-        const vocabulary = await vocabularyResponse.json() as {ok?: boolean; error?: string};
+        const vocabulary = await vocabularyResponse.json() as {
+          ok?: boolean;
+          error?: string;
+          capabilities?: unknown[];
+        };
         if (!identityResponse.ok || !identity.ok) throw new Error(identity.error || "Identity is unavailable");
         if (!vocabularyResponse.ok || !vocabulary.ok) throw new Error(vocabulary.error || "Vocabulary is unavailable");
-        if (current) setCapabilityState({status: "ready", view: capabilityWorkspaceView(identity.actor, vocabulary)});
+        const view = capabilityWorkspaceView(identity.actor, vocabulary);
+        if (current) {
+          setCapabilityState({status: "ready", view});
+          const registeredCapabilities = Array.isArray(vocabulary.capabilities)
+            ? vocabulary.capabilities.filter((item): item is AssignmentCapability => (
+              Boolean(item) && typeof item === "object" && typeof (item as AssignmentCapability).capabilityKey === "string"
+            ))
+            : [];
+          setAssignmentCapabilities(registeredCapabilities);
+          if (assignmentControlsAvailable(view.accessLevel)) {
+            const usersResponse = await apiRequest("/api/owner/users", {cache: "no-store"});
+            const usersPayload = await usersResponse.json() as {ok?: boolean; users?: AssignmentUser[]; error?: string};
+            if (!usersResponse.ok || !usersPayload.ok) throw new Error(usersPayload.error || "Users are unavailable");
+            const assignableUsers = (usersPayload.users || []).filter((user) => user.role === "publisher" || user.role === "user");
+            setAssignmentUsers(assignableUsers);
+            if (assignableUsers[0]) {
+              setSelectedAssignmentUser(assignableUsers[0].id);
+              setSelectedAssignmentCapabilities([...assignableUsers[0].assignedCapabilities]);
+            }
+          }
+        }
       })
       .catch((error: unknown) => {
         if (current) {
@@ -41,6 +94,45 @@ function App() {
       current = false;
     };
   }, []);
+
+  const chooseAssignmentUser = (userId: string) => {
+    setSelectedAssignmentUser(userId);
+    const user = assignmentUsers.find((item) => item.id === userId);
+    setSelectedAssignmentCapabilities([...(user?.assignedCapabilities || [])]);
+    setAssignmentStatus("");
+  };
+
+  const toggleAssignmentCapability = (capabilityKey: string) => {
+    setSelectedAssignmentCapabilities((currentCapabilities) => (
+      currentCapabilities.includes(capabilityKey)
+        ? currentCapabilities.filter((key) => key !== capabilityKey)
+        : [...currentCapabilities, capabilityKey]
+    ));
+  };
+
+  const saveAssignments = async (event: Event) => {
+    event.preventDefault();
+    const accessLevel = capabilityState.view?.accessLevel || "user";
+    setAssignmentStatus("Saving…");
+    try {
+      await saveCapabilityAssignment(
+        apiRequest,
+        assignmentUsers,
+        assignmentCapabilities,
+        selectedAssignmentUser,
+        selectedAssignmentCapabilities,
+        accessLevel,
+      );
+      setAssignmentUsers((users) => users.map((user) => (
+        user.id === selectedAssignmentUser
+          ? {...user, assignedCapabilities: [...selectedAssignmentCapabilities]}
+          : user
+      )));
+      setAssignmentStatus("Capability assignment saved and reloaded.");
+    } catch (error: unknown) {
+      setAssignmentStatus(error instanceof Error ? error.message : "Capability assignment failed");
+    }
+  };
 
   return (
     <main class="app-shell">
@@ -165,6 +257,35 @@ function App() {
                   <p class="eyebrow">Settings</p>
                   <h2>{section.label}</h2>
                   <p>{section.hint}</p>
+                  {section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && (
+                    <form id="capabilityAssignmentForm" class="assignment-form" onSubmit={saveAssignments}>
+                      <label>
+                        User
+                        <select value={selectedAssignmentUser} onChange={(event) => chooseAssignmentUser(event.currentTarget.value)}>
+                          {assignmentUsers.map((user) => (
+                            <option key={user.id} value={user.id}>{user.name || user.id} · {user.role}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <fieldset>
+                        <legend>Domain Capabilities</legend>
+                        <div class="assignment-grid">
+                          {assignmentCapabilities.map((capability) => (
+                            <label key={capability.capabilityKey}>
+                              <input
+                                type="checkbox"
+                                checked={selectedAssignmentCapabilities.includes(capability.capabilityKey)}
+                                onChange={() => toggleAssignmentCapability(capability.capabilityKey)}
+                              />
+                              {capability.capabilityKey} · {capability.displayName}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <button type="submit" disabled={!selectedAssignmentUser}>Save capability assignment</button>
+                      {assignmentStatus && <p role="status">{assignmentStatus}</p>}
+                    </form>
+                  )}
                 </section>
               ))}
             </div>

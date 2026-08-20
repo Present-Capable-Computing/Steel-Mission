@@ -250,6 +250,44 @@ select {
   color: #aab4bf;
 }
 
+.assignment-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.assignment-form > label {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.assignment-form select,
+.assignment-form button {
+  min-height: 2.5rem;
+  border: 1px solid #34404c;
+  border-radius: 0.65rem;
+  background: #141b23;
+  padding: 0 0.8rem;
+}
+
+.assignment-form fieldset {
+  border: 1px solid #29323d;
+  border-radius: 0.75rem;
+}
+
+.assignment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.assignment-form button {
+  justify-self: start;
+  border-color: #76b6a5;
+  cursor: pointer;
+}
+
 .empty-state {
   max-width: 52rem;
   margin: clamp(3rem, 10vh, 8rem) auto;

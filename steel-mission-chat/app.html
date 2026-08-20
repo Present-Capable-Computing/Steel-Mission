@@ -232,6 +232,38 @@ select {
 .settings-section > p:last-child {
   color: #aab4bf;
 }
+.assignment-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+.assignment-form > label {
+  display: grid;
+  gap: 0.5rem;
+}
+.assignment-form select,
+.assignment-form button {
+  min-height: 2.5rem;
+  border: 1px solid #34404c;
+  border-radius: 0.65rem;
+  background: #141b23;
+  padding: 0 0.8rem;
+}
+.assignment-form fieldset {
+  border: 1px solid #29323d;
+  border-radius: 0.75rem;
+}
+.assignment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+.assignment-form button {
+  justify-self: start;
+  border-color: #76b6a5;
+  cursor: pointer;
+}
 .empty-state {
   max-width: 52rem;
   margin: clamp(3rem, 10vh, 8rem) auto;
@@ -753,6 +785,46 @@ select {
     return "function" == typeof t3 ? t3(n2) : t3;
   }
 
+  // steel-mission-ui/src/assignments.ts
+  function assignmentControlsAvailable(accessLevel2) {
+    return accessLevel2 === "owner";
+  }
+  function assignmentRegistry(users, capabilities, selectedUserId, selectedCapabilities) {
+    const selected = new Set(selectedCapabilities);
+    return {
+      assignments: capabilities.map((capability) => {
+        const assignedUsers = users.filter((user) => {
+          const assigned = user.id === selectedUserId ? selected : new Set(user.assignedCapabilities);
+          return assigned.has(capability.capabilityKey);
+        });
+        return {
+          roleKey: capability.capabilityKey,
+          publishers: assignedUsers.filter((user) => user.role === "publisher").map((user) => user.id),
+          users: assignedUsers.filter((user) => user.role === "user").map((user) => user.id)
+        };
+      })
+    };
+  }
+  async function saveCapabilityAssignment(request, users, capabilities, selectedUserId, selectedCapabilities, accessLevel2 = "owner") {
+    if (!assignmentControlsAvailable(accessLevel2)) {
+      throw new Error("owner access is required to assign Domain Capabilities");
+    }
+    const submitted = assignmentRegistry(users, capabilities, selectedUserId, selectedCapabilities);
+    const response = await request("/api/owner/assignments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submitted)
+    });
+    const saved = await response.json();
+    if (!response.ok || !saved.ok) throw new Error(saved.error || "Capability assignment failed");
+    const reloadedResponse = await request("/api/owner/assignments");
+    const reloaded = await reloadedResponse.json();
+    if (!reloadedResponse.ok || !reloaded.ok || !Array.isArray(reloaded.assignments)) {
+      throw new Error(reloaded.error || "Capability assignment could not be reloaded");
+    }
+    return { assignments: reloaded.assignments };
+  }
+
   // steel-mission-ui/src/capabilities.ts
   var CAPABILITY_EMPTY_STATE = "No Domain Capabilities are assigned yet. Ask an organization owner or admin to assign one in Settings \u2192 Users.";
   function asRecord(value) {
@@ -817,22 +889,59 @@ select {
   }
 
   // steel-mission-ui/src/app.tsx
+  function browserCookie(name) {
+    return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1) || "";
+  }
+  function apiRequest(path, init = {}) {
+    const headers = new Headers(init.headers);
+    const localRole = localStorage.getItem("steel-mission-operator-role");
+    const localActor = localStorage.getItem("steel-mission-actor-user");
+    if (localRole) headers.set("X-Present-Role", localRole);
+    if (localActor) headers.set("X-Present-Actor", localActor);
+    const method = String(init.method || "GET").toUpperCase();
+    const csrf = browserCookie("present_csrf");
+    if (csrf && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      headers.set("X-Present-CSRF", decodeURIComponent(csrf));
+    }
+    return fetch(path, { ...init, headers, credentials: "same-origin" });
+  }
   function App() {
     const [workMode, setWorkMode] = d2("normal");
     const [settingsOpen, setSettingsOpen] = d2(false);
     const [activeSettingsSection, setActiveSettingsSection] = d2("organizations");
     const [capabilityState, setCapabilityState] = d2({ status: "loading" });
+    const [assignmentUsers, setAssignmentUsers] = d2([]);
+    const [assignmentCapabilities, setAssignmentCapabilities] = d2([]);
+    const [selectedAssignmentUser, setSelectedAssignmentUser] = d2("");
+    const [selectedAssignmentCapabilities, setSelectedAssignmentCapabilities] = d2([]);
+    const [assignmentStatus, setAssignmentStatus] = d2("");
     h2(() => {
       let current = true;
       Promise.all([
-        fetch("/api/auth/whoami", { cache: "no-store" }),
-        fetch("/api/vocabulary", { cache: "no-store" })
+        apiRequest("/api/auth/whoami", { cache: "no-store" }),
+        apiRequest("/api/vocabulary", { cache: "no-store" })
       ]).then(async ([identityResponse, vocabularyResponse]) => {
         const identity = await identityResponse.json();
         const vocabulary = await vocabularyResponse.json();
         if (!identityResponse.ok || !identity.ok) throw new Error(identity.error || "Identity is unavailable");
         if (!vocabularyResponse.ok || !vocabulary.ok) throw new Error(vocabulary.error || "Vocabulary is unavailable");
-        if (current) setCapabilityState({ status: "ready", view: capabilityWorkspaceView(identity.actor, vocabulary) });
+        const view = capabilityWorkspaceView(identity.actor, vocabulary);
+        if (current) {
+          setCapabilityState({ status: "ready", view });
+          const registeredCapabilities = Array.isArray(vocabulary.capabilities) ? vocabulary.capabilities.filter((item) => Boolean(item) && typeof item === "object" && typeof item.capabilityKey === "string") : [];
+          setAssignmentCapabilities(registeredCapabilities);
+          if (assignmentControlsAvailable(view.accessLevel)) {
+            const usersResponse = await apiRequest("/api/owner/users", { cache: "no-store" });
+            const usersPayload = await usersResponse.json();
+            if (!usersResponse.ok || !usersPayload.ok) throw new Error(usersPayload.error || "Users are unavailable");
+            const assignableUsers = (usersPayload.users || []).filter((user) => user.role === "publisher" || user.role === "user");
+            setAssignmentUsers(assignableUsers);
+            if (assignableUsers[0]) {
+              setSelectedAssignmentUser(assignableUsers[0].id);
+              setSelectedAssignmentCapabilities([...assignableUsers[0].assignedCapabilities]);
+            }
+          }
+        }
       }).catch((error) => {
         if (current) {
           setCapabilityState({ status: "error", error: error instanceof Error ? error.message : "Capability workspace is unavailable" });
@@ -842,6 +951,34 @@ select {
         current = false;
       };
     }, []);
+    const chooseAssignmentUser = (userId) => {
+      setSelectedAssignmentUser(userId);
+      const user = assignmentUsers.find((item) => item.id === userId);
+      setSelectedAssignmentCapabilities([...user?.assignedCapabilities || []]);
+      setAssignmentStatus("");
+    };
+    const toggleAssignmentCapability = (capabilityKey) => {
+      setSelectedAssignmentCapabilities((currentCapabilities) => currentCapabilities.includes(capabilityKey) ? currentCapabilities.filter((key) => key !== capabilityKey) : [...currentCapabilities, capabilityKey]);
+    };
+    const saveAssignments = async (event) => {
+      event.preventDefault();
+      const accessLevel2 = capabilityState.view?.accessLevel || "user";
+      setAssignmentStatus("Saving\u2026");
+      try {
+        await saveCapabilityAssignment(
+          apiRequest,
+          assignmentUsers,
+          assignmentCapabilities,
+          selectedAssignmentUser,
+          selectedAssignmentCapabilities,
+          accessLevel2
+        );
+        setAssignmentUsers((users) => users.map((user) => user.id === selectedAssignmentUser ? { ...user, assignedCapabilities: [...selectedAssignmentCapabilities] } : user));
+        setAssignmentStatus("Capability assignment saved and reloaded.");
+      } catch (error) {
+        setAssignmentStatus(error instanceof Error ? error.message : "Capability assignment failed");
+      }
+    };
     return /* @__PURE__ */ u3("main", { class: "app-shell", children: [
       /* @__PURE__ */ u3("aside", { class: "rail", "aria-label": "Steel Mission", children: [
         /* @__PURE__ */ u3("div", { class: "mark", "aria-hidden": "true", children: "SM" }),
@@ -959,7 +1096,35 @@ select {
               children: [
                 /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Settings" }),
                 /* @__PURE__ */ u3("h2", { children: section.label }),
-                /* @__PURE__ */ u3("p", { children: section.hint })
+                /* @__PURE__ */ u3("p", { children: section.hint }),
+                section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
+                  /* @__PURE__ */ u3("label", { children: [
+                    "User",
+                    /* @__PURE__ */ u3("select", { value: selectedAssignmentUser, onChange: (event) => chooseAssignmentUser(event.currentTarget.value), children: assignmentUsers.map((user) => /* @__PURE__ */ u3("option", { value: user.id, children: [
+                      user.name || user.id,
+                      " \xB7 ",
+                      user.role
+                    ] }, user.id)) })
+                  ] }),
+                  /* @__PURE__ */ u3("fieldset", { children: [
+                    /* @__PURE__ */ u3("legend", { children: "Domain Capabilities" }),
+                    /* @__PURE__ */ u3("div", { class: "assignment-grid", children: assignmentCapabilities.map((capability) => /* @__PURE__ */ u3("label", { children: [
+                      /* @__PURE__ */ u3(
+                        "input",
+                        {
+                          type: "checkbox",
+                          checked: selectedAssignmentCapabilities.includes(capability.capabilityKey),
+                          onChange: () => toggleAssignmentCapability(capability.capabilityKey)
+                        }
+                      ),
+                      capability.capabilityKey,
+                      " \xB7 ",
+                      capability.displayName
+                    ] }, capability.capabilityKey)) })
+                  ] }),
+                  /* @__PURE__ */ u3("button", { type: "submit", disabled: !selectedAssignmentUser, children: "Save capability assignment" }),
+                  assignmentStatus && /* @__PURE__ */ u3("p", { role: "status", children: assignmentStatus })
+                ] })
               ]
             },
             section.id
