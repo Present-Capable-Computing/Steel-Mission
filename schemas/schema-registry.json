@@ -1424,6 +1424,20 @@
       "introducedAt": "2026-08-20"
     },
     {
+      "id": "ui-vocabulary-v1",
+      "version": 1,
+      "schemaFile": "ui-vocabulary-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "ui-vocabulary",
+      "producer": "steel-mission-chat",
+      "validationPoints": [
+        "api-projection-validation"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-20"
+    },
+    {
       "id": "auth-policy-v1",
       "version": 1,
       "schemaFile": "auth-policy-v1.json",

@@ -6390,6 +6390,54 @@ def test_steel_mission_knowledge_registry_loads_foundations_and_project_roles():
     assert set(payload["activeOrganization"]["domainCapabilityKeys"]) >= expected_capabilities
 
 
+def test_steel_mission_vocabulary_endpoint_matches_knowledge_registry():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    payload = chat["ui_vocabulary"]()
+
+    assert schema_check.validate(payload, "canonical/ui-vocabulary-v1.json") == []
+    assert [term["label"] for term in payload["terms"]] == [
+        "Domain Capability",
+        "Knowledge Domain",
+        "Access level",
+        "Coordinator model",
+        "Snapshot policy",
+        "Work mode",
+    ]
+    assert {
+        term["conceptKey"]: term["wireNames"] for term in payload["terms"]
+    } == {
+        "domain-capability": ["roleKey", "capabilityKey", "assignedCapabilities"],
+        "knowledge-domain": ["knowledgeDomainKeys"],
+        "access-level": ["role", "operatorRole"],
+        "coordinator-model": ["runtimeProfile", "STEEL_MISSION_RUNTIME_PROFILE"],
+        "snapshot-policy": ["snapshotProfile"],
+        "work-mode": ["workMode"],
+    }
+    expected_capabilities = {
+        item["capabilityKey"]: item["displayName"]
+        for item in chat["knowledge_registry"]()["capabilities"]
+    }
+    served_capabilities = {
+        item["capabilityKey"]: item["displayName"]
+        for item in payload["capabilities"]
+    }
+    assert served_capabilities == expected_capabilities
+    assert len(payload["capabilities"]) == len(served_capabilities)
+    assert set(served_capabilities) == {f"DC{i:02d}" for i in range(1, 14)}
+
+    responses = []
+    globals_ = chat["Handler"].do_GET.__globals__
+    globals_["json_response"] = lambda _handler, status, response: responses.append(
+        (status, response)
+    )
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/vocabulary"
+    handler.authenticate = lambda _path, _method: {"actorId": "user", "role": "user"}
+    handler.do_GET()
+
+    assert responses == [(200, payload)]
+
+
 def test_steel_mission_assignment_projection_writes_through_user_registry(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     user_registry = tmp_path / "users.json"

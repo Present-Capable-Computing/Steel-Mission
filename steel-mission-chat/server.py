@@ -505,6 +505,63 @@ def knowledge_registry() -> dict[str, Any]:
     }
 
 
+UI_TERMS = (
+    {
+        "conceptKey": "domain-capability",
+        "label": "Domain Capability",
+        "wireNames": ["roleKey", "capabilityKey", "assignedCapabilities"],
+        "description": "An assignable organizational role and workflow lens backed by governed knowledge.",
+    },
+    {
+        "conceptKey": "knowledge-domain",
+        "label": "Knowledge Domain",
+        "wireNames": ["knowledgeDomainKeys"],
+        "description": "An organizational document domain available as source material.",
+    },
+    {
+        "conceptKey": "access-level",
+        "label": "Access level",
+        "wireNames": ["role", "operatorRole"],
+        "description": "The permissions an account has in Steel Mission.",
+    },
+    {
+        "conceptKey": "coordinator-model",
+        "label": "Coordinator model",
+        "wireNames": ["runtimeProfile", "STEEL_MISSION_RUNTIME_PROFILE"],
+        "description": "The runtime profile that selects which model executes the Delivery Coordinator.",
+    },
+    {
+        "conceptKey": "snapshot-policy",
+        "label": "Snapshot policy",
+        "wireNames": ["snapshotProfile"],
+        "description": "The policy that freezes knowledge for a job.",
+    },
+    {
+        "conceptKey": "work-mode",
+        "label": "Work mode",
+        "wireNames": ["workMode"],
+        "description": "How the Delivery Coordinator applies assigned capabilities and knowledge while answering.",
+    },
+)
+
+
+def ui_vocabulary() -> dict[str, Any]:
+    knowledge = knowledge_registry()
+    return {
+        "schemaVersion": 1,
+        "ok": knowledge.get("ok") is True,
+        "terms": [{**term, "wireNames": list(term["wireNames"])} for term in UI_TERMS],
+        "capabilities": [
+            {
+                "capabilityKey": str(item.get("capabilityKey") or ""),
+                "displayName": str(item.get("displayName") or ""),
+            }
+            for item in knowledge.get("capabilities", [])
+            if isinstance(item, dict)
+        ],
+    }
+
+
 def normalize_general_knowledge_registry(payload: dict[str, Any]) -> dict[str, Any]:
     def metadata(item: dict[str, Any]) -> dict[str, Any]:
         max_age = item.get("maxAgeDays")
@@ -9155,6 +9212,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/control-plane/readiness":
             role = corporate_role(str(actor.get("role") if actor else "user"))
             json_response(self, 200, control_plane_production_readiness(role))
+            return
+        if path == "/api/vocabulary":
+            payload = ui_vocabulary()
+            json_response(self, 200 if payload.get("ok") else 503, payload)
             return
         if path == "/api/knowledge":
             payload = knowledge_registry()
