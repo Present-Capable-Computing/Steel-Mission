@@ -1184,6 +1184,193 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/users.ts
+  function userPanelAvailable(accessLevel2) {
+    return accessLevel2 === "owner" || accessLevel2 === "admin";
+  }
+  function assertManager2(accessLevel2) {
+    if (!userPanelAvailable(accessLevel2)) throw new Error("owner or admin access is required to manage users");
+  }
+  function asRegistry2(value) {
+    const source = value && typeof value === "object" ? value : {};
+    if (!Array.isArray(source.users)) throw new Error("User registry is unavailable");
+    return {
+      ...source,
+      users: source.users.filter((item) => Boolean(item) && typeof item === "object" && typeof item.id === "string")
+    };
+  }
+  async function loadUserRegistry(request, accessLevel2) {
+    assertManager2(accessLevel2);
+    const response = await request(`/api/${accessLevel2}/users`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "Users are unavailable");
+    return asRegistry2(result);
+  }
+  async function saveUserRegistry(request, accessLevel2, registry) {
+    assertManager2(accessLevel2);
+    const response = await request(`/api/${accessLevel2}/users`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registry)
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "User could not be saved");
+    return asRegistry2(result.payload);
+  }
+  function updateUser(registry, user) {
+    const users = [...registry.users];
+    const index = users.findIndex((item) => item.id === user.id);
+    if (index >= 0) users[index] = user;
+    else users.push(user);
+    return { ...registry, users };
+  }
+
+  // steel-mission-ui/src/users-panel.tsx
+  function list(value) {
+    return [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
+  }
+  function userId(value) {
+    return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  }
+  function template2() {
+    return {
+      id: "",
+      name: "",
+      email: "",
+      role: "user",
+      status: "active",
+      assignedCapabilities: [],
+      organizationIds: [],
+      identitySubjects: [],
+      externalIdentities: { github: [], slack: [], jira: [] }
+    };
+  }
+  function UsersPanel({ accessLevel: accessLevel2, request }) {
+    const [registry, setRegistry] = d2(null);
+    const [selectedId, setSelectedId] = d2("");
+    const [draft, setDraft] = d2(template2());
+    const [status, setStatus] = d2("Loading users\u2026");
+    h2(() => {
+      let current = true;
+      if (!userPanelAvailable(accessLevel2)) {
+        setStatus("Owner or admin access is required to manage users.");
+        return () => {
+          current = false;
+        };
+      }
+      loadUserRegistry(request, accessLevel2).then((loaded) => {
+        if (!current) return;
+        const initial = loaded.users[0] || template2();
+        setRegistry(loaded);
+        setSelectedId(initial.id);
+        setDraft(initial);
+        setStatus("");
+      }).catch((error) => current && setStatus(error instanceof Error ? error.message : "Users are unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [accessLevel2, request]);
+    if (!userPanelAvailable(accessLevel2)) return /* @__PURE__ */ u3("div", { id: "usersPanel", children: /* @__PURE__ */ u3("p", { children: status }) });
+    const choose = (id) => {
+      const selected = registry?.users.find((item) => item.id === id) || template2();
+      setSelectedId(id);
+      setDraft(selected);
+      setStatus("");
+    };
+    const setField = (key, value) => setDraft((current) => ({ ...current, [key]: value }));
+    const setExternal = (key, value) => setDraft((current) => ({
+      ...current,
+      externalIdentities: { ...current.externalIdentities, [key]: list(value) }
+    }));
+    const save = async (event) => {
+      event.preventDefault();
+      if (!registry) return;
+      setStatus("Saving user\u2026");
+      try {
+        const id = userId(draft.id || draft.email || draft.name);
+        const next = updateUser(registry, { ...draft, id, name: draft.name.trim() || id });
+        const saved = await saveUserRegistry(request, accessLevel2, next);
+        const selected = saved.users.find((item) => item.id === id) || draft;
+        setRegistry(saved);
+        setSelectedId(id);
+        setDraft(selected);
+        setStatus("User saved and reloaded.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "User could not be saved");
+      }
+    };
+    const external = draft.externalIdentities || {};
+    return /* @__PURE__ */ u3("div", { id: "usersPanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("div", { class: "panel-actions", children: [
+        /* @__PURE__ */ u3("label", { children: [
+          "User",
+          /* @__PURE__ */ u3("select", { value: selectedId, onChange: (event) => choose(event.currentTarget.value), children: registry?.users.map((user) => /* @__PURE__ */ u3("option", { value: user.id, children: [
+            user.name || user.id,
+            " \xB7 ",
+            user.role
+          ] }, user.id)) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "button", onClick: () => {
+          setSelectedId("");
+          setDraft(template2());
+        }, children: "Create User" })
+      ] }),
+      /* @__PURE__ */ u3("form", { class: "panel-form", onSubmit: save, children: [
+        /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "User ID",
+            /* @__PURE__ */ u3("input", { value: draft.id, readOnly: Boolean(selectedId), onInput: (event) => setField("id", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Display Name",
+            /* @__PURE__ */ u3("input", { value: draft.name, onInput: (event) => setField("name", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Email",
+            /* @__PURE__ */ u3("input", { type: "email", value: draft.email || "", onInput: (event) => setField("email", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Access Level",
+            /* @__PURE__ */ u3("select", { value: draft.role, onChange: (event) => setField("role", event.currentTarget.value), children: ["owner", "admin", "publisher", "user"].map((role) => /* @__PURE__ */ u3("option", { value: role, children: role }, role)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Account Status",
+            /* @__PURE__ */ u3("select", { value: draft.status, onChange: (event) => setField("status", event.currentTarget.value), children: [
+              /* @__PURE__ */ u3("option", { value: "active", children: "active" }),
+              /* @__PURE__ */ u3("option", { value: "disabled", children: "disabled" })
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Organization IDs",
+            /* @__PURE__ */ u3("input", { value: (draft.organizationIds || []).join(", "), onInput: (event) => setField("organizationIds", list(event.currentTarget.value)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Assigned Capability Keys",
+            /* @__PURE__ */ u3("input", { value: draft.assignedCapabilities.join(", "), onInput: (event) => setField("assignedCapabilities", list(event.currentTarget.value)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "GitHub Identities",
+            /* @__PURE__ */ u3("input", { value: (external.github || []).join(", "), onInput: (event) => setExternal("github", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Slack Identities",
+            /* @__PURE__ */ u3("input", { value: (external.slack || []).join(", "), onInput: (event) => setExternal("slack", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Jira Identities",
+            /* @__PURE__ */ u3("input", { value: (external.jira || []).join(", "), onInput: (event) => setExternal("jira", event.currentTarget.value) })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Identity Subjects",
+          /* @__PURE__ */ u3("textarea", { rows: 3, value: (draft.identitySubjects || []).join("\n"), onInput: (event) => setField("identitySubjects", list(event.currentTarget.value)) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "submit", disabled: !registry || !(draft.id || draft.email || draft.name).trim(), children: "Save User" }),
+        status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+      ] })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -1261,9 +1448,9 @@ select {
         current = false;
       };
     }, []);
-    const chooseAssignmentUser = (userId) => {
-      setSelectedAssignmentUser(userId);
-      const user = assignmentUsers.find((item) => item.id === userId);
+    const chooseAssignmentUser = (userId2) => {
+      setSelectedAssignmentUser(userId2);
+      const user = assignmentUsers.find((item) => item.id === userId2);
       setSelectedAssignmentCapabilities([...user?.assignedCapabilities || []]);
       setAssignmentStatus("");
     };
@@ -1408,6 +1595,7 @@ select {
                 /* @__PURE__ */ u3("h2", { children: section.label }),
                 /* @__PURE__ */ u3("p", { children: section.hint }),
                 section.id === "organizations" && activeSettingsSection === "organizations" && capabilityState.view && /* @__PURE__ */ u3(OrganizationsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
+                section.id === "people" && activeSettingsSection === "people" && capabilityState.view && /* @__PURE__ */ u3(UsersPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",
