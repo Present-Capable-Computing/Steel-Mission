@@ -1299,7 +1299,23 @@ def normalize_assignment_registry(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(role, dict) and role.get("roleKey")
     }
     user_assignments: dict[str, dict[str, Any]] = {}
-    if isinstance(payload.get("userAssignments"), list):
+    # `assignments` is the shipped authoring shape and is authoritative when a
+    # normalized file contains both representations. `userAssignments` remains
+    # the fallback for normalized-only registries written by older versions.
+    if isinstance(payload.get("assignments"), list):
+        for item in payload.get("assignments", []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("roleKey") not in roles:
+                continue
+            role_key = str(item.get("roleKey"))
+            for user_id in [str(value).strip() for value in item.get("publishers", []) if str(value).strip()]:
+                entry = user_assignments.setdefault(safe_path_part(user_id), {"userId": safe_path_part(user_id), "role": "publisher", "assignedCapabilities": []})
+                entry["assignedCapabilities"].append(role_key)
+            for user_id in [str(value).strip() for value in item.get("users", []) if str(value).strip()]:
+                entry = user_assignments.setdefault(safe_path_part(user_id), {"userId": safe_path_part(user_id), "role": "user", "assignedCapabilities": []})
+                entry["assignedCapabilities"].append(role_key)
+    elif isinstance(payload.get("userAssignments"), list):
         for item in payload.get("userAssignments", []):
             if not isinstance(item, dict):
                 continue
@@ -1316,17 +1332,6 @@ def normalize_assignment_registry(payload: dict[str, Any]) -> dict[str, Any]:
                 "role": corporate_role(str(item.get("role") or "user")),
                 "assignedCapabilities": sorted(set(assigned)),
             }
-    else:
-        for item in payload.get("assignments", []):
-            if not isinstance(item, dict) or item.get("roleKey") not in roles:
-                continue
-            role_key = str(item.get("roleKey"))
-            for user_id in [str(value).strip() for value in item.get("publishers", []) if str(value).strip()]:
-                entry = user_assignments.setdefault(safe_path_part(user_id), {"userId": safe_path_part(user_id), "role": "publisher", "assignedCapabilities": []})
-                entry["assignedCapabilities"].append(role_key)
-            for user_id in [str(value).strip() for value in item.get("users", []) if str(value).strip()]:
-                entry = user_assignments.setdefault(safe_path_part(user_id), {"userId": safe_path_part(user_id), "role": "user", "assignedCapabilities": []})
-                entry["assignedCapabilities"].append(role_key)
     for entry in user_assignments.values():
         entry["assignedCapabilities"] = sorted(set(entry.get("assignedCapabilities", [])))
     assignments = []
