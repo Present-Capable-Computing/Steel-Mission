@@ -6131,15 +6131,12 @@ def test_main_chat_index_script_is_parseable(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
-def test_chat_index_keeps_its_patch_seam_and_selects_named_renderers():
+def test_chat_index_keeps_its_patch_seam_and_wraps_the_application_renderer():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["chat_index"].__globals__
-    globals_["legacy_chat_index"] = lambda: "legacy-page"
     globals_["application_chat_index"] = lambda: "application-page"
 
     assert chat["chat_index"]() == "application-page"
-    assert chat["chat_index"]("legacy") == "legacy-page"
-    assert chat["chat_index"]("application") == "application-page"
 
 
 def test_steel_mission_page_routes_cover_work_settings_and_missions():
@@ -10506,29 +10503,7 @@ def test_stale_session_cookie_does_not_lock_out_a_loopback_developer(tmp_path, m
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
-def test_chat_poll_carries_the_identity_that_created_the_job():
-    """A job is owned by whoever posted it, so the poll must say who that is.
-
-    The create sent actor headers and the poll sent none, so the poll arrived as
-    the default identity while the job belonged to the signed-in one. The server
-    correctly refused to show one actor another actor's chat, and the console
-    reported it as the server being unreachable -- sending people to restart a
-    server that was working.
-    """
-    import runpy
-
-    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    html = chat["legacy_chat_index"]()
-    poll = html[html.index("/api/chat/${started.jobId}"):]
-    poll = poll[:poll.index("\n\n")] if "\n\n" in poll[:600] else poll[:600]
-    assert "jobActorHeaders(started)" in poll, (
-        "the chat poll does not send the creating actor's identity. It is sent as the "
-        "actor the server recorded the job against, which is stronger than re-deriving "
-        "it: the two only have to disagree once for the poll to be refused."
-    )
-
-
-def test_chat_start_reports_the_actor_the_job_was_recorded_against():
+def test_chat_start_response_reports_the_actor_the_job_was_recorded_against():
     """The console should not have to re-derive who owns a job it just created.
 
     A job is owned by whoever posted it, and the poll is refused if it arrives as
@@ -10546,8 +10521,3 @@ def test_chat_start_reports_the_actor_the_job_was_recorded_against():
     assert '"actorUserId"' in response and '"operatorRole"' in response, (
         "the chat start response does not say which actor the job was recorded against"
     )
-
-    html = chat["legacy_chat_index"]()
-    poll = html[html.index("/api/chat/${started.jobId}"):][:400]
-    assert "jobActorHeaders(started)" in poll, "the poll does not use the recorded owner"
-    assert "started.actorUserId" in html, "the recorded owner is never read"

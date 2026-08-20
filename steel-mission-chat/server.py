@@ -49,9 +49,7 @@ PRESENT_DEV_DIR = Path(os.environ.get("PRESENT_DEV") or WORKER_DIR.parent)
 WORKER_BIN = WORKER_DIR / "bin" / "steel-mission"
 BROKER_BIN = WORKER_DIR / "bin" / "present-lease-broker"
 PRIVATE_RUNNER_BIN = WORKER_DIR / "bin" / "present-private-runner"
-INDEX = APP_DIR / "index.html"
 APPLICATION_INDEX = APP_DIR / "app.html"
-UI_SELECTOR_ENV = "STEEL_MISSION_UI"
 # The organisation this installation runs on, defaulting to the synthetic starter
 # company shipped with the product. An installation points ORG_DIR at its own
 # directory; it never replaces the contents of the shipped one.
@@ -273,11 +271,6 @@ LEGACY_PAGE_PATHS = {
 
 def is_page_path(path: str) -> bool:
     return path in PAGE_PATHS
-
-
-def page_selector(path: str) -> str:
-    selector = os.environ.get(UI_SELECTOR_ENV, "application").strip().lower()
-    return "legacy" if selector == "legacy" else "application"
 
 
 def is_legacy_page_path(path: str) -> bool:
@@ -5405,20 +5398,12 @@ def acceptance_diagnostics_text(diagnostics: list[dict[str, Any]], max_items: in
     return "\n".join(lines)
 
 
-def legacy_chat_index() -> str:
-    return INDEX.read_text()
-
-
 def application_chat_index() -> str:
     return APPLICATION_INDEX.read_text()
 
 
-def chat_index(selector: str = "application") -> str:
-    if selector == "application":
-        return application_chat_index()
-    if selector == "legacy":
-        return legacy_chat_index()
-    raise ValueError(f"unknown UI selector: {selector}")
+def chat_index() -> str:
+    return application_chat_index()
 
 
 def escape_html(value: Any) -> str:
@@ -8978,7 +8963,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         path = urlparse(self.path).path
         if is_page_path(path):
-            length = len(chat_index(page_selector(path)).encode("utf-8"))
+            length = len(chat_index().encode("utf-8"))
         elif path == "/plain":
             length = len(render_home().encode("utf-8"))
         elif is_legacy_page_path(path):
@@ -9276,7 +9261,7 @@ class Handler(BaseHTTPRequestHandler):
             html_response(self, 200, render_mission_detail_page(path.rsplit("/", 1)[-1], role))
             return
         if is_page_path(path):
-            html_response(self, 200, chat_index(page_selector(path)))
+            html_response(self, 200, chat_index())
             return
         if is_legacy_page_path(path):
             self.send_response(303)

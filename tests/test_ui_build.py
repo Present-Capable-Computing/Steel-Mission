@@ -12,9 +12,20 @@ PROOF_PAGE = REPO_DIR / "tests" / "fixtures" / "ui-build-proof.html"
 PACKAGE_MANIFEST = REPO_DIR / "package.json"
 PACKAGE_LOCK = REPO_DIR / "package-lock.json"
 APP_PAGE = REPO_DIR / "steel-mission-chat" / "app.html"
+SUPERSEDED_PAGE = REPO_DIR / "steel-mission-chat" / "index.html"
+CHAT_SERVER = REPO_DIR / "steel-mission-chat" / "server.py"
 CI_WORKFLOW = REPO_DIR / ".github" / "workflows" / "ci.yml"
 CODEOWNERS = REPO_DIR / ".github" / "CODEOWNERS"
 DEPENDABOT = REPO_DIR / ".github" / "dependabot.yml"
+
+
+def test_superseded_page_and_selector_flag_are_absent():
+    server = CHAT_SERVER.read_text()
+
+    assert not SUPERSEDED_PAGE.exists()
+    assert "STEEL_MISSION_UI" not in server
+    assert "legacy_chat_index" not in server
+    assert "page_selector" not in server
 
 
 def test_real_iife_bundle_satisfies_the_legacy_script_constraints(tmp_path):
