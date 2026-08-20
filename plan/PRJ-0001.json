@@ -9,9 +9,12 @@
     "source": "control-plane"
   },
   "state": "ACTIVE",
-  "summary": "Replace the Steel-Mission execution core with a durable, transactional job service and a pull-based runner that executes in customer infrastructure. Today state is one unlocked JSON document with last-writer-wins semantics, execution is a synchronous subprocess call with a fixed cap and silent output truncation, job requests carry host-local paths, and two disjoint orchestration paths exist that never write to each other. Connector delivery has no retry, no backoff and no dead-letter path. The project ends when one storage interface with a SQLite default and a PostgreSQL option backs a single orchestration path, a remote runner claims work over gRPC and returns signed attested results, and connector ingress and egress are transactional.",
+  "summary": "Replace the Steel-Mission execution core with a durable, transactional job service and a pull-based runner that executes in customer infrastructure. Today state is one unlocked JSON document with last-writer-wins semantics, execution is a synchronous subprocess call with a fixed cap and silent output truncation, job requests carry host-local paths, and two disjoint orchestration paths exist that never write to each other. Connector delivery has no retry, no backoff and no dead-letter path. The project ends when one storage interface with a SQLite default and a PostgreSQL option backs a single orchestration path, a remote runner claims work over gRPC and returns signed attested results, and connector ingress and egress are transactional. Rescoped 2026-08-20 under D7: the founder console (truthful identity and provider state, a chat surface with a normal and a Domain-Capabilities mode), codex as a coordinator provider with the registry's model choices actually governing the calls, and the four-stage mission pipeline — plan, develop and commit, review loop, final review and merge — fold into this project. The pipeline's session status feed is the draft shape of job protocol v2, its bench implementation is explicitly disposable, and the broker and pull-runner it rehearses are this project's own P1 and P2 deliverables. The three model workers are the broker's first production workload, not a separate system.",
   "milestoneIds": [
     "MS-0001",
+    "MS-0013",
+    "MS-0014",
+    "MS-0015",
     "MS-0002",
     "MS-0003",
     "MS-0004",
@@ -25,14 +28,14 @@
     "githubProject": "https://github.com/orgs/Present-Capable-Computing/projects/1",
     "estimate": {
       "rule": "Effort estimated per category and divided by an expected acceleration factor, with security-sensitive and novel-integration work held at the cautious end and irreducible empirical time counted at no acceleration.",
-      "conventionalPersonDays": 140,
+      "conventionalPersonDays": 228,
       "baselineFocusedDays": 16.1,
-      "focusedDays": 16.1,
-      "deltaFocusedDays": 0.0,
+      "focusedDays": 33.3,
+      "deltaFocusedDays": 17.2,
       "contingencyPercent": 25,
-      "focusedDaysWithContingency": 20.0,
+      "focusedDaysWithContingency": 41.6,
       "redefendedAt": "2026-08-20",
-      "redefense": "Scope, risk categories and irreducible empirical work are unchanged at the second 2026-08-20 resume boundary after MS-0012, so the focused estimate remains 16.1 days and the delta is +0.0 focused days. The pause began and ended on the same date, so the already reset targets remain true and do not move again.",
+      "redefense": "Re-defended at the D7 rescope on 2026-08-20, high-end stance: security-sensitive and novel-integration work at the cautious end of its range, irreducible empirical time at no acceleration. Additions: C0 console truth — founder-identity seeding 5 conventional days at 3x, identity-surface fixes 4 at 3x, interface work 6 at 15x, 0.4 empirical = 3.8 focused (the identity item was trimmed on a misread instruction and restored the same day by the Founder's decision; the correction is +1.8, printed here). C1 chat and pipeline — chat surface 12 at 15x, bench mechanics 5 at 15x, pipeline orchestration 3 at 2x novel, progress panel and snapshot 7 at 15x, 1.2 empirical rehearsal = 4.3. C2 codex coordinator and maximum models — codex integration 4 at 2x novel, enum and plumbing and re-warm and token work 15 at 15x, 2 at 5x debugging, 0.6 empirical = 4.0. P1 gains status-feed persistence 12 at 15x plus 0.2 empirical = 1.0. P2 gains the agent executor 5 at 2x novel, 4 at 15x, 1.0 empirical = 3.8. Records and sync 0.3, spent at rescope. Delta +17.2 focused days, printed, never absorbed: conventional 140 to 228 person-days, focused 16.1 to 33.3, approximately 41.6 with the declared 25 percent. Target dates re-set on the assumption that the pipeline raises landing throughput from MS-0014 onward; that assumption is a hypothesis and is re-examined, with the delta printed, at the MS-0014 boundary.",
       "note": "A focused-day figure is a planning estimate, never a commitment and never evidence that work is on schedule. Re-defend at every milestone boundary and print the delta."
     },
     "decisions": [
@@ -61,11 +64,34 @@
         "id": "PRJ-0001-D5",
         "decision": "The database is the queue. The broker CLI, the daemon and the chat server are all direct clients of one transactional store sharing one command module and one state machine. There is no CLI-to-daemon RPC.",
         "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0001-D6",
+        "decision": "Two network surfaces exist and no more: the runner-facing gRPC gateway on the daemon, and an authenticated HTTP operations API. Anything else that wants to listen argues for itself first.",
+        "status": "BINDING",
+        "note": "Recorded in docs/workplan.md section 2 since project start; reconciled into this record at the D7 rescope so the record and the workplan carry the same decision set."
+      },
+      {
+        "id": "PRJ-0001-D7",
+        "decision": "The founder console, the chat surface, codex as a coordinator provider, and the four-stage mission pipeline fold into PRJ-0001 as milestones MS-0013 (C0), MS-0014 (C1) and MS-0015 (C2), with the status feed persisted at P1 and the agent executor at P2. No separate project, and no durable second dispatch path: the C1 bench is disposable by declaration, only its session status feed format — the draft of job protocol v2 — survives into P1/P2.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0001-D8",
+        "decision": "The Okay happens at mission grant. A grant binds a plan, a machine-checkable definition of done, budgets, and abort conditions; within those bounds the mission runs unattended through plan (Claude, Opus 5 at least), develop and commit (the local model), a bounded review loop (Codex), and final review, approval and merge (Claude, Opus 5 at least). When the plan proves unclean the mission escalates through the existing user-decision functionality and waits; it never widens its own authority, and a mission that cannot reach its definition of done stops and reports rather than redefining done.",
+        "status": "BINDING"
+      },
+      {
+        "id": "PRJ-0001-D9",
+        "decision": "One machine account per model worker (suggested: sm-agent-claude, sm-agent-codex, sm-agent-qwen), so commit authorship, review provenance and approval are real on GitHub rather than reconstructed from evidence packs. The acceptance account is a code owner for non-authority paths only; authority-owned schema paths under schemas/canonical/ remain human-owned, and a mission touching them escalates instead of merging. Account creation and collaborator grants are the maintainer's act.",
+        "status": "BINDING"
       }
     ],
     "pausedAt": "2026-08-20",
     "pauseReason": "Paused again when PRJ-0000 reopened for MS-0012. Decision PRJ-0000-D2 is binding and says PRJ-0000 runs first; leaving both projects ACTIVE would have contradicted it silently. MS-0012 is budgeted at half a focused day, so the target dates are kept rather than cleared and re-set: they are not yet wrong, and churning them twice for a short interruption is noise. Resumes when MS-0012 closes; if the interruption runs long enough to make the dates wrong, they are cleared then.",
     "resumedAt": "2026-08-20",
-    "resumeReason": "PRJ-0000 completed again at the close of MS-0012. The interruption began and ended on 2026-08-20, so PRJ-0001 resumes with its scope, estimate and already reset target dates unchanged."
+    "resumeReason": "PRJ-0000 completed again at the close of MS-0012. The interruption began and ended on 2026-08-20, so PRJ-0001 resumes with its scope, estimate and already reset target dates unchanged.",
+    "rescopedAt": "2026-08-20",
+    "rescopeReason": "D7: the console, chat, provider and pipeline work would otherwise have formed a separate project whose central deliverable — dispatching work to model workers — duplicates this project's own broker and pull-runner. Folding it in removes the double build; the bench rehearses what P1/P2 make durable."
   }
 }

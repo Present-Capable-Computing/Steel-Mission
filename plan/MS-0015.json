@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "projectId": "PRJ-0001",
+  "createdAt": "2026-08-20T00:00:00Z",
+  "producedAt": "2026-08-20T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "taskIds": [],
+  "milestoneId": "MS-0015",
+  "title": "C2 - Codex coordinator and maximum models",
+  "targetDate": "2026-09-24",
+  "outcome": "Codex is a first-class coordinator provider, selectable in chat and the default in normal mode. The model role registry's model id and effort flow into the actual adapter invocations, so changing the registry changes the call: the planner and acceptance roles run at Opus 5 or above, and Codex runs at its maximum available model and reasoning setting. The local model provider re-warms on keep-alive expiry instead of refusing, and token usage is captured and surfaced in the status strip.",
+  "notInScope": "No fourth provider and no HTTP-endpoint configurability in the registry. No change to the pipeline role assignments themselves - the registry governs who plans, codes, reviews and accepts, and it already says so.",
+  "completionEvidence": "A chat is answered by Codex with the provider and model visible in the status strip. Changing the registry's model id demonstrably changes the invoked model, shown from the invocation record rather than the display. A chat issued more than thirty idle minutes after the last one succeeds without a manual warm-up. The provider enum widening is covered by updated contract tests and schema fixtures, and the full suite is green.",
+  "metadata": {
+    "phase": "C2",
+    "focusedDaysBudget": 4.0,
+    "origin": "Folded in at the D7 rescope of 2026-08-20 from the provider investigation of the same date, which found the provider set pinned to two in four independent layers.",
+    "risk": "The enum widening crosses schemas, worker, server and page in one change, against a suite that pins the current pair; the risk is a green suite that tests the old world. The fixtures and the routing contract tests move in the same pull request as the code.",
+    "githubMilestone": 15
+  }
+}

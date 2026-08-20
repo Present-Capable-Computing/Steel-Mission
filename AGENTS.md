@@ -56,14 +56,18 @@ The three rules that matter most here:
 |---|---|
 | Project record | [`plan/PRJ-0001.json`](plan/PRJ-0001.json) |
 | Design | [`docs/durable-core-plan.md`](docs/durable-core-plan.md) |
-| Milestone | [`plan/MS-0001.json`](plan/MS-0001.json) |
+| Milestone | [`plan/MS-0001.json`](plan/MS-0001.json), then the C0–C2 console milestones |
 | Issues | label `prj:PRJ-0001` |
 | Board | https://github.com/orgs/Present-Capable-Computing/projects/1 |
 
 `PRJ-0000` completed again on 2026-08-20 after all four MS-0012 review findings
-closed. `PRJ-0001` is active again under the still-binding PRJ-0000-D2 ordering
-decision. Its scope, estimate and already reset target dates remain unchanged
-because the interruption began and ended on the same date.
+closed. `PRJ-0001` was rescoped the same day under its decision D7: the founder
+console, the chat surface, codex as a coordinator provider and the four-stage
+mission pipeline — plan, develop and commit, review loop, final review and
+merge — folded in as milestones C0–C2, with the printed estimate delta and the
+mission rules (Okay at grant, machine accounts, escalation through the existing
+decision functionality) recorded on the project record and in
+[`docs/workplan.md`](docs/workplan.md) §2 and §5.
 
 ### Picking up an issue
 

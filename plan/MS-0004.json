@@ -10,7 +10,7 @@
     "source": "control-plane"
   },
   "state": "PLANNED",
-  "targetDate": "2026-10-29",
+  "targetDate": "2026-11-26",
   "outcome": "Signed inbound events land in a transactional inbox where a unique deduplication key decides which single transaction starts a mission, replacing a receipt file and a lock released before the work begins. Outbound connector actions are written to an outbox in the same transaction as the evidence they record, and are delivered by a worker with exponential backoff, jitter, honoured retry hints and an attempt cap that ends in a dead-letter queue rather than a dropped exception.",
   "notInScope": "No change to signature verification on ingress. No new connectors. Exactly-once reply is effective, not absolute: it rests on connector-specific idempotency markers, and where a connector cannot be queried for a marker the behaviour degrades to a retry with a visible duplicate annotation rather than a silent second message.",
   "taskIds": [],
@@ -21,6 +21,6 @@
     "risk": "Marker-based exactly-once delivery is connector-specific. GitHub ships first because a hidden marker in a comment body can be queried back. Slack and Jira follow. Where a marker cannot be read back the plan degrades honestly and says so in the operator documentation, rather than claiming a guarantee the connector does not support.",
     "githubMilestone": 4,
     "targetDateResetAt": "2026-08-20",
-    "targetDateReset": "Reset from the PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
+    "targetDateReset": "Re-set at the D7 rescope, preserving the original cadence after the three console milestones and the P1/P2 growth; re-examined at the MS-0014 boundary with the delta printed."
   }
 }

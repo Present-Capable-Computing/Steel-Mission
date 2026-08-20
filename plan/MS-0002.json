@@ -10,17 +10,17 @@
     "source": "control-plane"
   },
   "state": "PLANNED",
-  "targetDate": "2026-09-17",
-  "outcome": "Broker state lives in one transactional store behind one interface, with a SQLite backend by default and a PostgreSQL backend available. Concurrent writers are serialized rather than overwriting each other. Every lease grant carries a fence token, expiry is swept rather than noticed lazily on the next read, and a daemon drives workflows so that killing the coordinator mid-job resumes the work instead of stranding it.",
+  "targetDate": "2026-10-15",
+  "outcome": "Broker state lives in one transactional store behind one interface, with a SQLite backend by default and a PostgreSQL backend available. Concurrent writers are serialized rather than overwriting each other. Every lease grant carries a fence token, expiry is swept rather than noticed lazily on the next read, and a daemon drives workflows so that killing the coordinator mid-job resumes the work instead of stranding it. The store also persists the agent-session status feed in the shape the C1 bench established, so the pipeline's progress state survives a restart the same way jobs do.",
   "notInScope": "No remote runner and no gRPC surface; node invocation stays on the local subprocess path. No connector inbox or outbox. No change to mission orchestration in the chat server beyond routing its reads through the store. The legacy broker-state JSON document is still mirrored and is not retired in this milestone.",
   "taskIds": [],
-  "completionEvidence": "The full existing test suite passes at every step with the JSON mirror on, proving the storage swap changed no observable behaviour. New unit tests cover the store and the state machine. A coordinator-kill test sends SIGKILL to the daemon at an injected crash point and asserts the workflow resumes, that the side-effect counter file reads exactly one, and that exactly one recovery ledger entry exists. The store-parity suite passes against both backends, with the PostgreSQL run gated behind its own marker and a continuous integration service container.",
+  "completionEvidence": "The full existing test suite passes at every step with the JSON mirror on, proving the storage swap changed no observable behaviour. New unit tests cover the store and the state machine. A coordinator-kill test sends SIGKILL to the daemon at an injected crash point and asserts the workflow resumes, that the side-effect counter file reads exactly one, and that exactly one recovery ledger entry exists. The store-parity suite passes against both backends, with the PostgreSQL run gated behind its own marker and a continuous integration service container. The status feed round-trips through the store: a bench session recorded before a daemon kill is read back identically after recovery.",
   "metadata": {
     "phase": "P1",
-    "focusedDaysBudget": 6.0,
+    "focusedDaysBudget": 7.0,
     "risk": "The exclusive state transaction must never enclose worker invocation or heartbeat renewal, or batch throughput collapses. Heartbeats route to the leases table directly. A second risk is two drivers on one workflow, the synchronous command-line drive and the daemon; a driver-owner column and a controller leader lease prevent it.",
     "githubMilestone": 2,
     "targetDateResetAt": "2026-08-20",
-    "targetDateReset": "Reset from the PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
+    "targetDateReset": "Re-set at the D7 rescope: three console milestones run before P1, and the budget grows 6.0 to 7.0 for status-feed persistence. Dates assume pipeline-assisted throughput from MS-0014 onward; re-examined at that boundary with the delta printed."
   }
 }

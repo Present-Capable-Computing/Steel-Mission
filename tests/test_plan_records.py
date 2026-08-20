@@ -252,33 +252,65 @@ def test_workplan_records_the_frontend_dependency_budget_and_audit_threshold():
     assert "npm audit --audit-level=high" in workplan
 
 
-def test_prj_0001_resume_is_dated_and_its_estimate_delta_is_explicit():
+def test_prj_0001_rescope_is_dated_and_its_estimate_delta_is_explicit():
     project = _load(PLAN_DIR / "PRJ-0001.json")
     estimate = project["metadata"]["estimate"]
     expected_targets = {
         "MS-0001": "2026-08-27",
-        "MS-0002": "2026-09-17",
-        "MS-0003": "2026-10-15",
-        "MS-0004": "2026-10-29",
-        "MS-0005": "2026-11-19",
-        "MS-0006": "2026-12-03",
+        "MS-0013": "2026-09-03",
+        "MS-0014": "2026-09-17",
+        "MS-0015": "2026-09-24",
+        "MS-0002": "2026-10-15",
+        "MS-0003": "2026-11-12",
+        "MS-0004": "2026-11-26",
+        "MS-0005": "2026-12-10",
+        "MS-0006": "2026-12-23",
     }
 
-    # The invariant is that the resume was dated and the estimate re-defended with
+    # The invariant is that the rescope was dated and the estimate re-defended with
     # its delta printed -- not that the project is ACTIVE right now. A project may
-    # pause again, as this one did when PRJ-0000 reopened, and pinning the current
-    # state would make an honest pause look like a regression.
+    # pause again, and pinning the current state would make an honest pause look
+    # like a regression.
     assert project["state"] in {"ACTIVE", "PAUSED"}
     if project["state"] == "PAUSED":
         assert project["metadata"].get("pauseReason"), (
             "a paused project must record why, or the pause reads as drift"
         )
-    assert project["metadata"]["resumedAt"] == "2026-08-20"
+    assert project["metadata"]["rescopedAt"] == "2026-08-20"
     assert estimate["redefendedAt"] == "2026-08-20"
     assert estimate["baselineFocusedDays"] == 16.1
-    assert estimate["focusedDays"] == 16.1
-    assert estimate["deltaFocusedDays"] == 0.0
+    assert estimate["focusedDays"] == 33.3
+    assert estimate["deltaFocusedDays"] == 17.2
+    assert "17.2" in estimate["redefense"], "the delta is printed, never absorbed"
+    assert "+1.8" in estimate["redefense"], (
+        "the founder-identity correction is printed as its own delta, not absorbed"
+    )
     for milestone_id, target_date in expected_targets.items():
         milestone = _load(PLAN_DIR / f"{milestone_id}.json")
         assert milestone["targetDate"] == target_date
-        assert milestone["metadata"]["targetDateResetAt"] == "2026-08-20"
+        if milestone_id in {"MS-0013", "MS-0014", "MS-0015"}:
+            # Created at the rescope; their dates were set, not reset.
+            assert milestone["createdAt"].startswith("2026-08-20")
+        else:
+            assert milestone["metadata"]["targetDateResetAt"] == "2026-08-20"
+
+
+def test_prj_0001_mission_pipeline_is_recorded_on_every_surface():
+    # D8 delegates in-mission authority; D9 makes review provenance real. A rule
+    # this consequential that lives in only one document is a rule that drifts.
+    project = _load(PLAN_DIR / "PRJ-0001.json")
+    decisions = {item["id"]: item for item in project["metadata"]["decisions"]}
+    workplan = WORKPLAN.read_text()
+
+    for decision_id in ("PRJ-0001-D7", "PRJ-0001-D8", "PRJ-0001-D9"):
+        assert decisions[decision_id]["status"] == "BINDING"
+    assert "mission grant" in decisions["PRJ-0001-D8"]["decision"]
+    assert "machine account" in decisions["PRJ-0001-D9"]["decision"]
+    assert "granted mission" in workplan, "the workplan carries the mission rules"
+    assert "machine account" in workplan
+    # The pipeline's stages are recorded, and the schema authority boundary holds:
+    # missions never merge changes to authority-owned schema paths on their own.
+    assert "schemas/canonical" in decisions["PRJ-0001-D9"]["decision"]
+    manifest = _load(MANIFEST)
+    bench = next(i for i in manifest["issues"] if i["key"] == "c1-mission-pipeline-bench")
+    assert "security-review" in bench["labels"]
