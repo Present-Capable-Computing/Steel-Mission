@@ -1363,8 +1363,15 @@ def normalize_assignment_registry(payload: dict[str, Any]) -> dict[str, Any]:
 def domain_capability_registry() -> dict[str, Any]:
     try:
         payload = json.loads(DOMAIN_CAPABILITIES_PATH.read_text())
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        payload = default_domain_capabilities()
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        record_mutation(
+            "domain-capability-registry-read",
+            "user",
+            DOMAIN_CAPABILITIES_PATH,
+            status="failed",
+            details={"error": str(exc)[:500], "errorType": type(exc).__name__},
+        )
+        raise RuntimeError(f"domain capability registry could not be read: {exc}") from exc
     return normalize_assignment_registry(payload if isinstance(payload, dict) else {})
 
 
