@@ -22,10 +22,41 @@ export interface AssignmentRegistry {
   assignments: CapabilityAssignment[];
 }
 
+export interface CapabilityOwnership {
+  status: "owned" | "unowned";
+  label: string;
+  action: string;
+  userIds: string[];
+}
+
 type Requester = (path: string, init?: RequestInit) => Promise<Response>;
 
 export function assignmentControlsAvailable(accessLevel: unknown): boolean {
   return accessLevel === "owner";
+}
+
+export function capabilityOwnership(
+  capability: AssignmentCapability,
+  users: readonly AssignmentUser[],
+): CapabilityOwnership {
+  const userIds = users
+    .filter((user) => user.assignedCapabilities.includes(capability.capabilityKey))
+    .map((user) => user.id)
+    .sort();
+  if (userIds.length === 0) {
+    return {
+      status: "unowned",
+      label: "Unowned",
+      action: "Select this capability to assign it to the chosen user.",
+      userIds,
+    };
+  }
+  return {
+    status: "owned",
+    label: "Assigned",
+    action: `Assigned to ${userIds.join(", ")}.`,
+    userIds,
+  };
 }
 
 export function assignmentRegistry(

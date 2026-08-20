@@ -259,6 +259,29 @@ select {
   gap: 0.65rem;
   margin-top: 0.75rem;
 }
+.assignment-choice {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid #29323d;
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+}
+.assignment-choice strong {
+  color: #8fcbbb;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.assignment-choice[data-capability-ownership=unowned] {
+  border-color: #b58a4b;
+}
+.assignment-choice[data-capability-ownership=unowned] strong {
+  color: #e3b86f;
+}
+.assignment-choice small {
+  color: #aab4bf;
+  line-height: 1.4;
+}
 .assignment-form button {
   justify-self: start;
   border-color: #76b6a5;
@@ -789,6 +812,23 @@ select {
   function assignmentControlsAvailable(accessLevel2) {
     return accessLevel2 === "owner";
   }
+  function capabilityOwnership(capability, users) {
+    const userIds = users.filter((user) => user.assignedCapabilities.includes(capability.capabilityKey)).map((user) => user.id).sort();
+    if (userIds.length === 0) {
+      return {
+        status: "unowned",
+        label: "Unowned",
+        action: "Select this capability to assign it to the chosen user.",
+        userIds
+      };
+    }
+    return {
+      status: "owned",
+      label: "Assigned",
+      action: `Assigned to ${userIds.join(", ")}.`,
+      userIds
+    };
+  }
   function assignmentRegistry(users, capabilities, selectedUserId, selectedCapabilities) {
     const selected = new Set(selectedCapabilities);
     return {
@@ -1108,19 +1148,34 @@ select {
                   ] }),
                   /* @__PURE__ */ u3("fieldset", { children: [
                     /* @__PURE__ */ u3("legend", { children: "Domain Capabilities" }),
-                    /* @__PURE__ */ u3("div", { class: "assignment-grid", children: assignmentCapabilities.map((capability) => /* @__PURE__ */ u3("label", { children: [
-                      /* @__PURE__ */ u3(
-                        "input",
+                    /* @__PURE__ */ u3("div", { class: "assignment-grid", children: assignmentCapabilities.map((capability) => {
+                      const ownership = capabilityOwnership(capability, assignmentUsers);
+                      return /* @__PURE__ */ u3(
+                        "label",
                         {
-                          type: "checkbox",
-                          checked: selectedAssignmentCapabilities.includes(capability.capabilityKey),
-                          onChange: () => toggleAssignmentCapability(capability.capabilityKey)
-                        }
-                      ),
-                      capability.capabilityKey,
-                      " \xB7 ",
-                      capability.displayName
-                    ] }, capability.capabilityKey)) })
+                          class: "assignment-choice",
+                          "data-capability-ownership": ownership.status,
+                          children: [
+                            /* @__PURE__ */ u3("span", { children: [
+                              /* @__PURE__ */ u3(
+                                "input",
+                                {
+                                  type: "checkbox",
+                                  checked: selectedAssignmentCapabilities.includes(capability.capabilityKey),
+                                  onChange: () => toggleAssignmentCapability(capability.capabilityKey)
+                                }
+                              ),
+                              capability.capabilityKey,
+                              " \xB7 ",
+                              capability.displayName
+                            ] }),
+                            /* @__PURE__ */ u3("strong", { children: ownership.label }),
+                            /* @__PURE__ */ u3("small", { children: ownership.action })
+                          ]
+                        },
+                        capability.capabilityKey
+                      );
+                    }) })
                   ] }),
                   /* @__PURE__ */ u3("button", { type: "submit", disabled: !selectedAssignmentUser, children: "Save capability assignment" }),
                   assignmentStatus && /* @__PURE__ */ u3("p", { role: "status", children: assignmentStatus })

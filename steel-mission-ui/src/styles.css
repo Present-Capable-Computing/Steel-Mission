@@ -282,6 +282,34 @@ select {
   margin-top: 0.75rem;
 }
 
+.assignment-choice {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid #29323d;
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+}
+
+.assignment-choice strong {
+  color: #8fcbbb;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.assignment-choice[data-capability-ownership="unowned"] {
+  border-color: #b58a4b;
+}
+
+.assignment-choice[data-capability-ownership="unowned"] strong {
+  color: #e3b86f;
+}
+
+.assignment-choice small {
+  color: #aab4bf;
+  line-height: 1.4;
+}
+
 .assignment-form button {
   justify-self: start;
   border-color: #76b6a5;
