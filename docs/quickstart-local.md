@@ -14,6 +14,13 @@ bin/steel-mission serve
 
 Open `http://127.0.0.1:8765/`.
 
+The server keeps writable configuration in
+`${XDG_STATE_HOME:-$HOME/.local/state}/steel-mission/config`, not in the cloned
+repository. Set `STEEL_MISSION_STATE_DIR` to relocate this configuration state,
+or set `STEEL_MISSION_CONFIG_DIR` when an installation provides a complete
+configuration directory. Delete the runtime `config` directory to reseed the
+starter configuration on the next launch.
+
 ## Docker Starter Company
 
 With host Ollama running and the Claude/Codex CLIs already authenticated:

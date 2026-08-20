@@ -67,14 +67,66 @@ CANON_DIR = Path(
 )
 ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.json"
 ROLE_KNOWLEDGE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-knowledge-registry.json"
+
+
+def executable_config_dir() -> Path:
+    """Return writable configuration for a running product process.
+
+    Imported modules keep reading the immutable shipped defaults. The actual
+    server process seeds a persistent state copy so normalizing writes never
+    replace files in a source checkout or application image.
+    """
+    explicit = os.environ.get("STEEL_MISSION_CONFIG_DIR") or os.environ.get("PRESENT_CONFIG_DIR")
+    shipped = WORKER_DIR / "config"
+    if explicit:
+        return Path(explicit)
+    if __name__ != "__main__":
+        return shipped
+
+    configured_state = os.environ.get("STEEL_MISSION_STATE_DIR")
+    configured_missions = (
+        os.environ.get("STEEL_MISSION_MISSIONS_DIR")
+        or os.environ.get("PRESENT_MISSIONS_DIR")
+    )
+    if configured_state:
+        state_root = Path(configured_state)
+    elif configured_missions:
+        state_root = Path(configured_missions).parent
+    elif os.environ.get("XDG_STATE_HOME"):
+        state_root = Path(os.environ["XDG_STATE_HOME"]) / "steel-mission"
+    else:
+        state_root = Path.home() / ".local" / "state" / "steel-mission"
+
+    runtime = state_root / "config"
+    runtime.mkdir(parents=True, exist_ok=True, mode=0o700)
+    runtime.chmod(0o700)
+    for source in sorted(shipped.iterdir()):
+        destination = runtime / source.name
+        if destination.exists() or destination.is_symlink():
+            continue
+        if source.is_dir():
+            try:
+                shutil.copytree(source, destination)
+            except FileExistsError:
+                pass
+        else:
+            try:
+                with (
+                    source.open("rb") as source_file,
+                    destination.open("xb") as destination_file,
+                ):
+                    shutil.copyfileobj(source_file, destination_file)
+            except FileExistsError:
+                pass
+            else:
+                shutil.copystat(source, destination)
+    return runtime
+
+
 # Where the product is configured to read the organisation from. Separate from
 # ORG_DIR, which is where the organisation's documents live: redirecting only
 # ORG_DIR serves your documents under the shipped company's identity.
-CONFIG_DIR = Path(
-    os.environ.get("STEEL_MISSION_CONFIG_DIR")
-    or os.environ.get("PRESENT_CONFIG_DIR")
-    or WORKER_DIR / "config"
-)
+CONFIG_DIR = Path(executable_config_dir())
 DOMAIN_CAPABILITIES_PATH = CONFIG_DIR / "domain-capabilities.json"
 GENERAL_KNOWLEDGE_PATH = CONFIG_DIR / "general-knowledge.json"
 ORGANIZATION_REGISTRY_PATH = Path(os.environ.get("PRESENT_ORGANIZATION_REGISTRY") or CONFIG_DIR / "organizations.json")

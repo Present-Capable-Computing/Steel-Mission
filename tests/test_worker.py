@@ -14,11 +14,13 @@ import os
 import re
 import runpy
 import shutil
+import socket
 import subprocess
 import sys
 import time
 import zipfile
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -139,6 +141,117 @@ def test_steel_mission_wrapper_exposes_worker_version_and_doctor():
     assert code == 0
     assert payload["ok"] is True
     assert payload["checks"]["steel_mission_chat"]["exists"] is True
+
+
+def test_running_server_persists_configuration_outside_the_product_tree(tmp_path):
+    """Exercise the real entrypoint and the normalizing users write end to end."""
+    product = tmp_path / "product"
+    product.mkdir()
+    (product / "bin").mkdir()
+    shutil.copy2(STEEL_MISSION, product / "bin" / "steel-mission")
+    for directory in ("adapters", "config", "schemas", "starter-company", "steel-mission-chat"):
+        shutil.copytree(WORKER_DIR / directory, product / directory)
+
+    shipped_users = product / "config" / "users.json"
+    shipped_before = shipped_users.read_bytes()
+    state_home = tmp_path / "state"
+    home = tmp_path / "home"
+    home.mkdir()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    environment = {
+        **os.environ,
+        "HOME": str(home),
+        "XDG_STATE_HOME": str(state_home),
+        "STEEL_MISSION_HOST": "127.0.0.1",
+        "STEEL_MISSION_PORT": str(port),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    for variable in (
+        "STEEL_MISSION_CONFIG_DIR",
+        "PRESENT_CONFIG_DIR",
+        "STEEL_MISSION_STATE_DIR",
+        "STEEL_MISSION_MISSIONS_DIR",
+        "PRESENT_MISSIONS_DIR",
+    ):
+        environment.pop(variable, None)
+    base_url = f"http://127.0.0.1:{port}"
+
+    def request_json(path: str, payload: dict | None = None) -> dict:
+        data = json.dumps(payload).encode() if payload is not None else None
+        request = Request(
+            base_url + path,
+            data=data,
+            headers={"Content-Type": "application/json"} if data else {},
+            method="POST" if data else "GET",
+        )
+        with urlopen(request, timeout=2) as response:
+            return json.loads(response.read())
+
+    def start_server() -> subprocess.Popen:
+        process = subprocess.Popen(
+            [str(product / "bin" / "steel-mission"), "serve"],
+            cwd=product,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                raise AssertionError(f"server exited during startup: {stdout}\n{stderr}")
+            try:
+                request_json("/api/health")
+                return process
+            except OSError:
+                time.sleep(0.05)
+        process.terminate()
+        stdout, stderr = process.communicate(timeout=5)
+        raise AssertionError(f"server did not become healthy: {stdout}\n{stderr}")
+
+    def stop_server(process: subprocess.Popen) -> None:
+        process.terminate()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate(timeout=5)
+
+    process = start_server()
+    try:
+        users = request_json("/api/owner/users")["users"]
+        users.append({
+            "id": "runtime-owner",
+            "name": "Runtime Owner",
+            "email": "runtime@example.test",
+            "role": "owner",
+            "status": "active",
+            "assignedCapabilities": [],
+            "organizationIds": ["northstar-forge"],
+            "identitySubjects": [],
+            "externalIdentities": {"github": [], "slack": [], "jira": []},
+        })
+        saved = request_json("/api/owner/users", {"users": users})
+        assert any(user["id"] == "runtime-owner" for user in saved["payload"]["users"])
+    finally:
+        stop_server(process)
+
+    runtime_users = state_home / "steel-mission" / "config" / "users.json"
+    assert shipped_users.read_bytes() == shipped_before
+    assert any(
+        user["id"] == "runtime-owner"
+        for user in json.loads(runtime_users.read_text())["users"]
+    )
+
+    process = start_server()
+    try:
+        reloaded = request_json("/api/owner/users")
+        assert any(user["id"] == "runtime-owner" for user in reloaded["users"])
+    finally:
+        stop_server(process)
 
 
 def test_status_schema_valid():
