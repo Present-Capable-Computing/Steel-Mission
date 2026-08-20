@@ -56,7 +56,7 @@ jobs:
         run: git diff --check
 
       - name: Compile entrypoints
-        run: python -m py_compile steel-mission-chat/server.py bin/present-worker bin/present-control-plane bin/present-evidence-signer
+        run: make compile-entrypoints PYTHON=python
 
       - name: Run tests
         run: python -m pytest
