@@ -1,9 +1,10 @@
-.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop docker-build docker-up docker-down docker-status private-runner-image private-runner-status ui-build ui-check ui-test style-check release-check plan-check plan-sync
+.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop docker-build docker-up docker-down docker-status private-runner-image private-runner-status ui-build ui-check ui-test style-check compile-entrypoints release-check plan-check plan-sync
 
 PYTHON ?= python3
 HOST ?= 127.0.0.1
 PORT ?= 8765
 PROFILE ?= dc13.local
+PYTHON_ENTRYPOINTS := steel-mission-chat/server.py bin/present-worker bin/present-control-plane bin/present-evidence-signer bin/present-private-runner bin/present-lease-broker
 
 install-dev:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -80,8 +81,11 @@ style-check:
 	vale --minAlertLevel=error .
 	@! git grep -n -e '—' -- '*.py' || { echo "em dash in Python source; the ban covers whole files, docstrings included"; exit 1; }
 
+compile-entrypoints:
+	$(PYTHON) -m py_compile $(PYTHON_ENTRYPOINTS)
+
 release-check:
 	git diff --check
 	$(MAKE) style-check
-	$(PYTHON) -m py_compile steel-mission-chat/server.py bin/present-worker bin/present-control-plane bin/present-private-runner bin/present-evidence-signer
+	$(MAKE) compile-entrypoints PYTHON=$(PYTHON)
 	$(PYTHON) -m pytest
