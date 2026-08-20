@@ -103,22 +103,22 @@ APPLICATION_DOCKERFILE = REPO_DIR / "Dockerfile"
 
 # What must never be inside a published application image. Secrets because the
 # image is pushed to a registry and pulled by strangers; the plan layer because
-# effort figures and internal scheduling are not product.
-MUST_NOT_SHIP = (".env", "plan", "tooling")
+# effort figures and internal scheduling are not product; the browser toolchain
+# because its committed self-contained page is the runtime artifact.
+MUST_NOT_SHIP = (".env", "plan", "tooling", "node_modules", "steel-mission-ui")
 
 
 @pytest.mark.skipif(
     not APPLICATION_DOCKERFILE.exists(),
     reason="no application Dockerfile in this tree yet",
 )
-def test_the_application_image_excludes_secrets_and_the_plan_layer():
-    """Guards the build the moment someone adds one.
+def test_the_application_image_excludes_secrets_plans_and_the_frontend_toolchain():
+    """Guards every local-only path omitted from the broad application copy.
 
-    This is written against a file that does not exist yet on purpose. An
-    application image is built with a broad copy of the tree, so the exclusion
-    list is what decides whether a local .env ends up inside something published
-    to a registry. Catching that when the Dockerfile lands is much cheaper than
-    catching it after an image is pushed.
+    The exclusion list decides whether a secret, planning data or the browser
+    build toolchain ends up inside something published to a registry. Naming each
+    required exclusion here makes a missing entry fail instead of remaining
+    invisible because the test only checked the entries already present.
     """
     dockerfile = APPLICATION_DOCKERFILE.read_text(encoding="utf-8")
     copies_tree = any(
