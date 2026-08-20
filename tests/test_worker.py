@@ -6557,6 +6557,62 @@ def test_steel_mission_capability_binding_authorization_is_identity_mode_indepen
     chat["authorize_mission_bindings"]({"role": "admin", "capabilities": []}, [], ["DC03"])
 
 
+@pytest.mark.parametrize(
+    ("failure", "expected_status"),
+    [("permission", 403), ("validation", 400)],
+)
+def test_steel_mission_admin_endpoints_share_failure_status_mapping(failure, expected_status):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["Handler"].do_POST.__globals__
+    endpoints = [
+        "/api/owner/assignments",
+        "/api/owner/knowledge",
+        "/api/owner/organizations",
+        "/api/owner/knowledge/upload",
+        "/api/owner/users",
+        "/api/owner/control-policy",
+        "/api/owner/integrations",
+        "/api/owner/auth-policy",
+        "/api/runtime-profiles/validate",
+        "/api/runtime-profiles/save",
+        "/api/runtime-profiles/clone",
+        "/api/model-roles/save",
+        "/api/model-roles/delete",
+    ]
+
+    for endpoint in endpoints:
+        responses = []
+        globals_["json_response"] = lambda _handler, status, payload: responses.append(
+            (status, payload)
+        )
+        if failure == "validation":
+            def invalid_payload(*_args, **_kwargs):
+                raise ValueError("same invalid payload")
+
+            globals_["read_json"] = invalid_payload
+            actor = {"actorId": "owner", "role": "owner"}
+        else:
+            globals_["read_json"] = lambda *_args, **_kwargs: {}
+            actor = {"actorId": "publisher", "role": "publisher"}
+        handler = object.__new__(chat["Handler"])
+        handler.path = endpoint
+        handler.authenticate = lambda _path, _method: actor
+
+        handler.do_POST()
+
+        assert responses == [
+            (
+                expected_status,
+                {
+                    "ok": False,
+                    "error": "same invalid payload"
+                    if failure == "validation"
+                    else "actor is not allowed to perform this action",
+                },
+            )
+        ], endpoint
+
+
 def _post_user_registry_payload(tmp_path, submitted):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     user_registry = tmp_path / "users.json"
