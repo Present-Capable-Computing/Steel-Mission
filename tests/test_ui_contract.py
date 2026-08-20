@@ -7,7 +7,10 @@ contract survives the interface flip.
 from __future__ import annotations
 
 import copy
+import json
+import re
 import runpy
+import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -170,3 +173,40 @@ def test_ui_behavior_contract_rejects_each_required_regression():
     assert "the work-mode control must describe what its modes change" in errors(
         candidate_html=html.replace('aria-describedby="workModeDescription"', "")
     )
+
+
+def test_capability_checkbox_labels_are_registry_derived_and_print_each_key_once():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["chat_index"]()
+    capabilities = chat["ui_vocabulary"]()["capabilities"]
+    formatter = re.search(
+        r"^    function capabilityLabel\(item\) \{.*?^    \}",
+        html,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert formatter, "the page must expose one behavior for every capability label"
+
+    script = (
+        formatter.group(0).strip()
+        + "; process.stdout.write(JSON.stringify("
+        + json.dumps(capabilities)
+        + ".map(capabilityLabel)));"
+    )
+    result = subprocess.run(
+        ["node", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    labels = json.loads(result.stdout)
+    assert len(labels) == len(capabilities)
+    for capability, label in zip(capabilities, labels, strict=True):
+        key = capability["capabilityKey"]
+        assert label.split(" · ").count(key) == 1
+        assert capability["displayName"] in label
+
+    assert 'const capabilityRoles = ["DC13"' not in html
+    assert 'new URL("/api/vocabulary", window.location.href)' in html
+    assert 'renderCapabilityChecks("visibilityRoleKeys", allCapabilities()' in html

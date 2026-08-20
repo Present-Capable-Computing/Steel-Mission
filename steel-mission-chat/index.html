@@ -1410,6 +1410,7 @@
     let activeSettingsSection = localStorage.getItem("steel-mission-settings-section") || "knowledge";
     let runtimeRegistry = {profiles: []};
     let modelRoleRegistry = {models: [], roles: []};
+    let uiVocabulary = {terms: [], capabilities: []};
     let knowledgeRegistry = {foundations: [], roles: []};
     let userRegistry = {users: []};
     let organizationWorkspace = {visibleRoles: [], assignments: [], foundations: []};
@@ -1624,6 +1625,16 @@
 
     function modelIds() {
       return Array.isArray(modelRoleRegistry.models) ? modelRoleRegistry.models.map(model => model.id).filter(Boolean) : [];
+    }
+
+    async function loadUiVocabulary() {
+      try {
+        const response = await fetch(new URL("/api/vocabulary", window.location.href), {cache: "no-store"});
+        const data = await response.json();
+        uiVocabulary = response.ok && data.ok ? data : {terms: [], capabilities: []};
+      } catch {
+        uiVocabulary = {terms: [], capabilities: []};
+      }
     }
 
     async function loadKnowledgeRegistry() {
@@ -1900,11 +1911,17 @@
       )).join("")}</div>`;
     }
 
+    function capabilityLabel(item) {
+      const key = item.capabilityKey || item.roleKey || "";
+      const displayName = item.displayName || "";
+      return [key, displayName].filter((value, index, values) => value && values.indexOf(value) === index).join(" · ");
+    }
+
     function renderCapabilityChecks(name, capabilities, selected) {
       const selectedSet = new Set(Array.isArray(selected) ? selected : []);
       return `<div class="check-grid">${capabilities.map(item => {
-        const key = item.roleKey || item.capabilityKey || "";
-        const label = [item.currentFNumber || item.fNumber, key, item.displayName].filter(Boolean).join(" · ");
+        const key = item.capabilityKey || item.roleKey || "";
+        const label = capabilityLabel(item);
         return `<label><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(key)}" ${selectedSet.has(key) ? "checked" : ""}> ${escapeHtml(label || key)}</label>`;
       }).join("")}</div>`;
     }
@@ -1997,7 +2014,6 @@
         `<option value="${escapeHtml(role.id)}" ${role.id === profile.modelRole ? "selected" : ""}>${escapeHtml(role.title || role.id)}</option>`
       )).join("");
       const collections = ["tasks", "advisoryTasks", "buildJobs", "verifyResults", "distributedWorkflows", "generalDocuments", "missions"];
-      const capabilityRoles = ["DC13", "DC01", "DC02", "DC03", "DC04", "DC05", "DC06", "DC07", "DC08", "DC09", "DC10", "DC11", "DC12"];
       const operators = ["owner", "admin", "publisher", "user"];
       const limits = profile.limits || {};
       const sources = profile.sources || {};
@@ -2020,7 +2036,7 @@
           <label class="form-field">Default For <input id="defaultFor" value="${escapeHtml((profile.defaultFor || []).join(", "))}"></label>
         </div>
         <label class="form-field">Editable By ${renderChecks("editableBy", operators, profile.editableBy)}</label>
-        <label class="form-field">Visible Domain Capabilities ${renderChecks("visibilityRoleKeys", capabilityRoles, profile.visibilityRoleKeys)}</label>
+        <label class="form-field">Visible Domain Capabilities ${renderCapabilityChecks("visibilityRoleKeys", allCapabilities(), profile.visibilityRoleKeys)}</label>
         <label class="form-field">Collections ${renderChecks("includeCollections", collections, profile.includeCollections)}</label>
         <div class="manager-grid">
           ${Object.entries({
@@ -2412,11 +2428,14 @@
     }
 
     function allCapabilities() {
+      const vocabulary = Array.isArray(uiVocabulary.capabilities) ? uiVocabulary.capabilities : [];
       const roles = Array.isArray(knowledgeRegistry.capabilities) ? knowledgeRegistry.capabilities : Array.isArray(knowledgeRegistry.roles) ? knowledgeRegistry.roles : [];
       const workspace = Array.isArray(organizationWorkspace.visibleCapabilities) ? organizationWorkspace.visibleCapabilities : Array.isArray(organizationWorkspace.visibleRoles) ? organizationWorkspace.visibleRoles : [];
       const byKey = new Map();
-      [...roles, ...workspace].forEach(item => {
-        if (item && item.roleKey) byKey.set(item.roleKey, item);
+      [...vocabulary, ...roles, ...workspace].forEach(item => {
+        const key = item && (item.capabilityKey || item.roleKey);
+        if (!key) return;
+        byKey.set(key, {...(byKey.get(key) || {}), ...item, capabilityKey: key, roleKey: item.roleKey || key});
       });
       return [...byKey.values()];
     }
@@ -3941,7 +3960,7 @@
     async function bootstrap() {
       if (!await loadIdentity()) return;
       await Promise.all([
-        loadRuntimeProfiles(), loadKnowledgeRegistry(), loadOrganizationWorkspace(), loadOrganizations(),
+        loadRuntimeProfiles(), loadUiVocabulary(), loadKnowledgeRegistry(), loadOrganizationWorkspace(), loadOrganizations(),
         loadIntegrations(), loadControlPolicy(), loadAuthPolicy(), loadControlPlaneReadiness(), loadMissionTemplates()
       ]);
       setWorkMode(activeWorkMode);
