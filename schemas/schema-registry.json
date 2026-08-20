@@ -1378,6 +1378,62 @@
       "lifecycle": "active",
       "compatibility": "initial",
       "introducedAt": "2026-08-19"
+    },
+    {
+      "id": "user-registry-v1",
+      "version": 1,
+      "schemaFile": "user-registry-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "user-registry",
+      "producer": "steel-mission-chat",
+      "validationPoints": [
+        "configuration-fixture-validation"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-20"
+    },
+    {
+      "id": "organization-registry-v1",
+      "version": 1,
+      "schemaFile": "organization-registry-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "organization-registry",
+      "producer": "steel-mission-chat",
+      "validationPoints": [
+        "configuration-fixture-validation"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-20"
+    },
+    {
+      "id": "domain-capability-registry-v1",
+      "version": 1,
+      "schemaFile": "domain-capability-registry-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "domain-capability-registry",
+      "producer": "steel-mission-chat",
+      "validationPoints": [
+        "configuration-fixture-validation"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-20"
+    },
+    {
+      "id": "auth-policy-v1",
+      "version": 1,
+      "schemaFile": "auth-policy-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "auth-policy",
+      "producer": "steel-mission-chat",
+      "validationPoints": [
+        "configuration-fixture-validation"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-20"
     }
   ]
 }

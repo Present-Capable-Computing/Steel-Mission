@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/auth-policy-v1.json",
+  "title": "Authentication and authorization policy v1",
+  "description": "Authority-owned contract for the Steel Mission control-plane identity boundary, OIDC verification, authorization, and signing policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyId",
+    "producer",
+    "enforcementMode",
+    "sessionTtlSeconds",
+    "acceptedIssuers",
+    "acceptedAudiences",
+    "roleClaims",
+    "subjectClaims",
+    "identityBoundary",
+    "authorization",
+    "oidc",
+    "kms"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "policyId": {"type": "string", "minLength": 1, "maxLength": 160},
+    "producer": {"type": "string", "minLength": 1, "maxLength": 128},
+    "producedAt": {"type": "string", "minLength": 1, "maxLength": 64},
+    "enforcementMode": {"enum": ["signed-session-required-for-control-plane", "local-development"]},
+    "sessionTtlSeconds": {"type": "integer", "minimum": 60, "maximum": 86400},
+    "acceptedIssuers": {"$ref": "#/$defs/claimValues"},
+    "acceptedAudiences": {"$ref": "#/$defs/claimValues"},
+    "roleClaims": {"$ref": "#/$defs/claimNames"},
+    "subjectClaims": {"$ref": "#/$defs/claimNames"},
+    "identityBoundary": {"$ref": "#/$defs/identityBoundary"},
+    "authorization": {"$ref": "#/$defs/authorization"},
+    "oidc": {"$ref": "#/$defs/oidc"},
+    "kms": {"$ref": "#/$defs/kms"}
+  },
+  "$defs": {
+    "claimValues": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 500}
+    },
+    "claimNames": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 200}
+    },
+    "identityBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "allowLoopbackDevelopmentIdentity"],
+      "properties": {
+        "mode": {"enum": ["development-local", "oidc-required"]},
+        "allowLoopbackDevelopmentIdentity": {"type": "boolean"}
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preventSelfApproval"],
+      "properties": {
+        "preventSelfApproval": {"type": "boolean"}
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "issuer",
+        "audience",
+        "jwksUrl",
+        "authorizationEndpoint",
+        "tokenEndpoint",
+        "clientId",
+        "clientSecretEnv",
+        "redirectUri",
+        "scopes",
+        "jwksCacheSeconds"
+      ],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "issuer": {"type": "string", "maxLength": 500},
+        "audience": {"type": "string", "minLength": 1, "maxLength": 300},
+        "jwksUrl": {"type": "string", "maxLength": 1000},
+        "jwksPath": {"type": "string", "maxLength": 1000},
+        "jwks": {"type": "object"},
+        "authorizationEndpoint": {"type": "string", "maxLength": 1000},
+        "tokenEndpoint": {"type": "string", "maxLength": 1000},
+        "clientId": {"type": "string", "maxLength": 500},
+        "clientSecretEnv": {"type": "string", "minLength": 1, "maxLength": 200},
+        "redirectUri": {"type": "string", "maxLength": 1000},
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "jwksCacheSeconds": {"type": "integer", "minimum": 30, "maximum": 86400}
+      }
+    },
+    "kms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "provider", "keyId", "signCommand", "requireExternalSigning"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 120},
+        "keyId": {"type": "string", "maxLength": 500},
+        "signCommand": {"type": "string", "maxLength": 1000},
+        "requireExternalSigning": {"type": "boolean"}
+      }
+    }
+  }
+}
