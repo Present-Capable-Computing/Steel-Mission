@@ -328,6 +328,20 @@
       background: rgba(255,255,255,0.68);
     }
 
+    .mode-control {
+      display: grid;
+      gap: 4px;
+      justify-items: start;
+    }
+
+    .mode-description {
+      margin: 0;
+      max-width: 420px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
     .mode-switch button {
       border: 0;
       border-radius: 999px;
@@ -1252,9 +1266,12 @@
     <main>
       <div class="bar">
         <label class="profile-control">Profile <select id="profileSelect"><option value="">loading</option></select></label>
-        <div class="mode-switch" role="group" aria-label="Work mode">
-          <button id="normalMode" type="button" data-work-mode="normal">Normal</button>
-          <button id="domainCapabilityMode" type="button" data-work-mode="domain-capabilities">Domain Capabilities</button>
+        <div class="mode-control">
+          <div class="mode-switch" role="group" aria-label="Work mode" aria-describedby="workModeDescription">
+            <button id="normalMode" type="button" data-work-mode="normal">Normal</button>
+            <button id="domainCapabilityMode" type="button" data-work-mode="domain-capabilities">Domain Capabilities</button>
+          </div>
+          <p id="workModeDescription" class="mode-description">Normal chat answers directly; Domain Capabilities applies assigned organizational roles and governed knowledge.</p>
         </div>
         <div class="bar-actions">
           <button id="manageProfiles" type="button">Settings</button>
@@ -1282,6 +1299,7 @@
             <nav id="profileList" class="profile-list"></nav>
             <section class="manager-panel">
               <div id="managerMessage" class="manager-message"></div>
+              <p id="domainCapabilityDefinition" class="form-hint">A Domain Capability is an assignable organizational role and workflow lens backed by governed knowledge.</p>
               <section id="organizationPanel" class="knowledge-panel settings-section" data-settings-section="organizations"></section>
               <section id="userPanel" class="assignment-panel settings-section" data-settings-section="people"></section>
               <section id="assignmentPanel" class="assignment-panel settings-section" data-settings-section="people"></section>

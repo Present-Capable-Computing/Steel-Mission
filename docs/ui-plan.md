@@ -180,6 +180,11 @@ They are retired safely, not deleted under pressure:
    milestones.
 4. **U4** removes the superseded page as its own decision.
 
+The U1 behavioral contract lives in `tests/test_ui_contract.py`. It drives the real
+page and vocabulary routes, compares capability output with the knowledge registry,
+and checks visible and accessibility semantics without naming JavaScript functions;
+an injected regression proves that each clause fails independently.
+
 The router's entry function keeps its name and gains a selector; the legacy and
 application renderers are new names. The head-request handler takes its length from
 the file on disk and will be wrong the moment the served page is not that file, so
