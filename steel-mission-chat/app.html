@@ -2091,6 +2091,160 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/control-plane.ts
+  function controlPlaneManagementAvailable(accessLevel2) {
+    return accessLevel2 === "owner" || accessLevel2 === "admin";
+  }
+  function assertManager5(accessLevel2) {
+    if (!controlPlaneManagementAvailable(accessLevel2)) throw new Error("owner or admin access is required to manage the Control Plane");
+  }
+  async function checked3(response, fallback) {
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(String(result.error || fallback));
+    return result;
+  }
+  async function loadControlPlane(request, accessLevel2) {
+    const [integrationsResponse, controlResponse, authResponse, readinessResponse] = await Promise.all([
+      request(`/api/${accessLevel2}/integrations`, { cache: "no-store" }),
+      request(`/api/${accessLevel2}/control-policy`, { cache: "no-store" }),
+      request(`/api/${accessLevel2}/auth-policy`, { cache: "no-store" }),
+      request(`/api/control-plane/readiness?role=${encodeURIComponent(accessLevel2)}`, { cache: "no-store" })
+    ]);
+    const integrations = await checked3(integrationsResponse, "Integrations are unavailable");
+    const control = await checked3(controlResponse, "Control policy is unavailable");
+    const auth = await checked3(authResponse, "Auth policy is unavailable");
+    const readiness = await checked3(readinessResponse, "Control Plane readiness is unavailable");
+    return {
+      integrations,
+      controlPolicy: control.policy && typeof control.policy === "object" ? control.policy : {},
+      authPolicy: auth.policy && typeof auth.policy === "object" ? auth.policy : {},
+      readiness
+    };
+  }
+  async function saveControlPlaneDocument(request, accessLevel2, document2, value) {
+    assertManager5(accessLevel2);
+    const wrapper = document2 === "integrations" ? { registry: value } : { policy: value };
+    const response = await request(`/api/${accessLevel2}/${document2}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(wrapper)
+    });
+    const result = await checked3(response, `${document2} could not be saved`);
+    return result.payload && typeof result.payload === "object" ? result.payload : {};
+  }
+
+  // steel-mission-ui/src/control-plane-panel.tsx
+  var EMPTY2 = { integrations: {}, controlPolicy: {}, authPolicy: {}, readiness: {} };
+  function records3(value) {
+    return Array.isArray(value) ? value.filter((item) => Boolean(item) && typeof item === "object") : [];
+  }
+  function parseDocument(value, label) {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object`);
+    return parsed;
+  }
+  function ControlPlanePanel({ accessLevel: accessLevel2, request }) {
+    const [data, setData] = d2(EMPTY2);
+    const [controlJson, setControlJson] = d2("{}");
+    const [authJson, setAuthJson] = d2("{}");
+    const [integrationsJson, setIntegrationsJson] = d2("{}");
+    const [status, setStatus] = d2("Loading Control Plane\u2026");
+    const setLoaded = (loaded) => {
+      setData(loaded);
+      setControlJson(JSON.stringify(loaded.controlPolicy, null, 2));
+      setAuthJson(JSON.stringify(loaded.authPolicy, null, 2));
+      setIntegrationsJson(JSON.stringify(loaded.integrations, null, 2));
+      setStatus("");
+    };
+    const reload = async () => setLoaded(await loadControlPlane(request, accessLevel2));
+    h2(() => {
+      let current = true;
+      loadControlPlane(request, accessLevel2).then((loaded) => current && setLoaded(loaded)).catch((error) => current && setStatus(error instanceof Error ? error.message : "Control Plane is unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [accessLevel2, request]);
+    const save = async (document2, source, label) => {
+      setStatus(`Saving ${label}\u2026`);
+      try {
+        await saveControlPlaneDocument(request, accessLevel2, document2, parseDocument(source, label));
+        await reload();
+        setStatus(`${label} saved and reloaded.`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : `${label} could not be saved`);
+      }
+    };
+    const readinessChecks = records3(data.readiness.checks);
+    const providers = records3(data.integrations.modelProviders);
+    const connectors = records3(data.integrations.connectors);
+    const canManage = controlPlaneManagementAvailable(accessLevel2);
+    return /* @__PURE__ */ u3("div", { id: "controlPlanePanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Control Plane Readiness" }),
+        /* @__PURE__ */ u3("p", { children: [
+          "Alpha ",
+          String(data.readiness.alphaScore || 0),
+          "% \xB7 Production ",
+          String(data.readiness.productionScore || 0),
+          "%"
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: readinessChecks.map((check, index) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: String(check.label || check.id || "Readiness check") }),
+          /* @__PURE__ */ u3("p", { children: [
+            "alpha ",
+            check.alpha ? "ready" : "open",
+            " \xB7 production ",
+            check.production ? "ready" : "open",
+            " \xB7 ",
+            String(check.detail || "")
+          ] })
+        ] }, String(check.id || index))) })
+      ] }),
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Model Providers" }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: providers.map((provider, index) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: String(provider.label || provider.id || "Provider") }),
+          /* @__PURE__ */ u3("p", { children: [
+            String(provider.id || ""),
+            " \xB7 ",
+            String(provider.status || "registry-ready")
+          ] })
+        ] }, String(provider.id || index))) })
+      ] }),
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Tool Integrations" }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: connectors.map((connector, index) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: String(connector.label || connector.id || "Connector") }),
+          /* @__PURE__ */ u3("p", { children: [
+            String(connector.kind || "integration"),
+            " \xB7 ",
+            String(connector.status || "registry-ready"),
+            " \xB7 ",
+            connector.locked ? "locked" : connector.enabled ? "enabled" : "disabled"
+          ] })
+        ] }, String(connector.id || index))) })
+      ] }),
+      canManage && /* @__PURE__ */ u3("section", { class: "panel-form", "aria-label": "Control Plane configuration", children: [
+        /* @__PURE__ */ u3("label", { children: [
+          "Control Policy JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 16, value: controlJson, onInput: (event) => setControlJson(event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "button", onClick: () => save("control-policy", controlJson, "Control Policy"), children: "Save Control Policy" }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Auth Policy JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 16, value: authJson, onInput: (event) => setAuthJson(event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "button", onClick: () => save("auth-policy", authJson, "Auth Policy"), children: "Save Auth Policy" }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Integration Registry JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 16, value: integrationsJson, onInput: (event) => setIntegrationsJson(event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "button", onClick: () => save("integrations", integrationsJson, "Integration Registry"), children: "Save Integrations" })
+      ] }),
+      status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -2319,6 +2473,7 @@ select {
                 section.id === "missions" && activeSettingsSection === "missions" && capabilityState.view && /* @__PURE__ */ u3(MissionsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "knowledge" && activeSettingsSection === "knowledge" && capabilityState.view && /* @__PURE__ */ u3(KnowledgePanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "profiles" && activeSettingsSection === "profiles" && capabilityState.view && /* @__PURE__ */ u3(RuntimeProfilesPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
+                section.id === "integrations" && activeSettingsSection === "integrations" && capabilityState.view && /* @__PURE__ */ u3(ControlPlanePanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",
