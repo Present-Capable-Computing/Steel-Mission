@@ -24,9 +24,11 @@ class ContractPageParser(HTMLParser):
         super().__init__()
         self.nodes: dict[str, dict[str, Any]] = {}
         self.groups: list[dict[str, str]] = []
+        self.tags: list[str] = []
         self._active: list[tuple[str, str]] = []
 
     def handle_starttag(self, tag: str, attributes: list[tuple[str, str | None]]) -> None:
+        self.tags.append(tag)
         attrs = {name: value or "" for name, value in attributes}
         if attrs.get("role") == "group":
             self.groups.append(attrs)
@@ -67,7 +69,9 @@ def ui_contract_errors(
     knowledge: dict[str, Any],
 ) -> list[str]:
     errors = []
-    if page_status != 200 or "<main>" not in html:
+    parser = ContractPageParser()
+    parser.feed(html)
+    if page_status != 200 or "main" not in parser.tags:
         errors.append("the work route must answer with the application page")
     if vocabulary_status != 200 or vocabulary.get("ok") is not True:
         errors.append("the vocabulary route must answer for a signed-in user")
@@ -89,8 +93,6 @@ def ui_contract_errors(
         if key and label.split(" · ").count(key) != 1:
             errors.append(f"the {key} label must print its key once")
 
-    parser = ContractPageParser()
-    parser.feed(html)
     definition = parser.nodes.get("domainCapabilityDefinition")
     definition_term = next(
         (
@@ -170,18 +172,48 @@ def ui_lexicon_errors(html: str) -> list[str]:
 
 def test_shipped_page_satisfies_the_ui_behavior_contract():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    page_status, html = route_response(chat, "/")
     vocabulary_status, vocabulary = route_response(chat, "/api/vocabulary")
 
-    errors = ui_contract_errors(
-        page_status,
-        html,
-        vocabulary_status,
-        vocabulary,
-        chat["knowledge_registry"](),
-    )
+    for selector in ("legacy", "application"):
+        errors = ui_contract_errors(
+            200,
+            chat["chat_index"](selector),
+            vocabulary_status,
+            vocabulary,
+            chat["knowledge_registry"](),
+        )
 
-    assert errors == [], errors
+        assert errors == [], f"{selector}: {errors}"
+
+
+def test_legacy_default_and_flagged_application_route_are_both_reachable(monkeypatch):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+
+    default_status, default_html = route_response(chat, "/")
+    assert default_status == 200
+    assert default_html == chat["legacy_chat_index"]()
+
+    monkeypatch.setenv("STEEL_MISSION_UI", "application")
+    application_status, application_html = route_response(chat, "/app")
+    assert application_status == 200
+    assert application_html == chat["application_chat_index"]()
+
+
+def test_head_length_matches_the_selected_page_body(monkeypatch):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    monkeypatch.setenv("STEEL_MISSION_UI", "application")
+    handler = object.__new__(chat["Handler"])
+    response: dict[str, Any] = {"headers": {}}
+    handler.path = "/app"
+    handler.send_response = lambda status: response.update(status=status)
+    handler.send_header = lambda name, value: response["headers"].update({name: value})
+    handler.end_headers = lambda: None
+
+    handler.do_HEAD()
+
+    body = chat["chat_index"]("application").encode("utf-8")
+    assert response["status"] == 200
+    assert int(response["headers"]["Content-Length"]) == len(body)
 
 
 def test_ui_behavior_contract_rejects_each_required_regression():
