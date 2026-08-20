@@ -6439,6 +6439,68 @@ def test_steel_mission_shipped_capability_assignments_survive_save_and_remain_au
     assert by_key["DC04"]["users"] == ["jordan-lee"]
 
 
+def test_steel_mission_capability_registry_endpoint_authorization_and_round_trip(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    assignment_registry = tmp_path / "domain-capabilities.json"
+    user_registry = tmp_path / "users.json"
+    shipped = json.loads((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
+    assignment_registry.write_text(json.dumps(shipped, sort_keys=True))
+    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["USER_REGISTRY_PATH"] = user_registry
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+
+    def post(payload, actor):
+        responses = []
+        globals_["read_json"] = lambda _handler: payload
+        globals_["json_response"] = lambda _handler, status, response: responses.append(
+            (status, response)
+        )
+        handler = object.__new__(chat["Handler"])
+        handler.path = "/api/owner/assignments"
+        handler.authenticate = lambda _path, _method: actor
+        handler.do_POST()
+        return responses[0]
+
+    before = assignment_registry.read_bytes()
+    status, refusal = post(shipped, {"actorId": "avery-stone", "role": "publisher"})
+    assert status == 403
+    assert refusal["ok"] is False
+    assert assignment_registry.read_bytes() == before
+
+    submitted = json.loads(json.dumps(shipped))
+    next(item for item in submitted["assignments"] if item["roleKey"] == "DC01")[
+        "publishers"
+    ].append("avery-stone")
+    status, saved = post(submitted, {"actorId": "morgan-vale", "role": "owner"})
+    assert status == 200
+    assert saved["ok"] is True
+
+    responses = []
+    globals_["json_response"] = lambda _handler, status, response: responses.append(
+        (status, response)
+    )
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/owner/assignments"
+    handler.authenticate = lambda _path, _method: {"actorId": "morgan-vale", "role": "owner"}
+    handler.do_GET()
+    status, reloaded = responses[0]
+    by_key = {item["roleKey"]: item for item in reloaded["assignments"]}
+    assert status == 200
+    assert by_key["DC01"]["publishers"] == ["avery-stone"]
+
+    accepted = assignment_registry.read_bytes()
+    invalid = json.loads(json.dumps(submitted))
+    next(item for item in invalid["assignments"] if item["roleKey"] == "DC02")["users"].append(
+        "unknown-user"
+    )
+    status, refusal = post(invalid, {"actorId": "morgan-vale", "role": "owner"})
+    assert status == 400
+    assert "unknown-user" in refusal["error"]
+    assert assignment_registry.read_bytes() == accepted
+
+
 def test_steel_mission_corrupt_capability_registry_is_recorded_and_refused(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     assignment_registry = tmp_path / "domain-capabilities.json"
