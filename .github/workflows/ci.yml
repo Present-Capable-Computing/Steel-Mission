@@ -60,3 +60,43 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+  ui-build:
+    name: UI build is reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - name: Install from the lockfile
+        run: npm ci
+
+      - name: Audit high-severity dependencies
+        run: npm audit --audit-level=high
+
+      - name: Type-check the application
+        run: npm run ui:typecheck
+
+      - name: Run front-end unit tests
+        run: npm run ui:test
+
+      - name: Compare the committed page with a clean rebuild
+        run: npm run ui:check
+
+      - name: Prove edited generated output is rejected
+        run: |
+          cp steel-mission-chat/app.html "$RUNNER_TEMP/steel-mission-app.html"
+          printf '\n<!-- deliberate rebuild drift -->\n' >> steel-mission-chat/app.html
+          if npm run ui:check; then
+            printf 'ui:check must reject an edited committed page\n' >&2
+            exit 1
+          fi
+          mv "$RUNNER_TEMP/steel-mission-app.html" steel-mission-chat/app.html
+          npm run ui:check
+          git diff --exit-code -- steel-mission-chat/app.html

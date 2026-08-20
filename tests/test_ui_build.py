@@ -12,6 +12,7 @@ PROOF_PAGE = REPO_DIR / "tests" / "fixtures" / "ui-build-proof.html"
 PACKAGE_MANIFEST = REPO_DIR / "package.json"
 PACKAGE_LOCK = REPO_DIR / "package-lock.json"
 APP_PAGE = REPO_DIR / "steel-mission-chat" / "app.html"
+CI_WORKFLOW = REPO_DIR / ".github" / "workflows" / "ci.yml"
 
 
 def test_real_iife_bundle_satisfies_the_legacy_script_constraints(tmp_path):
@@ -110,3 +111,25 @@ def test_ui_builder_is_an_unminified_iife_with_no_external_assets():
     assert "write: false" in builder
     assert "<style>" in builder
     assert "<script>" in builder
+
+
+def test_ci_has_an_isolated_reproducible_ui_job():
+    workflow = CI_WORKFLOW.read_text()
+    python_job, ui_job = workflow.split("  ui-build:", 1)
+
+    assert "npm ci" not in python_job
+    assert "name: UI build is reproducible" in ui_job
+    assert "node-version: 24.14.0" in ui_job
+    assert "npm ci" in ui_job
+    assert "npm audit --audit-level=high" in ui_job
+    assert "npm run ui:typecheck" in ui_job
+    assert "npm run ui:test" in ui_job
+    assert "npm run ui:check" in ui_job
+
+
+def test_ci_watches_an_edited_committed_page_fail_then_restores_it():
+    workflow = CI_WORKFLOW.read_text()
+
+    assert "deliberate rebuild drift" in workflow
+    assert "must reject an edited committed page" in workflow
+    assert workflow.count("npm run ui:check") >= 3

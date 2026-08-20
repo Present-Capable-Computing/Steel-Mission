@@ -1,4 +1,4 @@
-.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop docker-build docker-up docker-down docker-status private-runner-image private-runner-status ui-build ui-check release-check plan-check plan-sync
+.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop docker-build docker-up docker-down docker-status private-runner-image private-runner-status ui-build ui-check ui-test release-check plan-check plan-sync
 
 PYTHON ?= python3
 HOST ?= 127.0.0.1
@@ -61,6 +61,9 @@ ui-build:
 ui-check:
 	npm run ui:typecheck
 	npm run ui:check
+
+ui-test:
+	npm run ui:test
 
 plan-check:
 	$(PYTHON) -m pytest tests/test_plan_records.py -q

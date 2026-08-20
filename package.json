@@ -6,6 +6,7 @@
   "scripts": {
     "ui:build": "node tooling/build-ui.mjs",
     "ui:check": "node tooling/build-ui.mjs --check",
+    "ui:test": "node tooling/test-ui.mjs",
     "ui:typecheck": "tsc --project steel-mission-ui/tsconfig.json --noEmit"
   },
   "devDependencies": {
