@@ -5,7 +5,7 @@
     "recordId": "PRJ-0001",
     "recordFile": "plan/PRJ-0001.json",
     "boardTitle": "Steel-Mission — Delivery",
-    "boardDescription": "Steel-Mission delivery. PRJ-0000 usable surface and honest admin writes (active); PRJ-0001 durable broker and remote pull-runner (paused). Source of truth for the shape of this work is plan/ in the repository; this board is the working surface.",
+    "boardDescription": "Steel-Mission delivery. PRJ-0000 usable surface and honest admin writes (complete); PRJ-0001 durable broker and remote pull-runner (active). Source of truth for the shape of this work is plan/ in the repository; this board is the working surface.",
     "boardVisibility": "public",
     "$commentVisibility": "The repository is public and every item on the board is a public issue, so a private board would hide a view of public information without protecting anything.",
     "fields": [
@@ -92,7 +92,7 @@
           "Milestone",
           "Assignees"
         ],
-        "$comment": "PRJ-0001's tasks in phase order; the project is paused while PRJ-0000 closes MS-0012."
+        "$comment": "PRJ-0001's tasks in phase order; this is the active project after PRJ-0000 closed MS-0012."
       },
       {
         "name": "By phase",
@@ -247,12 +247,12 @@
     {
       "name": "prj:PRJ-0000",
       "color": "6a737d",
-      "description": "Usable surface and honest admin writes (active)"
+      "description": "Usable surface and honest admin writes (complete)"
     },
     {
       "name": "prj:PRJ-0001",
       "color": "0e8a16",
-      "description": "Durable broker and remote pull-runner (paused)"
+      "description": "Durable broker and remote pull-runner (active)"
     },
     {
       "name": "stage:U0",
@@ -305,36 +305,42 @@
       "recordId": "MS-0007",
       "title": "U0 — Configuration integrity and the admin write path",
       "due_on": "2026-08-27T23:59:59Z",
+      "state": "closed",
       "description": "MS-0007 · record: plan/MS-0007.json · PRJ-0000 · stage U0\n\nOutcome: Every writer of a configuration file refuses input it cannot represent instead of coercing it and answering 200. The domain-capability registry loses its one-way door: a file in the shipped shape stays readable after the first save, and a user identifier absent from the user registry is refused rather than accepted. Capability authorization on mission bindings is enforced in every identity mode, with the development allowance stated in the auth policy rather than implied by a mode branch. Every configuration writer validates against a registered schema before it writes. The only writer of the capability registry has tests.\n\nNot in scope: No interface change of any kind, no build step, no framework. No renaming of any wire field, configuration key, environment variable or module-level function: snapshotProfile, runtimeProfile, the runtime-profile endpoint, STEEL_MISSION_RUNTIME_PROFILE and resolve_runtime_profile keep their names, because the runtime-profile tests pin them and the harness silently stops patching a renamed function rather than failing. No schema work outside the configuration directory.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0008",
       "title": "U1 — One vocabulary, in the page that ships today",
       "due_on": "2026-09-02T23:59:59Z",
+      "state": "closed",
       "description": "MS-0008 · record: plan/MS-0008.json · PRJ-0000 · stage U1\n\nOutcome: Profile, Role and Capability each name exactly one thing in visible text. The capability list is derived from the registry the server already publishes rather than a hardcoded array, and a label prints its key once instead of twice. The picker that chooses which model executes the Delivery Coordinator says so, rather than being labelled Profile beside a list of thirteen capabilities it has nothing to do with. The definition of a Domain Capability is visible to publishers and users, not only behind the owner gate. The work-mode switch states what it changes.\n\nNot in scope: No build step, no framework, no bundler: this milestone edits the shipped page in place, which is what makes it cheap and immediately visible. No restructuring of the eight-section settings dialog, which is MS-0010. No wire renames - the boundary stated in MS-0007 holds here unchanged, because this is a presentation vocabulary and every field, endpoint and environment variable keeps its name.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0009",
       "title": "U2 — A build step, recorded and reversible",
       "due_on": "2026-09-10T23:59:59Z",
+      "state": "closed",
       "description": "MS-0009 · record: plan/MS-0009.json · PRJ-0000 · stage U2\n\nOutcome: The front end builds from typed source with a pinned three-package toolchain. The built page is committed, and continuous integration proves it is byte-identical to a clean rebuild, so a hand-edited bundle cannot enter the tree. The new application is reachable behind a server flag at a non-default route. The contract test from MS-0008 passes against both pages.\n\nNot in scope: The default page does not change: the root route still serves the page that ships today, and that file is left byte-untouched so the existing implementation-pinning assertions stay green. No container change and no new runtime dependency in the image. No static-asset route in the server - the served page remains the single file the server already reads, and the closed route allow-list is preserved. No feature work in the new application beyond what the contract test requires.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0010",
       "title": "U3 — The rebuilt console at parity, then default",
       "due_on": "2026-09-30T23:59:59Z",
+      "state": "closed",
       "description": "MS-0010 · record: plan/MS-0010.json · PRJ-0000 · stage U3\n\nOutcome: Settings are navigable structures rather than one dialog holding eight sections whose element identifiers are all named after profiles. The capability workspace renders for the roles it was written for, having previously rendered for nobody. The owner assignment editor exists, is authorized, and is the interface for the endpoint that had none. The rebuilt application becomes the default page.\n\nNot in scope: No new product capability and no change to any interface contract: every call the new application makes exists today, and the twelve non-coordinator Domain Capabilities do not become conversational agents. The page that ships today remains in the tree and remains reachable. No visual redesign beyond what the information architecture and the named defects require.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0011",
       "title": "U4 — Legacy retirement and the standing rule",
       "due_on": "2026-10-04T23:59:59Z",
+      "state": "closed",
       "description": "MS-0011 · record: plan/MS-0011.json · PRJ-0000 · stage U4\n\nOutcome: The page that shipped before the rebuild is removed as its own recorded decision, and the workplan carries the standing rule for front-end dependencies so the next person does not relitigate it. PRJ-0001 returns to ACTIVE with its milestone dates re-set from the date it resumes.\n\nNot in scope: Nothing else. A removal that also changes something is a removal whose regression cannot be attributed. No new dependency, no visual change, no behaviour change.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0012",
       "title": "U5 — Review findings",
       "due_on": "2026-08-22T23:59:59Z",
+      "state": "closed",
       "description": "MS-0012 · record: plan/MS-0012.json · PRJ-0000 · stage U5\n\nOutcome: The four findings from the review of PRJ-0000 are closed. The published image carries no front-end toolchain under /workspace, so the reversibility condition that the image gains no node dependency for the product is true rather than intended. The provider command-line tools under /usr/local/lib legitimately ship node and their own modules, and are untouched. Every one of the thirteen domain capabilities is either assigned or recorded as deliberately unowned with a reason, so a gap is a decision rather than an oversight. Running the product does not modify configuration files that are under version control, so development and testing stop dirtying the tree. A loopback console session with no locally stored identity resolves to a real registered actor rather than an anonymous one that matches nobody and holds no capabilities, so opening the console for the first time is never a dead end with no way to reach Settings.\n\nNot in scope: No new product capability, no interface redesign, no change to the vocabulary or the information architecture settled in MS-0008 and MS-0010. No change to the build toolchain itself: the three pinned packages, the committed page and the drift gate all stand. This milestone closes findings, and a finding that turns out to need design is raised rather than absorbed here. No login screen or identity-picker UI, and no change to oidc-required behaviour: the fix stays inside the development-local loopback trust boundary that already exists.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {

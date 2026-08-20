@@ -152,7 +152,8 @@ def sync_milestones(repo: str, milestones: list[dict]) -> dict[str, tuple[int, s
             number = current["number"]
             numbers[spec["recordId"]] = (number, title)
             drifted = (current.get("description") != spec["description"]
-                       or (current.get("due_on") or None) != (spec.get("due_on") or None))
+                       or (current.get("due_on") or None) != (spec.get("due_on") or None)
+                       or current.get("state") != spec.get("state", "open"))
             if drifted:
                 say("update milestone", title)
                 if not DRY_RUN:

@@ -8,7 +8,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "ACTIVE",
+  "state": "COMPLETE",
   "summary": "Make the Steel Mission surface teach the right model, and stop several admin writes doing something other than what was asked. The product ships a single-file console of 2,580 lines of JavaScript in which the word Profile names three different things in visible text, Role four, and Capability three; the only definition of a Domain Capability sits behind an owner and admin gate, so the people who are assigned capabilities are never told what they have. Underneath, an organisation saved with zero capabilities is granted all thirteen, a user registry posted empty is silently repopulated with four accounts, suspending a user re-enables them, and the only writer of the capability registry is unreachable from the product and untested. The project ends when configuration writers refuse what they cannot represent, capability assignment has one mechanism and a surface that shows it, every concept has exactly one name, and the console is rebuilt from typed source with the vocabulary enforced by a test rather than by discipline.",
   "milestoneIds": [
     "MS-0007",
@@ -57,6 +57,8 @@
       }
     ],
     "reopenedAt": "2026-08-20",
-    "reopenReason": "Reopened after review. The five delivered milestones closed their tasks, but the review found the published image carries the front-end toolchain, which contradicts the reversibility condition that the image gains no node dependency. COMPLETE would have said the tasks were closed, which was true, and implied the outcome held, which was not. MS-0012 closes the findings."
+    "reopenReason": "Reopened after review. The five delivered milestones closed their tasks, but the review found the published image carries the front-end toolchain, which contradicts the reversibility condition that the image gains no node dependency. COMPLETE would have said the tasks were closed, which was true, and implied the outcome held, which was not. MS-0012 closes the findings.",
+    "recompletedAt": "2026-08-20",
+    "recompletionReason": "MS-0012 closed all four review findings with their required tests, runtime evidence, green continuous integration and reviewed pull requests. PRJ-0001 resumes under PRJ-0000-D2."
   }
 }

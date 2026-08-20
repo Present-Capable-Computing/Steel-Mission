@@ -8,7 +8,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "PAUSED",
+  "state": "ACTIVE",
   "summary": "Replace the Steel-Mission execution core with a durable, transactional job service and a pull-based runner that executes in customer infrastructure. Today state is one unlocked JSON document with last-writer-wins semantics, execution is a synchronous subprocess call with a fixed cap and silent output truncation, job requests carry host-local paths, and two disjoint orchestration paths exist that never write to each other. Connector delivery has no retry, no backoff and no dead-letter path. The project ends when one storage interface with a SQLite default and a PostgreSQL option backs a single orchestration path, a remote runner claims work over gRPC and returns signed attested results, and connector ingress and egress are transactional.",
   "milestoneIds": [
     "MS-0001",
@@ -32,7 +32,7 @@
       "contingencyPercent": 25,
       "focusedDaysWithContingency": 20.0,
       "redefendedAt": "2026-08-20",
-      "redefense": "Scope, risk categories and irreducible empirical work are unchanged at the resume boundary, so the focused estimate remains 16.1 days and the delta is +0.0 focused days.",
+      "redefense": "Scope, risk categories and irreducible empirical work are unchanged at the second 2026-08-20 resume boundary after MS-0012, so the focused estimate remains 16.1 days and the delta is +0.0 focused days. The pause began and ended on the same date, so the already reset targets remain true and do not move again.",
       "note": "A focused-day figure is a planning estimate, never a commitment and never evidence that work is on schedule. Re-defend at every milestone boundary and print the delta."
     },
     "decisions": [
@@ -66,6 +66,6 @@
     "pausedAt": "2026-08-20",
     "pauseReason": "Paused again when PRJ-0000 reopened for MS-0012. Decision PRJ-0000-D2 is binding and says PRJ-0000 runs first; leaving both projects ACTIVE would have contradicted it silently. MS-0012 is budgeted at half a focused day, so the target dates are kept rather than cleared and re-set: they are not yet wrong, and churning them twice for a short interruption is noise. Resumes when MS-0012 closes; if the interruption runs long enough to make the dates wrong, they are cleared then.",
     "resumedAt": "2026-08-20",
-    "resumeReason": "PRJ-0000 completed at the close of MS-0011. The original PRJ-0001 scope and cadence remain, with every target reset from this resume date."
+    "resumeReason": "PRJ-0000 completed again at the close of MS-0012. The interruption began and ended on 2026-08-20, so PRJ-0001 resumes with its scope, estimate and already reset target dates unchanged."
   }
 }

@@ -8,17 +8,17 @@ contract wins and this document is corrected.
 It binds everyone who lands a commit here — employees, contractors, and agents
 running under a person's account. An agent's commit is that person's commit.
 
-**Active project: `PRJ-0000`.** It completed MS-0011 on 2026-08-20, then reopened
-the same day for the four review findings in MS-0012. `PRJ-0001` is paused until
-MS-0012 closes, as required by PRJ-0000-D2. Each project's decisions live in its
-own record; §2 below carries PRJ-0001's, and PRJ-0000's are in
-`plan/PRJ-0000.json`. The rules in §4, the definition of done in §5 and the
-enforcement in §6 apply to both.
+**Active project: `PRJ-0001`.** `PRJ-0000` completed again on 2026-08-20 after
+closing all four MS-0012 review findings. PRJ-0000-D2 therefore resumes PRJ-0001;
+the interruption began and ended on the same date, so its already reset dates stay
+true and do not move again. Each project's decisions live in its own record; §2
+below carries PRJ-0001's, and PRJ-0000's are in `plan/PRJ-0000.json`. The rules in
+§4, the definition of done in §5 and the enforcement in §6 apply to both.
 
 | | Project | Technical plan | Milestones |
 |---|---|---|---|
-| **Active** | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0012](../plan/MS-0012.json) |
-| Paused | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
+| Complete | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0012](../plan/MS-0012.json) |
+| **Active** | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
 
 - How the plan layer maps onto GitHub: [`plan/README.md`](../plan/README.md)
 
@@ -87,11 +87,12 @@ is not a commitment, and a milestone being inside its budget is not evidence tha
 the work is correct. Re-defend the estimate at every milestone boundary and
 print the delta rather than absorbing it.
 
-Re-defended at the 2026-08-20 resume boundary: the scope, risk categories and
-irreducible empirical work are unchanged, so the focused estimate remains 16.1 days
-and the printed delta is **+0.0 focused days**. The declared contingency remains
-approximately 20 days. The original milestone cadence is preserved from the resume
-date, moving each target one calendar day from its pre-pause value.
+Re-defended at the second 2026-08-20 resume boundary, after MS-0012: the scope,
+risk categories and irreducible empirical work are unchanged, so the focused
+estimate remains 16.1 days and the printed delta is **+0.0 focused days**. The
+declared contingency remains approximately 20 days. The interruption began and
+ended on the same date, so the targets already reset at the first resume remain
+true and do not move again.
 
 Target dates on the milestone records are targets. `AT_RISK` describes the schedule.
 It never describes the work.

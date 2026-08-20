@@ -50,27 +50,27 @@ The three rules that matter most here:
   module-level names. A renamed function does not fail loudly — it silently stops
   being patched, and the suite stays green while testing nothing.
 
-## The active project is PRJ-0000
+## The active project is PRJ-0001
 
 | | |
 |---|---|
-| Project record | [`plan/PRJ-0000.json`](plan/PRJ-0000.json) |
-| Design | [`docs/ui-plan.md`](docs/ui-plan.md) |
-| Milestone | [`plan/MS-0012.json`](plan/MS-0012.json) |
-| Issues | label `prj:PRJ-0000` |
+| Project record | [`plan/PRJ-0001.json`](plan/PRJ-0001.json) |
+| Design | [`docs/durable-core-plan.md`](docs/durable-core-plan.md) |
+| Milestone | [`plan/MS-0001.json`](plan/MS-0001.json) |
+| Issues | label `prj:PRJ-0001` |
 | Board | https://github.com/orgs/Present-Capable-Computing/projects/1 |
 
-`PRJ-0000` reopened on 2026-08-20 for the four review findings in MS-0012.
-`PRJ-0001` is paused until MS-0012 closes, as required by the still-binding
-PRJ-0000-D2 ordering decision. Start with the two findings that must not be
-deferred: #169, then #166; close #167 and #168 one issue per branch after them.
+`PRJ-0000` completed again on 2026-08-20 after all four MS-0012 review findings
+closed. `PRJ-0001` is active again under the still-binding PRJ-0000-D2 ordering
+decision. Its scope, estimate and already reset target dates remain unchanged
+because the interruption began and ended on the same date.
 
 ### Picking up an issue
 
 ```sh
-gh issue list --label prj:PRJ-0000 --state open
+gh issue list --label prj:PRJ-0001 --state open
 gh issue view <n>
-git checkout -b <milestone>/<short-slug>      # e.g. ms-0012/loopback-identity
+git checkout -b <milestone>/<short-slug>      # e.g. ms-0001/checkout-v7
 ```
 
 Each issue states a **requirement** as an outcome and the **acceptance evidence**
