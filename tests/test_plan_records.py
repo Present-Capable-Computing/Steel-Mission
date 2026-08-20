@@ -159,7 +159,7 @@ def test_plan_sync_repairs_milestone_state_only_drift():
         if method == "GET":
             return [{
                 "number": 12,
-                "title": "U5 — Review findings",
+                "title": "U5 - Review findings",
                 "description": "same description",
                 "due_on": "2026-08-22T23:59:59Z",
                 "state": "open",
@@ -171,7 +171,7 @@ def test_plan_sync_repairs_milestone_state_only_drift():
     globals_["api"] = fake_api
     sync["sync_milestones"]("owner/repository", [{
         "recordId": "MS-0012",
-        "title": "U5 — Review findings",
+        "title": "U5 - Review findings",
         "description": "same description",
         "due_on": "2026-08-22T23:59:59Z",
         "state": "closed",

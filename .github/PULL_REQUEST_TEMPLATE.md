@@ -11,7 +11,7 @@ Closes #
 
 <!-- What was run, and what it said. Paste the counts. -->
 
-- [ ] `make test` — result:
+- [ ] `make test`; result:
 - [ ] Tests added for the behaviour this changes, and watched to fail without the fix
 - [ ] Docs or schemas updated if the contract moved
 

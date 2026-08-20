@@ -13,7 +13,7 @@ body:
     attributes:
       label: Milestone
       description: Which milestone this belongs to, if any. Leave blank if unscheduled.
-      placeholder: P1 — Durable broker service
+      placeholder: "P1: durable broker service"
   - type: textarea
     id: requirement
     attributes:

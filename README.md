@@ -241,10 +241,10 @@ Delivery work is organised as one project with milestones and tasks, not as loos
 branches. Read the workplan before your first pull request: it is binding, and it
 states what "done" means here.
 
-- [Workplan](docs/workplan.md) — binding rules, milestone sequence, definition of done, how it is enforced
-- [Durable core plan](docs/durable-core-plan.md) — the technical design for the current project
-- [Plan records](plan/) — the project and milestone records, and how they map onto GitHub
-- [Contributing](CONTRIBUTING.md) — set up, test and land a change
+- [Workplan](docs/workplan.md): binding rules, milestone sequence, definition of done, how it is enforced
+- [Durable core plan](docs/durable-core-plan.md): the technical design for the current project
+- [Plan records](plan/): the project and milestone records, and how they map onto GitHub
+- [Contributing](CONTRIBUTING.md): set up, test and land a change
 - [Milestones](https://github.com/Present-Capable-Computing/Steel-Mission/milestones) · [Issues](https://github.com/Present-Capable-Computing/Steel-Mission/issues)
 
 ## Release Posture

@@ -5,7 +5,7 @@ every project in it. It is not a suggestion set. Where it conflicts with habit, 
 document wins; where it conflicts with a schema or a canonical contract, the
 contract wins and this document is corrected.
 
-It binds everyone who lands a commit here — employees, contractors, and agents
+It binds everyone who lands a commit here: employees, contractors, and agents
 running under a person's account. An agent's commit is that person's commit.
 
 **Active project: `PRJ-0001`.** `PRJ-0000` completed again on 2026-08-20 after
@@ -17,8 +17,8 @@ below carries PRJ-0001's, and PRJ-0000's are in `plan/PRJ-0000.json`. The rules 
 
 | | Project | Technical plan | Milestones |
 |---|---|---|---|
-| Complete | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0012](../plan/MS-0012.json) |
-| **Active** | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
+| Complete | [`PRJ-0000`](../plan/PRJ-0000.json): usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0012](../plan/MS-0012.json) |
+| **Active** | [`PRJ-0001`](../plan/PRJ-0001.json): durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
 
 - How the plan layer maps onto GitHub: [`plan/README.md`](../plan/README.md)
 
@@ -50,10 +50,10 @@ signed webhook or API call
   -> evidence ledger + transactional connector outbox
 ```
 
-## 2. Decisions that are already made — PRJ-0001
+## 2. Decisions that are already made (PRJ-0001)
 
 These are settled. Reopening one requires new evidence and a written decision record
-that supersedes it — not a preference expressed in a review.
+that supersedes it, not a preference expressed in a review.
 
 | Id | Decision |
 |---|---|
@@ -64,7 +64,7 @@ that supersedes it — not a preference expressed in a review.
 | D5 | The database is the queue. The broker command line, the daemon and the chat server are direct clients of one store, sharing one command module and one state machine. There is no command-line-to-daemon remote call. |
 | D6 | Two network surfaces exist and no more: the runner-facing gRPC gateway on the daemon, and an authenticated HTTP operations API. Anything else that wants to listen argues for itself first. |
 
-## 3. Milestone sequence — PRJ-0001
+## 3. Milestone sequence (PRJ-0001)
 
 Milestones run in order. P5 is last because it collides with the file paths of every
 other phase.
@@ -81,8 +81,8 @@ other phase.
 Total estimated effort is 16.1 days before contingency and approximately 20 days
 with the declared 25 percent. It is estimated per category and divided by an
 expected acceleration factor, with security-sensitive and novel integration work
-held at the cautious end of its range and irreducible empirical time — kill tests,
-image builds, continuous integration waits — counted at no acceleration at all. It
+held at the cautious end of its range and irreducible empirical time (kill tests,
+image builds, continuous integration waits) counted at no acceleration at all. It
 is not a commitment, and a milestone being inside its budget is not evidence that
 the work is correct. Re-defend the estimate at every milestone boundary and
 print the delta rather than absorbing it.
@@ -115,8 +115,8 @@ that is testing nothing.
 ### 4.2 One reason per pull request
 
 A pull request does one thing. A refactor that also fixes a bug produces a
-regression nobody can attribute. The two riskiest changes in this project — the
-container hardening extraction in P2 and the naming migration in P5 — ship as pure
+regression nobody can attribute. The two riskiest changes in this project (the
+container hardening extraction in P2 and the naming migration in P5) ship as pure
 refactors with characterization tests and no behaviour change whatsoever.
 
 ### 4.3 The pull request describes the branch
@@ -142,9 +142,9 @@ ratification separately from the merge that carries it.
 
 ### 4.6 Reversibility is stated before the merge, not discovered after
 
-Every pull request says how the change is undone. If it cannot be undone cleanly —
-a migration that drops a column, a schema identifier that has already been published
-— say that in the pull request. That is a decision to take deliberately, and it is
+Every pull request says how the change is undone. If it cannot be undone cleanly
+(a migration that drops a column, a schema identifier that has already been published),
+say that in the pull request. That is a decision to take deliberately, and it is
 much cheaper to take it before the merge.
 
 ### 4.7 Schemas move first
@@ -156,7 +156,7 @@ is what validates, and the proto is what transports.
 
 ### 4.8 Secrets are references
 
-A job specification carries `secretRefs` — a name and where to look — never a value.
+A job specification carries `secretRefs` (a name and where to look), never a value.
 Resolution happens just in time in the runner, into the environment of the sandboxed
 process. There is a test that greps the process arguments, the store dump, the logs
 and the artifacts for a sentinel. If you add a path that could carry a secret, add it
@@ -165,13 +165,13 @@ to that test.
 ### 4.9 Never hold a transaction across the world
 
 The exclusive state transaction serializes writers. It must never enclose a worker
-invocation, a network call, or a heartbeat renewal — that converts a correctness fix
+invocation, a network call, or a heartbeat renewal; that converts a correctness fix
 into a throughput collapse. Heartbeats write to the leases table directly.
 
 ### 4.10 A migration keeps the old path green
 
 The legacy JSON state document is mirrored after every mutation for as long as tests
-assert on it. Retiring the mirror is its own decision, taken once, deliberately —
+assert on it. Retiring the mirror is its own decision, taken once, deliberately,
 not a side effect of a convenient refactor.
 
 ### 4.11 The front-end dependency budget is three
@@ -217,14 +217,14 @@ Prose does not bind anyone. These do:
 | Pull request template | Branch-wide description, evidence, surfaces touched, reversibility |
 | Issue templates | A task cannot enter with an empty requirement, matching the control plane's own refusal |
 | Dependabot | Action, pip and container bumps arrive as reviewable pull requests, because a workflow runs with repository credentials |
-| `make release-check` | Whitespace, compilation of every entrypoint, full suite — the same gate locally and in CI |
+| `make release-check` | Whitespace, compilation of every entrypoint, full suite, the same gate locally and in CI |
 
 If you find a way to land a change that skips one of these, that is a defect in the
 setup. Report it rather than using it.
 
 One caveat, stated because a rule everyone quietly bypasses is worse than no rule.
 While there is a single code owner, that person cannot approve their own pull
-request, so their own changes can only land through the repository admin bypass —
+request, so their own changes can only land through the repository admin bypass,
 which is deliberately left available, or the repository would be unmergeable. The
 review requirement therefore binds contributors immediately and the sole maintainer
 only once there is a second reviewer. Every other gate in the table above applies to
@@ -238,7 +238,7 @@ and the templates do not have a bypass in normal use.
 - **Draft early.** A draft pull request opened on the first commit is how the rest of
   us see what is being worked on without asking.
 - **Auto-merge is on.** Queue a pull request and it lands by itself once the checks
-  and the required review pass — which means it lands without you looking at it
+  and the required review pass, which means it lands without you looking at it
   again. Queue it only when you are finished, never as a way of not waiting for a
   review you expect to be told something in. The head branch is deleted on merge;
   the commits are on `main`, so nothing is lost.
@@ -261,7 +261,7 @@ failures injected, not as a checklist someone confirms by hand.
 | A duplicate webhook produces one mission | P3 | Five concurrent signed posts; unique deduplication key; one mission directory |
 | Connector retries produce exactly one reply | P3 | Fake endpoint answers 429 with a hint twice then 200; crash variant kills after the post |
 | No secret appears in arguments, logs, store or artifacts | P2 | Container shim captures arguments; sentinel grepped across the store dump, logs and artifacts |
-| A result is bound to job, runner, image and inputs | P2 | Tampered image digest, then tampered input hashes, then an unenrolled key — each rejected |
+| A result is bound to job, runner, image and inputs | P2 | Tampered image digest, then tampered input hashes, then an unenrolled key, each rejected |
 | Backup and restore preserve integrity | P4 | Archive round-tripped mid-approval; hash chain verifies; approval completes; no duplicate delivery |
 
 Crash points are environment-gated through a test hook module and are inert in

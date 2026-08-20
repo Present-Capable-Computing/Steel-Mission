@@ -15,7 +15,7 @@ A project organises work. A milestone schedules it. Neither says anything about
 whether the work is correct.
 
 `AT_RISK` is a statement about the schedule, never about correctness. `COMPLETE`
-means every task in the milestone is closed or explicitly dropped — it does not
+means every task in the milestone is closed or explicitly dropped; it does not
 mean anything passed verification. A test asserts that no milestone state reads as
 a verification outcome, because a state that could imply completion would silently
 upgrade every task scheduled against it.
@@ -40,13 +40,13 @@ corrected.
 Three things GitHub owns once they are set, and the manifest deliberately does not
 restate: the epic's list of tasks, a task's blockers, and a task's parent. Each was
 originally written into the issue body as prose, which made it a second copy that
-nothing kept true. The body now carries only what GitHub has no field for — the
+nothing kept true. The body now carries only what GitHub has no field for: the
 requirement, the acceptance evidence and the surface.
 
 Two mismatches are deliberate and must not be "fixed":
 
-- **A GitHub milestone has two states, open and closed.** The five-state model —
-  `PLANNED`, `ACTIVE`, `AT_RISK`, `COMPLETE`, `ABANDONED` — lives in the `MS` record.
+- **A GitHub milestone has two states, open and closed.** The five-state model
+  (`PLANNED`, `ACTIVE`, `AT_RISK`, `COMPLETE`, `ABANDONED`) lives in the `MS` record.
   The GitHub milestone is a projection of it, not a competing status.
 - **Issues do not carry `DEV-NNNNNN` ids at creation.** Those ids are minted when
   work enters the control plane pipeline, which refuses a requirement no human has
@@ -72,13 +72,13 @@ tooling/gh-project-bootstrap.sh                 # all of the above, from nothing
 The board's `Phase`, `Area` and `Kind` values are **derived from each issue's
 labels**, not declared a second time in the manifest. A phase stated in two places
 is a phase that will eventually disagree with itself. An item whose labels do not
-map is left unset and reported, never guessed — which is how the two acceptance
+map is left unset and reported, never guessed, which is how the two acceptance
 criteria missing an `area:` label were found.
 
 A view's name, layout, filter and visible columns are set from the manifest.
 Grouping is not: the API exposes the first four and not the fifth, so grouping a
 table by `Phase` is a click in the interface. Views that are not in the manifest are
-reported and left alone rather than deleted — a view someone built for themselves is
+reported and left alone rather than deleted: a view someone built for themselves is
 not drift.
 
 The board needs the `project` token scope, which the `repo` scope does not include.

@@ -1,4 +1,4 @@
-# Durable broker service and remote pull-runner — technical plan
+# Durable broker service and remote pull-runner: technical plan
 
 Project [`PRJ-0001`](../plan/PRJ-0001.json). The governing rules for how this work
 lands are in [`docs/workplan.md`](workplan.md); this document is the design.
@@ -22,7 +22,7 @@ below is verified in the current code, not inferred.
 
 1. **New root package `steel_core/`**, following the import pattern of the existing
    root `adapters` package. All durable logic lives there. The executables and the
-   chat server become thin consumers of it. (Decision D4 — the package is not named
+   chat server become thin consumers of it. (Decision D4: the package is not named
    after the separate programme this code came from.)
 
 2. **The database is the queue.** The broker command line, the daemon and the chat
@@ -35,8 +35,8 @@ below is verified in the current code, not inferred.
 
 3. **Document plus promoted columns.** The legacy per-task document moves into a
    `tasks` table as an opaque body with a promoted status. Everything that is
-   concurrency-hot — workflows, jobs, leases, events, inbox, outbox, runners,
-   evidence — gets real columns. A **JSON mirror** reconstructs the legacy state
+   concurrency-hot (workflows, jobs, leases, events, inbox, outbox, runners,
+   evidence) gets real columns. A **JSON mirror** reconstructs the legacy state
    document after each mutation, on by default locally, so the existing suite stays
    green until the mirror is consciously retired.
 
@@ -61,32 +61,32 @@ below is verified in the current code, not inferred.
    inert in production, plus SIGKILL on a sentinel file for whole-process death.
    Driven from subprocesses, matching how this suite already tests.
 
-## 3. P1 — Durable broker service
+## 3. P1: Durable broker service
 
 **New modules**
 
-- `steel_core/store/__init__.py` — the `Store` interface: transactions, job claim,
+- `steel_core/store/__init__.py`, the `Store` interface: transactions, job claim,
   event append, exclusive state for a task, and a factory that opens by URL.
-- `steel_core/store/ddl.py` — portable table definitions and the dialect shim
+- `steel_core/store/ddl.py`, portable table definitions and the dialect shim
   (identity columns, parameter style).
-- `steel_core/store/sqlite_store.py` — write-ahead logging, immediate-mode write
+- `steel_core/store/sqlite_store.py`, write-ahead logging, immediate-mode write
   transactions, a busy timeout, and a durable commit.
-- `steel_core/store/postgres_store.py` — psycopg 3; claim by row lock with skip-locked.
-- `steel_core/statemachine.py` — one authoritative transition table. Job states:
+- `steel_core/store/postgres_store.py`: psycopg 3; claim by row lock with skip-locked.
+- `steel_core/statemachine.py`, one authoritative transition table. Job states:
   `QUEUED`, `AVAILABLE`, `LEASED`, `RUNNING`, `WAITING_APPROVAL`, `RETRY_WAIT`,
   `SUCCEEDED`, `FAILED`, `CANCELLED`, `DEAD`. Workflow states: `ADMITTED`, `RUNNING`,
   `PAUSED_APPROVAL`, `SUCCEEDED`, `FAILED`, `CANCELLED`. A single entry point applies
   a transition and appends the event row in the same transaction, so an event and the
   state it describes cannot disagree. A compatibility map covers the legacy status set.
-- `steel_core/commands.py` — the transactional command functions lifted out of the
+- `steel_core/commands.py`, the transactional command functions lifted out of the
   broker's command handlers, shared by the command line, the daemon and the chat server.
-- `steel_core/controller.py` — the drive loop lifted out of the distributed run
+- `steel_core/controller.py`, the drive loop lifted out of the distributed run
   command: admission, topological ready batches, dispatch, collect, retry.
   Exponential backoff is added behind configuration whose default reproduces today's
   single retry, so the existing tests keep passing.
-- `steel_core/leases.py` — broker-authoritative grant, heartbeat, expiry and reclaim,
+- `steel_core/leases.py`, broker-authoritative grant, heartbeat, expiry and reclaim,
   with fence tokens and a sweeper. This replaces expiry noticed lazily on the next read.
-- `steel_core/compat.py` — import and export between the legacy state document and
+- `steel_core/compat.py`, import and export between the legacy state document and
   the store, the JSON mirror, and automatic migration on first open. It reuses the
   existing state export and import-validate seam rather than inventing a second one.
 - `steel_core/testhooks.py`, `bin/steel-brokerd` (controller loop, sweepers, a
@@ -99,7 +99,7 @@ below is verified in the current code, not inferred.
 
 **Tables.** ISO-8601 timestamps as text and JSON as text, following the repository's
 existing convention: `schema_migrations`, `kv_meta`, `tasks`, `workflows` (with a
-unique idempotency key and a `tenant_id` defaulted to `local` — unused now, so that
+unique idempotency key and a `tenant_id` defaulted to `local`, unused now, so that
 multi-tenancy is not a breaking change later), `jobs` (unique on workflow, node and
 attempt; indexed on status and availability; carrying retry policy and deadline),
 `leases` (fence token, indexed on expiry), `runners`, `events` (identity primary key,
@@ -122,10 +122,10 @@ fencing and sweeper → controller extraction, with the distributed run command 
 enqueue-then-drive-synchronously and producing identical output → the daemon, plus the
 coordinator-kill test → PostgreSQL backend, its pytest marker, and a CI service job.
 
-## 4. P2 — Pull-runner agent and job protocol v2
+## 4. P2: Pull-runner agent and job protocol v2
 
 **Schemas.** `job-spec-v2` carries job, workflow, mission, task and node identity, a
-phase, and a **source** — a pinned commit, a bundle digest, or none — which is what
+phase, and a **source** (a pinned commit, a bundle digest, or none), which is what
 replaces the host-local workspace path. It pins the image by digest, names a toolchain
 profile, carries the command as an argument vector with named environment variables,
 lists input artifacts and expected outputs, carries `secretRefs` as references only,
@@ -171,7 +171,7 @@ as its own pull request → runner registry and gateway service, flag off → ag
 enrolment → the transport branch and an end-to-end test running the daemon and two
 agent processes over loopback mutual TLS.
 
-## 5. P3 — Durable connector inbox and outbox
+## 5. P3: Durable connector inbox and outbox
 
 **Tables.** `inbox` with a unique deduplication key, the source, the external event
 id, whether the signature verified, the payload, a status and the mission it started.
@@ -194,7 +194,7 @@ bare exception that dropped failures disappears.
 
 **Effective exactly-once reply.** The deduplication key is mission, node, connector and
 action. A row goes pending to in-flight before the post. An idempotency marker is
-embedded where the connector supports one — a hidden comment in a GitHub body, Slack
+embedded where the connector supports one: a hidden comment in a GitHub body, Slack
 message metadata, a Jira entity property. On restart, in-flight rows are verified by
 querying for the marker before anything is re-sent. GitHub ships first. Where a marker
 cannot be read back, the behaviour degrades to a retry with a visible duplicate
@@ -204,7 +204,7 @@ annotation, and the documentation says so rather than claiming a guarantee.
 swap one call site at a time, GitHub then Slack then Jira, each with a fake-endpoint
 test → crash-point and dead-letter tests.
 
-## 6. P4 — One orchestration path
+## 6. P4: One orchestration path
 
 - `steel_core/mission_bridge.py` translates a mission into a workflow: the node list
   becomes a sequential chain, preserving today's semantics. Parallel execution is
@@ -222,7 +222,7 @@ test → crash-point and dead-letter tests.
   daemon threads are deleted at the end of the phase. Startup supervision is replaced:
   the sweeper reclaims dead mission-node leases, missions resume automatically, and the
   field that recorded orphaned-at-startup is removed along with the tests that assert it.
-- Evidence is mirrored into an `evidence` table — digest, chain hashes, signature — so
+- Evidence is mirrored into an `evidence` table (digest, chain hashes, signature), so
   that an archive export captures workflow, approvals and evidence in one restorable
   artifact, wrapping the database's own backup mechanism. Mission documents and the
   integrity chain stay authoritative and are referenced by digest.
@@ -234,7 +234,7 @@ test → crash-point and dead-letter tests.
   The chat server is loaded by path with module-scope monkeypatching: never rename a
   patched module-level function, wrap it.
 
-## 7. P5 — Naming
+## 7. P5: Naming
 
 The repository names one product. Executable names, environment variable prefixes,
 schema identifier namespaces and prose are migrated to Steel-Mission. No behaviour
@@ -261,7 +261,7 @@ run and the daemon.
 
 Continuous integration installs runtime and development requirements, runs the drift
 check, runs a PostgreSQL job against a service container, and extends the compile step
-to the daemon and the agent — which also closes an existing gap, since the private
+to the daemon and the agent, which also closes an existing gap, since the private
 runner and the lease broker are compiled by `make release-check` but not by CI.
 
 Documentation moves in lockstep, per the repository's convention: the README, the
@@ -276,13 +276,13 @@ and irreducible empirical time counted at no acceleration at all.
 
 | Category | Conventional days | Acceleration | Focused days |
 |---|---|---|---|
-| Architecture exploration and synthesis — store interface, state machine, protocol, mission bridge | 20 | 15× | 1.3 |
-| Boilerplate and routine implementation — table definitions, backends, wiring, scaffolding | 40 | 25× | 1.6 |
+| Architecture exploration and synthesis (store interface, state machine, protocol, mission bridge) | 20 | 15× | 1.3 |
+| Boilerplate and routine implementation (table definitions, backends, wiring, scaffolding) | 40 | 25× | 1.6 |
 | Schema, tests and documentation | 30 | 30× | 1.0 |
-| Security-sensitive — mutual TLS and the certificate authority, Ed25519, fencing, secret references, sandbox extraction | 25 | 6× | 4.2 |
-| Novel integration debugging — bidirectional stream reconnect, SQLite and PostgreSQL portability, crash tests, harness churn | 20 | 4× | 5.0 |
-| Debugging known patterns — backoff and outbox | 5 | 10× | 0.5 |
-| Irreducible empirical time — kill-test wall clock, image builds, CI, compose | — | 1× | 2.5 |
+| Security-sensitive (mutual TLS and the certificate authority, Ed25519, fencing, secret references, sandbox extraction) | 25 | 6× | 4.2 |
+| Novel integration debugging (bidirectional stream reconnect, SQLite and PostgreSQL portability, crash tests, harness churn) | 20 | 4× | 5.0 |
+| Debugging known patterns (backoff and outbox) | 5 | 10× | 0.5 |
+| Irreducible empirical time (kill-test wall clock, image builds, CI, compose) |  | 1× | 2.5 |
 | **Focused total** | **140** | | **16.1** |
 | **With 25 percent contingency, declared, on the focused total** | | | **≈20** |
 

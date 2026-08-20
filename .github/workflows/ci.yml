@@ -100,3 +100,25 @@ jobs:
           mv "$RUNNER_TEMP/steel-mission-app.html" steel-mission-chat/app.html
           npm run ui:check
           git diff --exit-code -- steel-mission-chat/app.html
+
+  engineering-style:
+    name: engineering-style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Vale
+        run: |
+          curl -sfL https://github.com/errata-ai/vale/releases/download/v3.17.1/vale_3.17.1_Linux_64-bit.tar.gz \
+            | tar -xz -C /usr/local/bin vale
+
+      - name: Sync style packages (Google style, referenced not vendored)
+        run: vale sync
+
+      # .vale.ini's include-scope covers README, CONTRIBUTING, AGENTS.md, docs,
+      # architecture/operations, plan/, and .github (never LICENSE.md or
+      # CODE_OF_CONDUCT.md, which carry fixed legal/boilerplate wording). See
+      # Present/engineering/STYLE.md, adopted here, for the full rule set.
+      - name: Vale (engineering prose style)
+        run: vale --minAlertLevel=error .

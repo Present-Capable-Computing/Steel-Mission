@@ -1,9 +1,9 @@
 # Working in this repository
 
-This is **Steel Mission, the product** — public, Apache-2.0, and what every user
+This is **Steel Mission, the product**: public, Apache-2.0, and what every user
 installs. It is not anyone's installation.
 
-An installation's own data — its canon, roster, registries — lives outside this
+An installation's own data (its canon, roster, registries) lives outside this
 tree and is mounted at run time. Never copy it in. See §*The one thing never to do*.
 
 ## Run it in development
@@ -28,12 +28,12 @@ gateway, which is why a containerised run needs a session from `/auth/login`. If
 find yourself pasting tokens during development, you are running the container when
 you wanted `make local`.
 
-The shipped demo organisation is **Northstar Forge**. That is correct and expected —
+The shipped demo organisation is **Northstar Forge**. That is correct and expected:
 it is the synthetic company every user receives.
 
 ```sh
 make test           # the full suite, ~2 minutes
-make release-check  # whitespace, compile, suite — the same gate as CI
+make release-check  # whitespace, compile, suite: the same gate as CI
 ```
 
 ## Before you write anything
@@ -47,7 +47,7 @@ The three rules that matter most here:
 - **One reason per pull request.** A refactor that also fixes a bug produces a
   regression nobody can attribute.
 - **Wrap, never rename.** The suite loads `server.py` by path and monkeypatches
-  module-level names. A renamed function does not fail loudly — it silently stops
+  module-level names. A renamed function does not fail loudly; it silently stops
   being patched, and the suite stays green while testing nothing.
 
 ## The active project is PRJ-0001
@@ -88,7 +88,7 @@ canon, roster or registries into them removes the demo company everyone starts f
 *and* publishes that organisation's people and decisions under an open-source
 licence.
 
-This is not hypothetical — it happened once and was caught before it was committed.
+This is not hypothetical: it happened once and was caught before it was committed.
 Two tests fail if it happens again:
 [`tests/test_org_data_boundary.py`](tests/test_org_data_boundary.py).
 
@@ -105,7 +105,7 @@ the shipped company's identity, which reads as working and is not.
 ## Landing a change
 
 The pull request template asks for every commit in the branch, the evidence, the
-surfaces touched, and how the change is undone. Fill it in — a reviewer decides how
+surfaces touched, and how the change is undone. Fill it in: a reviewer decides how
 carefully to read from what you wrote.
 
 Tick **authentication**, **a network-listening service**, **subprocess or container
@@ -124,5 +124,5 @@ resolved.
 | `config/` | product configuration: organisations, users, capabilities, policy |
 | `starter-company/` | the shipped synthetic organisation, Northstar Forge |
 | `adapters/`, `bin/` | provider adapters and the command-line tools |
-| `schemas/canonical/` | authority-owned contracts — changing one may need ratification |
+| `schemas/canonical/` | authority-owned contracts (changing one may need ratification) |
 | `plan/`, `tooling/` | project records and the GitHub sync; excluded from the image |
