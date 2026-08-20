@@ -307,6 +307,17 @@ def test_application_missions_panel_uses_existing_start_and_lifecycle_contracts(
         assert field in html
 
 
+def test_application_knowledge_panel_uses_existing_registry_and_snapshot_contracts():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "knowledgePanel" in html
+    for path in ("/knowledge", "/knowledge/prepared", "/knowledge/upload"):
+        assert path in html
+    for field in ("Knowledge Quality", "Shared Knowledge Source Pool", "Save Sources", "Preview Prepared Snapshot", "Prepare Snapshot"):
+        assert field in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")
