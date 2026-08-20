@@ -314,6 +314,28 @@ select {
   color: #aab4bf;
 }
 
+.audit-hashes {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.audit-hashes div {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.audit-hashes dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #aab4bf;
+}
+
+.record-list pre {
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .assignment-form > label {
   display: grid;
   gap: 0.5rem;
