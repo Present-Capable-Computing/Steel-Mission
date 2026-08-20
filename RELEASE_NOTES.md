@@ -11,7 +11,7 @@ This release provides a runnable local control surface for governed AI-assisted 
 ```bash
 git clone https://github.com/Present-Capable-Computing/Steel-Mission.git
 cd Steel-Mission
-python3 -m pip install -r requirements-dev.txt
+python3 -m pip install -r requirements.txt
 bin/steel-mission doctor
 bin/steel-mission serve
 ```

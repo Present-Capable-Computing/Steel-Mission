@@ -26,6 +26,7 @@ FROM python:3.12-slim-bookworm
 LABEL org.opencontainers.image.title="Steel Mission" \
       org.opencontainers.image.description="Steel Mission starter company and governed software delivery plane"
 
+COPY requirements.txt /tmp/steel-mission-requirements.txt
 COPY --from=model-clis /usr/local/bin/node /usr/local/bin/node
 COPY --from=model-clis /usr/local/bin/claude /usr/local/bin/claude
 COPY --from=model-clis /usr/local/bin/codex /usr/local/bin/codex
@@ -34,6 +35,8 @@ COPY --from=model-clis /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git \
     && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r /tmp/steel-mission-requirements.txt \
+    && rm -f /tmp/steel-mission-requirements.txt \
     && groupadd --gid 501 steelmission \
     && useradd --uid 501 --gid 501 --create-home --home-dir /home/steelmission steelmission \
     && install -d -o 501 -g 501 \

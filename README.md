@@ -66,7 +66,7 @@ Snapshots are reproducibility artifacts, not an assertion that their contents ar
 ## Running Locally
 
 ```bash
-python3 -m pip install -r requirements-dev.txt
+python3 -m pip install -r requirements.txt
 bin/steel-mission doctor
 bin/steel-mission serve
 ```
