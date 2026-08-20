@@ -1,0 +1,37 @@
+<main class="app-shell" data-static-shell="true">
+  <aside class="rail" aria-label="Steel Mission">
+    <div class="mark" aria-hidden="true">SM</div>
+    <div>
+      <p class="eyebrow">Agent delivery plane</p>
+      <strong>Steel Mission</strong>
+    </div>
+  </aside>
+  <section class="workspace">
+    <header class="toolbar">
+      <div>
+        <label id="coordinatorModelLabel" for="coordinatorModel">Coordinator model</label>
+        <select id="coordinatorModel" aria-describedby="coordinatorModelDescription" disabled>
+          <option>Delivery Coordinator</option>
+        </select>
+        <p id="coordinatorModelDescription">Selects the model configuration that executes the Delivery Coordinator.</p>
+      </div>
+      <div class="mode-control">
+        <span id="workModeLabel">Work mode</span>
+        <div class="mode-switch" role="group" aria-labelledby="workModeLabel" aria-describedby="normalModeDescription domainCapabilityModeDescription">
+          <button type="button" aria-pressed="true" aria-describedby="normalModeDescription">Normal</button>
+          <button type="button" aria-pressed="false" aria-describedby="domainCapabilityModeDescription">Domain Capabilities</button>
+        </div>
+        <p id="normalModeDescription" class="visually-hidden">Normal chat uses direct prompts and answers while keeping assigned capabilities available as context.</p>
+        <p id="domainCapabilityModeDescription" class="visually-hidden">Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens.</p>
+      </div>
+    </header>
+    <p id="domainCapabilityDefinition" class="definition" data-vocabulary-term="domain-capability">
+      Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
+    </p>
+    <section class="empty-state" aria-labelledby="newConsoleTitle">
+      <p class="eyebrow">Rebuilt console</p>
+      <h1 id="newConsoleTitle">A typed shell, ready for parity work.</h1>
+      <p>JavaScript activates the non-default application shell.</p>
+    </section>
+  </section>
+</main>

@@ -9,6 +9,10 @@ const toolingDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = dirname(toolingDir);
 const outputPath = join(repoDir, "steel-mission-chat", "app.html");
 const checkOnly = process.argv.slice(2).includes("--check");
+const staticShell = (
+  await readFile(join(repoDir, "steel-mission-ui", "static-shell.html"), "utf8")
+).trim();
+const indentedStaticShell = staticShell.split("\n").map((line) => `    ${line}`).join("\n");
 
 const result = await build({
   entryPoints: [join(repoDir, "steel-mission-ui", "src", "app.tsx")],
@@ -42,7 +46,9 @@ ${styles.text.trim()}
   </style>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app">
+${indentedStaticShell}
+  </div>
   <script>
 ${script.text.trim()}
   </script>

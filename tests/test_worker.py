@@ -6354,6 +6354,17 @@ def test_main_chat_index_script_is_parseable(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
+def test_chat_index_keeps_its_patch_seam_and_selects_named_renderers():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["chat_index"].__globals__
+    globals_["legacy_chat_index"] = lambda: "legacy-page"
+    globals_["application_chat_index"] = lambda: "application-page"
+
+    assert chat["chat_index"]() == "legacy-page"
+    assert chat["chat_index"]("legacy") == "legacy-page"
+    assert chat["chat_index"]("application") == "application-page"
+
+
 def test_steel_mission_page_routes_cover_work_settings_and_missions():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     assert chat["is_page_path"]("/")

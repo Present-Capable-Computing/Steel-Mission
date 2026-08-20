@@ -80,4 +80,5 @@ function App() {
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) throw new Error("Steel Mission UI root is missing");
+root.replaceChildren();
 render(<App />, root);
