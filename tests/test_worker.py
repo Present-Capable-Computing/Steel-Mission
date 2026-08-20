@@ -6423,6 +6423,29 @@ def test_steel_mission_capability_assignments_refuse_unknown_users_without_writi
     assert assignment_registry.read_bytes() == before
 
 
+def test_steel_mission_capability_assignments_refuse_an_empty_post_without_writing(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    assignment_registry = tmp_path / "domain-capabilities.json"
+    assignment_registry.write_text((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
+    before = assignment_registry.read_bytes()
+
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    responses = []
+    globals_["read_json"] = lambda _handler: {}
+    globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/owner/assignments"
+    handler.authenticate = lambda _path, _method: {"actorId": "owner", "role": "owner"}
+    handler.do_POST()
+
+    assert responses[0][0] == 400
+    assert responses[0][1]["ok"] is False
+    assert "assignments" in responses[0][1]["error"]
+    assert assignment_registry.read_bytes() == before
+
+
 def _post_user_registry_payload(tmp_path, submitted):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     user_registry = tmp_path / "users.json"
