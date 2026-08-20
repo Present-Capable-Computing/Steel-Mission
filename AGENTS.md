@@ -115,6 +115,11 @@ review before merge.
 `main` requires both interpreter checks green and every review conversation
 resolved.
 
+When the pull request is finished, arm auto-merge — `gh pr merge <n> --auto
+--merge` — and report the queued state rather than waiting for the landing.
+Report it truthfully: queued is queued, not merged; the issue closes when the
+merge happens.
+
 ## Where things are
 
 | | |
