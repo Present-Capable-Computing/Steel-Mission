@@ -161,6 +161,40 @@ select {
   font-size: 0.88rem;
 }
 
+.capability-workspace {
+  display: grid;
+  gap: 1.25rem;
+  margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 0;
+  padding: 1.25rem;
+  border: 1px solid #34404c;
+  border-radius: 1rem;
+  background: rgba(20, 27, 35, 0.8);
+}
+
+.capability-workspace h2 {
+  margin: 0;
+}
+
+.workspace-identity,
+.capability-empty,
+.capability-card p {
+  margin: 0.4rem 0 0;
+  color: #8d9aa8;
+}
+
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+}
+
+.capability-card {
+  padding: 1rem;
+  border: 1px solid #29323d;
+  border-radius: 0.75rem;
+  background: #10161d;
+}
+
 .settings-panel {
   display: grid;
   grid-template-columns: minmax(14rem, 19rem) 1fr;

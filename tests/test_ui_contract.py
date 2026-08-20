@@ -245,6 +245,20 @@ def test_application_settings_sections_are_named_and_reachable():
         assert label in " ".join(panel["text"])
 
 
+def test_application_capability_workspace_has_an_actionable_empty_state():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    parser = ContractPageParser()
+    parser.feed(chat["application_chat_index"]())
+
+    workspace = parser.nodes.get("capabilityWorkspace")
+    empty_state = parser.nodes.get("capabilityEmptyState")
+    assert workspace
+    assert empty_state
+    empty_text = " ".join(empty_state["text"])
+    assert "owner or admin" in empty_text
+    assert "Settings → Users" in empty_text
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")
