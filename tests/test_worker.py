@@ -5779,6 +5779,35 @@ def test_schema_registry_admission_rejects_malformed_registry(tmp_path, monkeypa
         assert schema_check.validate(exc.report, "canonical/schema-validation-error-v1.json") == []
 
 
+@pytest.mark.parametrize(
+    ("schema_file", "config_file", "defect"),
+    [
+        ("user-registry-v1.json", "users.json", "empty-users"),
+        ("organization-registry-v1.json", "organizations.json", "capabilities-not-an-array"),
+        ("domain-capability-registry-v1.json", "domain-capabilities.json", "publishers-not-an-array"),
+        ("auth-policy-v1.json", "auth-policy.json", "unknown-identity-boundary"),
+    ],
+)
+def test_configuration_schemas_accept_shipped_config_and_reject_known_defects(
+    schema_file, config_file, defect
+):
+    payload = json.loads((WORKER_DIR / "config" / config_file).read_text())
+    invalid = json.loads(json.dumps(payload))
+
+    if defect == "empty-users":
+        invalid["users"] = []
+    elif defect == "capabilities-not-an-array":
+        invalid["organizations"][0]["domainCapabilityKeys"] = "DC13"
+    elif defect == "publishers-not-an-array":
+        invalid["assignments"][0]["publishers"] = "avery-stone"
+    else:
+        invalid["identityBoundary"]["mode"] = "unverified-remote"
+
+    schema_name = f"canonical/{schema_file}"
+    assert schema_check.validate(payload, schema_name) == []
+    assert schema_check.validate(invalid, schema_name)
+
+
 def test_schema_registry_is_canonical_and_covers_registered_artifact_writes():
     registry = common.load_schema_registry()
     assert schema_check.validate(registry, "canonical/schema-registry-v1.json") == []
@@ -5802,6 +5831,16 @@ def test_schema_registry_is_canonical_and_covers_registered_artifact_writes():
     assert "model-role-registry-v1" in by_id
     assert "runtime-profile-registry-v1" in by_id
     assert "runtime-profile-resolution-v1" in by_id
+
+    configuration_schemas = {
+        "user-registry-v1": "user-registry-v1.json",
+        "organization-registry-v1": "organization-registry-v1.json",
+        "domain-capability-registry-v1": "domain-capability-registry-v1.json",
+        "auth-policy-v1": "auth-policy-v1.json",
+    }
+    for schema_id, schema_file in configuration_schemas.items():
+        assert by_id[schema_id]["schemaFile"] == schema_file
+        assert by_id[schema_id]["owner"] == "schema-authority"
 
     by_family = {}
     for entry in registry["schemas"]:
