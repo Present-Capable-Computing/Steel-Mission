@@ -71,6 +71,18 @@ bin/steel-mission doctor
 bin/steel-mission serve
 ```
 
+On first start, Steel Mission seeds its writable configuration outside the
+checkout at `${XDG_STATE_HOME:-$HOME/.local/state}/steel-mission/config`. Later
+starts reuse that copy, and new shipped configuration files are added without
+overwriting files you have changed. Set `STEEL_MISSION_STATE_DIR` to choose a
+different state root for this runtime configuration. An installation that
+supplies its own configuration can instead set `STEEL_MISSION_CONFIG_DIR`; that
+explicit directory is used as-is.
+
+Removing the runtime `config` directory resets the starter configuration from
+the product on the next start. The files under this repository's `config/`
+remain immutable shipped defaults.
+
 Or use the Python entrypoint directly:
 
 ```bash
