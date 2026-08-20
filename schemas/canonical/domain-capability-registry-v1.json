@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://present.dev/schemas/domain-capability-registry-v1.json",
   "title": "Domain capability registry v1",
-  "description": "Authority-owned contract for assigning users and publishers to Steel Mission domain capabilities.",
+  "description": "Authority-owned API projection of user-registry capability assignments for Steel Mission domain capabilities.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "producedAt", "producer"],

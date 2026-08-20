@@ -31,7 +31,7 @@
       "email": "avery.stone@example.test",
       "role": "publisher",
       "status": "active",
-      "assignedCapabilities": ["DC03", "DC04", "DC06", "DC09", "DC11", "DC13"],
+      "assignedCapabilities": ["DC01", "DC02", "DC03", "DC04", "DC06", "DC08", "DC09", "DC11", "DC12", "DC13"],
       "organizationIds": ["northstar-forge"],
       "identitySubjects": [],
       "externalIdentities": {"github": [], "slack": [], "jira": []}

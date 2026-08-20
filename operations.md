@@ -53,8 +53,8 @@ services:
 Both variables are needed, and the second is the one that is easy to miss.
 `STEEL_MISSION_ORG_DIR` redirects the organization's documents — canon, knowledge,
 workspace packs. `STEEL_MISSION_CONFIG_DIR` redirects the configuration that says
-who the organization is: `organizations.json`, `users.json`,
-`domain-capabilities.json` and the registries beside them. Set only the first and
+who the organization is: `organizations.json`, `users.json` and the registries
+beside them. Capability assignments live only in `users.json`. Set only the first and
 the application serves your canon under the shipped company's identity — the
 documents are yours and `activeOrganization` is still Northstar Forge, which reads
 as working and is not.

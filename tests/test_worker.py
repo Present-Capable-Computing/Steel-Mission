@@ -5824,7 +5824,6 @@ def test_schema_registry_admission_rejects_malformed_registry(tmp_path, monkeypa
     [
         ("user-registry-v1.json", "users.json", "empty-users"),
         ("organization-registry-v1.json", "organizations.json", "capabilities-not-an-array"),
-        ("domain-capability-registry-v1.json", "domain-capabilities.json", "publishers-not-an-array"),
         ("auth-policy-v1.json", "auth-policy.json", "unknown-identity-boundary"),
     ],
 )
@@ -5838,8 +5837,6 @@ def test_configuration_schemas_accept_shipped_config_and_reject_known_defects(
         invalid["users"] = []
     elif defect == "capabilities-not-an-array":
         invalid["organizations"][0]["domainCapabilityKeys"] = "DC13"
-    elif defect == "publishers-not-an-array":
-        invalid["assignments"][0]["publishers"] = "avery-stone"
     else:
         invalid["identityBoundary"]["mode"] = "unverified-remote"
 
@@ -5853,7 +5850,6 @@ def test_configuration_schemas_accept_shipped_config_and_reject_known_defects(
     [
         ("save_user_registry", "normalize_user_registry", "users.json", "USER_REGISTRY_PATH", "user-registry-v1.json", "empty-users"),
         ("save_organization_registry", "normalize_organization_registry", "organizations.json", "ORGANIZATION_REGISTRY_PATH", "organization-registry-v1.json", "empty-organizations"),
-        ("save_domain_capability_registry", "normalize_assignment_registry", "domain-capabilities.json", "DOMAIN_CAPABILITIES_PATH", "domain-capability-registry-v1.json", "empty-assignments"),
         ("save_auth_policy", "normalize_auth_policy", "auth-policy.json", "AUTH_POLICY_PATH", "auth-policy-v1.json", "unknown-boundary"),
     ],
 )
@@ -5867,8 +5863,6 @@ def test_configuration_writers_schema_gate_before_replacing_files(
         invalid["users"] = []
     elif defect == "empty-organizations":
         invalid["organizations"] = []
-    elif defect == "empty-assignments":
-        invalid["assignments"] = []
     else:
         invalid["identityBoundary"]["mode"] = "unverified-remote"
 
@@ -5920,12 +5914,14 @@ def test_schema_registry_is_canonical_and_covers_registered_artifact_writes():
     configuration_schemas = {
         "user-registry-v1": "user-registry-v1.json",
         "organization-registry-v1": "organization-registry-v1.json",
-        "domain-capability-registry-v1": "domain-capability-registry-v1.json",
         "auth-policy-v1": "auth-policy-v1.json",
     }
     for schema_id, schema_file in configuration_schemas.items():
         assert by_id[schema_id]["schemaFile"] == schema_file
         assert by_id[schema_id]["owner"] == "schema-authority"
+    assert by_id["domain-capability-registry-v1"]["validationPoints"] == [
+        "api-projection-validation"
+    ]
 
     by_family = {}
     for entry in registry["schemas"]:
@@ -6394,62 +6390,44 @@ def test_steel_mission_knowledge_registry_loads_foundations_and_project_roles():
     assert set(payload["activeOrganization"]["domainCapabilityKeys"]) >= expected_capabilities
 
 
-def test_steel_mission_shipped_capability_assignments_survive_save_and_remain_authoritative(tmp_path):
+def test_steel_mission_assignment_projection_writes_through_user_registry(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    assignment_registry = tmp_path / "domain-capabilities.json"
-    shipped = json.loads((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
-    assignment_registry.write_text(json.dumps(shipped))
-
-    globals_ = chat["Handler"].do_POST.__globals__
-    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    user_registry = tmp_path / "users.json"
+    legacy_assignments = tmp_path / "domain-capabilities.json"
+    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
+    globals_ = chat["save_domain_capability_registry"].__globals__
+    globals_["USER_REGISTRY_PATH"] = user_registry
+    globals_["DOMAIN_CAPABILITIES_PATH"] = legacy_assignments
     globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    submitted = chat["domain_capability_registry"]()
+    next(item for item in submitted["assignments"] if item["roleKey"] == "DC03")[
+        "publishers"
+    ] = []
 
-    responses = []
-    globals_["read_json"] = lambda _handler: shipped
-    globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
-    handler = object.__new__(chat["Handler"])
-    handler.path = "/api/owner/assignments"
-    handler.authenticate = lambda _path, _method: {"actorId": "owner", "role": "owner"}
-    handler.do_POST()
+    saved = chat["save_domain_capability_registry"](submitted, "owner")
 
-    assert responses[0][0] == 200
-    saved = responses[0][1]["payload"]
-    # Prove every shipped assignment survived the endpoint's first normalized
-    # write before exercising the precedence of the two persisted shapes.
-    expected = {
-        item["roleKey"]: (item["publishers"], item["users"])
-        for item in shipped["assignments"]
-    }
-    assert {
-        item["roleKey"]: (item["publishers"], item["users"])
-        for item in saved["assignments"]
-    } == expected
-
-    # A normalized file contains both representations. The shipped assignment
-    # arrays remain the authoring shape, so a later edit there must not be
-    # hidden by the stale derived userAssignments array.
-    persisted = json.loads(assignment_registry.read_text())
-    next(item for item in persisted["assignments"] if item["roleKey"] == "DC03")["publishers"] = []
-    assignment_registry.write_text(json.dumps(persisted))
-
-    reloaded = chat["domain_capability_registry"]()
-    by_key = {item["roleKey"]: item for item in reloaded["assignments"]}
+    persisted_users = json.loads(user_registry.read_text())["users"]
+    publisher = next(item for item in persisted_users if item["id"] == "avery-stone")
+    assert "DC03" not in publisher["assignedCapabilities"]
+    assert "DC04" in publisher["assignedCapabilities"]
+    assert not legacy_assignments.exists()
+    by_key = {item["roleKey"]: item for item in saved["assignments"]}
     assert by_key["DC03"]["publishers"] == []
     assert by_key["DC04"]["publishers"] == ["avery-stone"]
     assert by_key["DC04"]["users"] == ["jordan-lee"]
+    assert schema_check.validate(saved, "canonical/domain-capability-registry-v1.json") == []
 
 
 def test_steel_mission_capability_registry_endpoint_authorization_and_round_trip(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    assignment_registry = tmp_path / "domain-capabilities.json"
+    legacy_assignments = tmp_path / "domain-capabilities.json"
     user_registry = tmp_path / "users.json"
-    shipped = json.loads((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
-    assignment_registry.write_text(json.dumps(shipped, sort_keys=True))
     user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
     globals_ = chat["Handler"].do_POST.__globals__
-    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["DOMAIN_CAPABILITIES_PATH"] = legacy_assignments
     globals_["USER_REGISTRY_PATH"] = user_registry
     globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    shipped = chat["domain_capability_registry"]()
 
     def post(payload, actor):
         responses = []
@@ -6463,11 +6441,11 @@ def test_steel_mission_capability_registry_endpoint_authorization_and_round_trip
         handler.do_POST()
         return responses[0]
 
-    before = assignment_registry.read_bytes()
+    before = user_registry.read_bytes()
     status, refusal = post(shipped, {"actorId": "avery-stone", "role": "publisher"})
     assert status == 403
     assert refusal["ok"] is False
-    assert assignment_registry.read_bytes() == before
+    assert user_registry.read_bytes() == before
 
     submitted = json.loads(json.dumps(shipped))
     next(item for item in submitted["assignments"] if item["roleKey"] == "DC01")[
@@ -6490,7 +6468,7 @@ def test_steel_mission_capability_registry_endpoint_authorization_and_round_trip
     assert status == 200
     assert by_key["DC01"]["publishers"] == ["avery-stone"]
 
-    accepted = assignment_registry.read_bytes()
+    accepted = user_registry.read_bytes()
     invalid = json.loads(json.dumps(submitted))
     next(item for item in invalid["assignments"] if item["roleKey"] == "DC02")["users"].append(
         "unknown-user"
@@ -6498,48 +6476,42 @@ def test_steel_mission_capability_registry_endpoint_authorization_and_round_trip
     status, refusal = post(invalid, {"actorId": "morgan-vale", "role": "owner"})
     assert status == 400
     assert "unknown-user" in refusal["error"]
-    assert assignment_registry.read_bytes() == accepted
+    assert user_registry.read_bytes() == accepted
+    assert not legacy_assignments.exists()
 
 
-def test_steel_mission_corrupt_capability_registry_is_recorded_and_refused(tmp_path):
+def test_steel_mission_legacy_capability_registry_is_not_an_assignment_authority(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    assignment_registry = tmp_path / "domain-capabilities.json"
+    legacy_assignments = tmp_path / "domain-capabilities.json"
+    user_registry = tmp_path / "users.json"
     mutation_ledger = tmp_path / "mutation-ledger.jsonl"
-    assignment_registry.write_text('{"schemaVersion": 1, "assignments": [')
+    legacy_assignments.write_text('{"schemaVersion": 1, "assignments": [')
+    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
 
     globals_ = chat["domain_capability_registry"].__globals__
-    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["DOMAIN_CAPABILITIES_PATH"] = legacy_assignments
+    globals_["USER_REGISTRY_PATH"] = user_registry
     globals_["MUTATION_LEDGER_PATH"] = mutation_ledger
-    fallback_called = False
-    original_fallback = globals_["default_domain_capabilities"]
 
-    def watched_fallback():
-        nonlocal fallback_called
-        fallback_called = True
-        return original_fallback()
+    projection = chat["domain_capability_registry"]()
 
-    globals_["default_domain_capabilities"] = watched_fallback
-
-    with pytest.raises(RuntimeError, match="domain capability registry could not be read"):
-        chat["domain_capability_registry"]()
-
-    assert fallback_called is False, "a corrupt registry must not fabricate synthetic assignments"
-    events = [json.loads(line) for line in mutation_ledger.read_text().splitlines()]
-    assert len(events) == 1
-    event = events[0]
-    assert event["action"] == "domain-capability-registry-read"
-    assert event["status"] == "failed"
-    assert event["changed"] is False
-    assert event["targetPath"] == str(assignment_registry)
-    assert event["details"]["errorType"] == "JSONDecodeError"
-    assert schema_check.validate(event, "canonical/mutation-ledger-event-v1.json") == []
+    by_key = {item["roleKey"]: item for item in projection["assignments"]}
+    assert by_key["DC13"]["publishers"] == ["avery-stone"]
+    assert by_key["DC13"]["users"] == ["jordan-lee"]
+    assert legacy_assignments.read_text() == '{"schemaVersion": 1, "assignments": ['
+    assert not mutation_ledger.exists()
 
 
 def test_steel_mission_capability_assignments_refuse_unknown_users_without_writing(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    assignment_registry = tmp_path / "domain-capabilities.json"
+    legacy_assignments = tmp_path / "domain-capabilities.json"
     user_registry = tmp_path / "users.json"
-    shipped = json.loads((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
+    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["DOMAIN_CAPABILITIES_PATH"] = legacy_assignments
+    globals_["USER_REGISTRY_PATH"] = user_registry
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    shipped = chat["domain_capability_registry"]()
     submitted = json.loads(json.dumps(shipped))
     next(item for item in submitted["assignments"] if item["roleKey"] == "DC03")["publishers"].append(
         "unknown-publisher"
@@ -6547,14 +6519,8 @@ def test_steel_mission_capability_assignments_refuse_unknown_users_without_writi
     next(item for item in submitted["assignments"] if item["roleKey"] == "DC04")["users"].append(
         "unknown-user"
     )
-    assignment_registry.write_text(json.dumps(shipped, sort_keys=True))
-    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
-    before = assignment_registry.read_bytes()
+    before = user_registry.read_bytes()
 
-    globals_ = chat["Handler"].do_POST.__globals__
-    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
-    globals_["USER_REGISTRY_PATH"] = user_registry
-    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
     responses = []
     globals_["read_json"] = lambda _handler: submitted
     globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
@@ -6567,17 +6533,20 @@ def test_steel_mission_capability_assignments_refuse_unknown_users_without_writi
     assert responses[0][1]["ok"] is False
     assert "unknown-publisher" in responses[0][1]["error"]
     assert "unknown-user" in responses[0][1]["error"]
-    assert assignment_registry.read_bytes() == before
+    assert user_registry.read_bytes() == before
+    assert not legacy_assignments.exists()
 
 
 def test_steel_mission_capability_assignments_refuse_an_empty_post_without_writing(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    assignment_registry = tmp_path / "domain-capabilities.json"
-    assignment_registry.write_text((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
-    before = assignment_registry.read_bytes()
+    legacy_assignments = tmp_path / "domain-capabilities.json"
+    user_registry = tmp_path / "users.json"
+    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
+    before = user_registry.read_bytes()
 
     globals_ = chat["Handler"].do_POST.__globals__
-    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["DOMAIN_CAPABILITIES_PATH"] = legacy_assignments
+    globals_["USER_REGISTRY_PATH"] = user_registry
     globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
     responses = []
     globals_["read_json"] = lambda _handler: {}
@@ -6590,7 +6559,8 @@ def test_steel_mission_capability_assignments_refuse_an_empty_post_without_writi
     assert responses[0][0] == 400
     assert responses[0][1]["ok"] is False
     assert "assignments" in responses[0][1]["error"]
-    assert assignment_registry.read_bytes() == before
+    assert user_registry.read_bytes() == before
+    assert not legacy_assignments.exists()
 
 
 @pytest.mark.parametrize("identity_override", [None, "oidc-required"])
@@ -6792,6 +6762,51 @@ def test_steel_mission_refuses_unknown_worktree_mode_before_starting_delivery(tm
     assert started == []
     assert list(repository.iterdir()) == [marker]
     assert marker.read_text() == "source checkout"
+
+
+def test_steel_mission_user_registry_is_the_only_capability_assignment_authority(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    user_registry = tmp_path / "users.json"
+    legacy_assignments = tmp_path / "domain-capabilities.json"
+    user_registry.write_text(json.dumps({
+        "schemaVersion": 1,
+        "users": [
+            {
+                "id": "pub-a",
+                "name": "Publisher A",
+                "role": "publisher",
+                "status": "active",
+                "assignedCapabilities": [],
+            }
+        ],
+    }))
+    legacy_assignments.write_text(json.dumps({
+        "schemaVersion": 1,
+        "assignments": [
+            {
+                "roleKey": "DC03",
+                "fNumber": "DC03",
+                "displayName": "Architecture",
+                "publishers": ["pub-a"],
+                "users": [],
+            }
+        ],
+    }))
+    globals_ = chat["corporate_workspace"].__globals__
+    globals_["USER_REGISTRY_PATH"] = user_registry
+    globals_["DOMAIN_CAPABILITIES_PATH"] = legacy_assignments
+
+    workspace = chat["corporate_workspace"]("publisher")
+
+    assert workspace["visibleCapabilities"] == []
+    assert all(
+        not assignment["publishers"] and not assignment["users"]
+        for assignment in workspace["assignments"]
+    )
+    shipped_users = json.loads((WORKER_DIR / "config" / "users.json").read_text())["users"]
+    shipped_publisher = next(user for user in shipped_users if user["id"] == "avery-stone")
+    assert {"DC01", "DC02", "DC08", "DC12"} <= set(shipped_publisher["assignedCapabilities"])
+    assert not (WORKER_DIR / "config" / "domain-capabilities.json").exists()
 
 
 def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):

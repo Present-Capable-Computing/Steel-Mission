@@ -77,6 +77,11 @@ This is currently unreachable from a browser, because the UI never calls the
 endpoint — **zero references**. Building the assignment interface without fixing the
 loader first would *arm* it. That single fact sets the order of the whole project.
 
+MS-0007 resolves this by making `users.json → assignedCapabilities` the only durable
+assignment authority. The assignments endpoint remains a compatibility projection
+that reads from and writes through the user registry; `config/domain-capabilities.json`
+is no longer shipped or consulted.
+
 ## 2. Order
 
 Correctness before appearance, because a surface rebuilt over writes that silently
