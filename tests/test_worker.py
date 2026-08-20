@@ -6175,6 +6175,30 @@ def test_steel_mission_knowledge_registry_loads_foundations_and_project_roles():
     assert set(payload["activeOrganization"]["domainCapabilityKeys"]) >= expected_capabilities
 
 
+def test_every_shipped_domain_capability_has_an_active_assignee_or_recorded_reason():
+    """An ownership gap must be a visible product decision, never an omission."""
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    capability_keys = {
+        item["capabilityKey"] for item in chat["knowledge_registry"]()["capabilities"]
+    }
+    active_assignees = {
+        capability
+        for user in chat["user_registry"]()["users"]
+        if user["status"] == "active"
+        for capability in user["assignedCapabilities"]
+    }
+
+    # Keep any deliberate exceptions here with a non-empty rationale. The
+    # shipped starter organization currently chooses to assign every capability.
+    deliberately_unowned: dict[str, str] = {}
+    assert all(reason.strip() for reason in deliberately_unowned.values())
+    unresolved = capability_keys - active_assignees - deliberately_unowned.keys()
+    assert not unresolved, (
+        "domain capabilities have neither an active assignee nor a recorded "
+        f"reason for remaining unowned: {sorted(unresolved)}"
+    )
+
+
 def test_steel_mission_vocabulary_endpoint_matches_knowledge_registry():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     payload = chat["ui_vocabulary"]()
