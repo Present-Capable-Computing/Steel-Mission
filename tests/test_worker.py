@@ -6309,6 +6309,51 @@ def test_steel_mission_knowledge_registry_loads_foundations_and_project_roles():
     assert set(payload["activeOrganization"]["domainCapabilityKeys"]) >= expected_capabilities
 
 
+def test_steel_mission_shipped_capability_assignments_survive_save_and_remain_authoritative(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    assignment_registry = tmp_path / "domain-capabilities.json"
+    shipped = json.loads((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
+    assignment_registry.write_text(json.dumps(shipped))
+
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+
+    responses = []
+    globals_["read_json"] = lambda _handler: shipped
+    globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/owner/assignments"
+    handler.authenticate = lambda _path, _method: {"actorId": "owner", "role": "owner"}
+    handler.do_POST()
+
+    assert responses[0][0] == 200
+    saved = responses[0][1]["payload"]
+    # Prove every shipped assignment survived the endpoint's first normalized
+    # write before exercising the precedence of the two persisted shapes.
+    expected = {
+        item["roleKey"]: (item["publishers"], item["users"])
+        for item in shipped["assignments"]
+    }
+    assert {
+        item["roleKey"]: (item["publishers"], item["users"])
+        for item in saved["assignments"]
+    } == expected
+
+    # A normalized file contains both representations. The shipped assignment
+    # arrays remain the authoring shape, so a later edit there must not be
+    # hidden by the stale derived userAssignments array.
+    persisted = json.loads(assignment_registry.read_text())
+    next(item for item in persisted["assignments"] if item["roleKey"] == "DC03")["publishers"] = []
+    assignment_registry.write_text(json.dumps(persisted))
+
+    reloaded = chat["domain_capability_registry"]()
+    by_key = {item["roleKey"]: item for item in reloaded["assignments"]}
+    assert by_key["DC03"]["publishers"] == []
+    assert by_key["DC04"]["publishers"] == ["avery-stone"]
+    assert by_key["DC04"]["users"] == ["jordan-lee"]
+
+
 def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     role_registry = tmp_path / "role-registry.json"
