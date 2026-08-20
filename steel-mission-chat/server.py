@@ -1375,10 +1375,38 @@ def domain_capability_registry() -> dict[str, Any]:
     return normalize_assignment_registry(payload if isinstance(payload, dict) else {})
 
 
+def capability_assignment_user_ids(payload: dict[str, Any]) -> set[str]:
+    user_ids: set[str] = set()
+    if isinstance(payload.get("assignments"), list):
+        for item in payload.get("assignments", []):
+            if not isinstance(item, dict):
+                continue
+            for field in ("publishers", "users"):
+                values = item.get(field)
+                if isinstance(values, list):
+                    user_ids.update(str(value).strip() for value in values if str(value).strip())
+    elif isinstance(payload.get("userAssignments"), list):
+        for item in payload.get("userAssignments", []):
+            if not isinstance(item, dict):
+                continue
+            user_id = str(item.get("userId") or item.get("id") or "").strip()
+            if user_id:
+                user_ids.add(user_id)
+    return user_ids
+
+
 def save_domain_capability_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
     role = corporate_role(actor)
     if role not in {"owner", "admin"}:
         raise ValueError("only owner and admin endpoints can assign domain capabilities")
+    registered_ids = {
+        str(item.get("id"))
+        for item in user_registry().get("users", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    unknown_ids = sorted(capability_assignment_user_ids(payload) - registered_ids)
+    if unknown_ids:
+        raise ValueError("capability assignments name unknown users: " + ", ".join(unknown_ids))
     before = read_json_file(DOMAIN_CAPABILITIES_PATH)
     registry = normalize_assignment_registry({**payload, "producedAt": utc_now()})
     tmp = DOMAIN_CAPABILITIES_PATH.with_name(f".{DOMAIN_CAPABILITIES_PATH.name}.{os.getpid()}.tmp")
