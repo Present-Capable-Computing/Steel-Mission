@@ -5808,6 +5808,51 @@ def test_configuration_schemas_accept_shipped_config_and_reject_known_defects(
     assert schema_check.validate(invalid, schema_name)
 
 
+@pytest.mark.parametrize(
+    ("writer_name", "normalizer_name", "config_file", "path_name", "schema_file", "defect"),
+    [
+        ("save_user_registry", "normalize_user_registry", "users.json", "USER_REGISTRY_PATH", "user-registry-v1.json", "empty-users"),
+        ("save_organization_registry", "normalize_organization_registry", "organizations.json", "ORGANIZATION_REGISTRY_PATH", "organization-registry-v1.json", "empty-organizations"),
+        ("save_domain_capability_registry", "normalize_assignment_registry", "domain-capabilities.json", "DOMAIN_CAPABILITIES_PATH", "domain-capability-registry-v1.json", "empty-assignments"),
+        ("save_auth_policy", "normalize_auth_policy", "auth-policy.json", "AUTH_POLICY_PATH", "auth-policy-v1.json", "unknown-boundary"),
+    ],
+)
+def test_configuration_writers_schema_gate_before_replacing_files(
+    tmp_path, writer_name, normalizer_name, config_file, path_name, schema_file, defect
+):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    submitted = json.loads((WORKER_DIR / "config" / config_file).read_text())
+    invalid = json.loads(json.dumps(submitted))
+    if defect == "empty-users":
+        invalid["users"] = []
+    elif defect == "empty-organizations":
+        invalid["organizations"] = []
+    elif defect == "empty-assignments":
+        invalid["assignments"] = []
+    else:
+        invalid["identityBoundary"]["mode"] = "unverified-remote"
+
+    target = tmp_path / config_file
+    target.write_text(json.dumps(submitted, sort_keys=True))
+    before = target.read_bytes()
+    ledger = tmp_path / f"{defect}-mutations.jsonl"
+    globals_ = chat[writer_name].__globals__
+    globals_[path_name] = target
+    globals_["MUTATION_LEDGER_PATH"] = ledger
+    globals_[normalizer_name] = lambda _payload: invalid
+
+    with pytest.raises(ValueError, match="schema"):
+        chat[writer_name](submitted, "owner")
+
+    assert target.read_bytes() == before
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert len(events) == 1
+    assert events[0]["status"] == "rejected"
+    assert events[0]["changed"] is False
+    assert events[0]["details"]["schemaFile"] == schema_file
+    assert events[0]["details"]["errors"]
+
+
 def test_schema_registry_is_canonical_and_covers_registered_artifact_writes():
     registry = common.load_schema_registry()
     assert schema_check.validate(registry, "canonical/schema-registry-v1.json") == []

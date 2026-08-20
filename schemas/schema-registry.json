@@ -1387,7 +1387,8 @@
       "artifactKind": "user-registry",
       "producer": "steel-mission-chat",
       "validationPoints": [
-        "configuration-fixture-validation"
+        "configuration-fixture-validation",
+        "configuration-write"
       ],
       "lifecycle": "active",
       "compatibility": "initial",
@@ -1401,7 +1402,8 @@
       "artifactKind": "organization-registry",
       "producer": "steel-mission-chat",
       "validationPoints": [
-        "configuration-fixture-validation"
+        "configuration-fixture-validation",
+        "configuration-write"
       ],
       "lifecycle": "active",
       "compatibility": "initial",
@@ -1415,7 +1417,8 @@
       "artifactKind": "domain-capability-registry",
       "producer": "steel-mission-chat",
       "validationPoints": [
-        "configuration-fixture-validation"
+        "configuration-fixture-validation",
+        "configuration-write"
       ],
       "lifecycle": "active",
       "compatibility": "initial",
@@ -1429,7 +1432,8 @@
       "artifactKind": "auth-policy",
       "producer": "steel-mission-chat",
       "validationPoints": [
-        "configuration-fixture-validation"
+        "configuration-fixture-validation",
+        "configuration-write"
       ],
       "lifecycle": "active",
       "compatibility": "initial",
