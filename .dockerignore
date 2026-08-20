@@ -22,3 +22,8 @@ worktrees
 # an image is a distribution channel like any other.
 plan
 tooling
+
+# Browser build inputs. The committed self-contained page is the runtime
+# artifact; the source tree and installed packages are development-only.
+node_modules
+steel-mission-ui
