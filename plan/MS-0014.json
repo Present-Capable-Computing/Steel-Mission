@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "projectId": "PRJ-0001",
+  "createdAt": "2026-08-20T00:00:00Z",
+  "producedAt": "2026-08-20T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "taskIds": [],
+  "milestoneId": "MS-0014",
+  "title": "C1 - Chat, mission pipeline, and progress",
+  "targetDate": "2026-09-17",
+  "outcome": "The console has a chat surface wired to the existing chat pipeline, with a normal mode carrying a model picker and a Domain-Capabilities mode carrying the delivery workspace. The four-stage mission pipeline runs as a tooling-level bench against granted missions: plan by Claude at Opus 5 or above, develop and commit by the local model in an isolated worktree, a bounded review loop by Codex, and final review, approval and merge by Claude at Opus 5 or above, under machine accounts with auto-merge armed and the definition of done checked mechanically. A session status feed in the draft job-protocol-v2 shape drives a read-only progress panel, and the coordinator answers what needs the Person from pending-decision state. When a plan proves unclean the mission escalates through the existing user-decision functionality and waits.",
+  "notInScope": "No broker or store change - that is MS-0002. The bench implementation is disposable by declaration under D7: it retires when MS-0002 and MS-0003 land, and only the status feed format survives. No new coordinator provider - that is MS-0015. The local model is assigned the smallest mechanical issues first; its weakness relative to the other two workers is a stated operating constraint, not a discovery to be made in review.",
+  "completionEvidence": "A granted rehearsal mission runs the full pipeline unattended on a real issue: the plan is recorded, the local model commits under its machine account, the review loop completes at least one correction round, the acceptance role approves, auto-merge fires on the approval, and the evidence pack exists. A deliberately unclean plan escalates through the decision endpoint and resumes on the Person's decision, asserted by a test. The progress panel renders live sessions from the feed. The full suite is green throughout, and the bench refuses issues labelled security-review.",
+  "metadata": {
+    "phase": "C1",
+    "focusedDaysBudget": 4.3,
+    "origin": "Folded in at the D7 rescope of 2026-08-20; the pipeline shape follows D8, the machine accounts D9.",
+    "risk": "The bench executes model-driven subprocesses that commit and push under repository credentials - the riskiest surface in the milestone and the reason it carries a security review. The second risk is quiet scope growth: a bench that starts hosting features becomes the second dispatch path D7 forbids; the feed format is the only durable artifact."
+  }
+}

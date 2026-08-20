@@ -10,7 +10,7 @@
     "source": "control-plane"
   },
   "state": "PLANNED",
-  "targetDate": "2026-12-03",
+  "targetDate": "2026-12-23",
   "outcome": "The repository names one product. Executable names, environment variable prefixes, schema identifier namespaces and prose all read Steel-Mission, with no residual reference to the separate Present programme this code was extracted from.",
   "notInScope": "No behaviour change of any kind. This milestone renames and shims; a rename that also fixes something is a rename whose regression cannot be attributed. It does not touch the durable store, the runner protocol, the connectors or orchestration.",
   "taskIds": [],
@@ -22,6 +22,6 @@
     "risk": "The suite drives the executables as subprocesses by name, so a rename is a test-visible change in roughly two hundred places at once. Land the compatibility shim first, migrate call sites second, remove the shim third, with the suite green between each.",
     "githubMilestone": 6,
     "targetDateResetAt": "2026-08-20",
-    "targetDateReset": "Reset from the PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
+    "targetDateReset": "Re-set at the D7 rescope, preserving the original cadence after the three console milestones and the P1/P2 growth; re-examined at the MS-0014 boundary with the delta printed."
   }
 }

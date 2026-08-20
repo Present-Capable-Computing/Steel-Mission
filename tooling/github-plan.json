@@ -15,6 +15,9 @@
         "from": "label",
         "options": [
           "P0",
+          "C0",
+          "C1",
+          "C2",
           "P1",
           "P2",
           "P3",
@@ -298,6 +301,21 @@
       "name": "stage:U5",
       "color": "b60205",
       "description": "MS-0012 Review findings"
+    },
+    {
+      "name": "C0",
+      "color": "fbca04",
+      "description": "Founder console: truthful identity and state"
+    },
+    {
+      "name": "C1",
+      "color": "fbca04",
+      "description": "Chat, mission pipeline, and progress"
+    },
+    {
+      "name": "C2",
+      "color": "fbca04",
+      "description": "Codex coordinator and maximum models"
     }
   ],
   "milestones": [
@@ -350,33 +368,51 @@
       "description": "MS-0001 · record: plan/MS-0001.json.\n\nOutcome: every dependency and runtime jump currently open is landed or explicitly rejected with the full suite green on each, CI compiles every entrypoint rather than four of them, and the test harness has the markers and fixtures the later phases need.\n\nNot in scope: no durable store, no runner protocol, no orchestration change, no renaming.\n\nThe five-state milestone model (PLANNED, ACTIVE, AT_RISK, COMPLETE, ABANDONED) lives in the record. This GitHub milestone is a projection of it. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification.\n\nTarget reset to 2026-08-27 from the 2026-08-20 PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
     },
     {
+      "recordId": "MS-0013",
+      "title": "C0 — Founder console: truthful identity and state",
+      "due_on": "2026-09-03T23:59:59Z",
+      "description": "MS-0013 · record: plan/MS-0013.json · PRJ-0001 · phase C0\n\nOutcome: Landing on the console as the registered owner shows the true capability state: owner and admin derive their Domain Capabilities from the workspace grant rather than from the raw per-user assignment field that is empty for them by design, so Morgan Vale sees all thirteen instead of an empty-state message. A declared identity that resolves to no registered user falls back the same way a missing one does instead of producing a capability-less actor. The sidebar reports real server and authority state from the health and control-plane readiness endpoints, and a provider status strip shows, per provider, connected, online, idle or working, with token usage where the provider reports it.\n\nNot in scope: No new identity and no new organization: the Founder lands as the existing registered owner, and the shipped Northstar Forge demo company is untouched. No login screen, no identity picker, no change to oidc-required behaviour. No chat surface - that is MS-0014. No new provider - that is MS-0015.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
+      "recordId": "MS-0014",
+      "title": "C1 — Chat, mission pipeline, and progress",
+      "due_on": "2026-09-17T23:59:59Z",
+      "description": "MS-0014 · record: plan/MS-0014.json · PRJ-0001 · phase C1\n\nOutcome: The console has a chat surface wired to the existing chat pipeline, with a normal mode carrying a model picker and a Domain-Capabilities mode carrying the delivery workspace. The four-stage mission pipeline runs as a tooling-level bench against granted missions: plan by Claude at Opus 5 or above, develop and commit by the local model in an isolated worktree, a bounded review loop by Codex, and final review, approval and merge by Claude at Opus 5 or above, under machine accounts with auto-merge armed and the definition of done checked mechanically. A session status feed in the draft job-protocol-v2 shape drives a read-only progress panel, and the coordinator answers what needs the Person from pending-decision state. When a plan proves unclean the mission escalates through the existing user-decision functionality and waits.\n\nNot in scope: No broker or store change - that is MS-0002. The bench implementation is disposable by declaration under D7: it retires when MS-0002 and MS-0003 land, and only the status feed format survives. No new coordinator provider - that is MS-0015. The local model is assigned the smallest mechanical issues first; its weakness relative to the other two workers is a stated operating constraint, not a discovery to be made in review.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
+      "recordId": "MS-0015",
+      "title": "C2 — Codex coordinator and maximum models",
+      "due_on": "2026-09-24T23:59:59Z",
+      "description": "MS-0015 · record: plan/MS-0015.json · PRJ-0001 · phase C2\n\nOutcome: Codex is a first-class coordinator provider, selectable in chat and the default in normal mode. The model role registry's model id and effort flow into the actual adapter invocations, so changing the registry changes the call: the planner and acceptance roles run at Opus 5 or above, and Codex runs at its maximum available model and reasoning setting. The local model provider re-warms on keep-alive expiry instead of refusing, and token usage is captured and surfaced in the status strip.\n\nNot in scope: No fourth provider and no HTTP-endpoint configurability in the registry. No change to the pipeline role assignments themselves - the registry governs who plans, codes, reviews and accepts, and it already says so.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
       "recordId": "MS-0002",
       "title": "P1 — Durable broker service",
-      "due_on": "2026-09-17T23:59:59Z",
-      "description": "MS-0002 · record: plan/MS-0002.json.\n\nOutcome: broker state lives in one transactional store behind one interface, SQLite by default and PostgreSQL available. Concurrent writers are serialized rather than overwriting each other. Every lease grant carries a fence token, expiry is swept rather than noticed lazily, and a daemon drives workflows so that killing the coordinator mid-job resumes the work.\n\nNot in scope: no remote runner, no gRPC surface, no connector work, no mission orchestration change. The legacy JSON state document is still mirrored and is not retired here.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification.\n\nTarget reset to 2026-09-17 from the 2026-08-20 PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
+      "due_on": "2026-10-15T23:59:59Z",
+      "description": "MS-0002 · record: plan/MS-0002.json · PRJ-0001 · phase P1\n\nOutcome: Broker state lives in one transactional store behind one interface, with a SQLite backend by default and a PostgreSQL backend available. Concurrent writers are serialized rather than overwriting each other. Every lease grant carries a fence token, expiry is swept rather than noticed lazily on the next read, and a daemon drives workflows so that killing the coordinator mid-job resumes the work instead of stranding it. The store also persists the agent-session status feed in the shape the C1 bench established, so the pipeline's progress state survives a restart the same way jobs do.\n\nNot in scope: No remote runner and no gRPC surface; node invocation stays on the local subprocess path. No connector inbox or outbox. No change to mission orchestration in the chat server beyond routing its reads through the store. The legacy broker-state JSON document is still mirrored and is not retired in this milestone.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0003",
       "title": "P2 — Pull-runner agent and job protocol v2",
-      "due_on": "2026-10-15T23:59:59Z",
-      "description": "MS-0003 · record: plan/MS-0003.json.\n\nOutcome: a runner inside customer infrastructure dials out over mutual TLS, claims jobs, materializes its own source from a pinned commit or bundle digest rather than a host-local path, executes in a digest-pinned image, and returns a result signed with its own key and bound to the job, the runner, the image and the inputs. Secrets are references resolved just in time, never values in a job specification.\n\nNot in scope: the local subprocess path stays the default and unchanged. No connector or orchestration work.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification.\n\nTarget reset to 2026-10-15 from the 2026-08-20 PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
+      "due_on": "2026-11-12T23:59:59Z",
+      "description": "MS-0003 · record: plan/MS-0003.json · PRJ-0001 · phase P2\n\nOutcome: A runner process inside customer infrastructure dials out over mutually authenticated TLS, claims jobs from the broker, materializes its own source from a pinned commit or a bundle digest rather than a host-local path, executes in an image pinned by digest, and returns a result signed with its own key and bound to the job, the runner, the image and the inputs. Secrets are carried as references and resolved just in time, never as values in a job specification. The runner gains an agent executor: a job class that runs a coding agent in an isolated worktree with a commit step, machine-account git identity, scoped credentials, a network policy that admits exactly the model endpoints the job declares, and timeout ceilings sized for agent runs. The four-stage pipeline the C1 bench rehearsed runs through the broker and runner, and the bench retires.\n\nNot in scope: No change to the local subprocess execution path, which stays the default so the existing suite keeps exercising it. No connector work. No mission orchestration change. Multi-tenant runner pools and regional placement are later phases; the schema must not preclude them.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0004",
       "title": "P3 — Durable connector inbox and outbox",
-      "due_on": "2026-10-29T23:59:59Z",
+      "due_on": "2026-11-26T23:59:59Z",
       "description": "MS-0004 · record: plan/MS-0004.json.\n\nOutcome: signed inbound events land in a transactional inbox where a unique deduplication key decides which single transaction starts a mission. Outbound connector actions are written in the same transaction as the evidence they record, and delivered with backoff, jitter, honoured retry hints and an attempt cap that ends in a dead-letter queue rather than a dropped exception.\n\nNot in scope: no change to signature verification, no new connectors. Exactly-once reply is effective, not absolute — it rests on connector-specific markers and degrades visibly where a connector has none.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification.\n\nTarget reset to 2026-10-29 from the 2026-08-20 PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
     },
     {
       "recordId": "MS-0005",
       "title": "P4 — Single orchestration path",
-      "due_on": "2026-11-19T23:59:59Z",
+      "due_on": "2026-12-10T23:59:59Z",
       "description": "MS-0005 · record: plan/MS-0005.json.\n\nOutcome: one orchestration path. Mission control becomes a client of the broker: the chat server runs an embedded control-plane runner executing the existing node bodies unchanged, delivery steps become sandbox jobs, and an approval gate is a first-class waiting state on a job instead of a thread that exits and is relaunched. A restart resumes missions rather than marking them paused.\n\nNot in scope: no new mission semantics; node lists translate to a sequential chain. Mission documents and the integrity chain stay authoritative.\n\nThe test churn of the whole project concentrates here. The chat server is loaded by path and monkeypatched at module scope: wrap, never rename.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification.\n\nTarget reset to 2026-11-19 from the 2026-08-20 PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
     },
     {
       "recordId": "MS-0006",
       "title": "P5 — Steel-Mission naming",
-      "due_on": "2026-12-03T23:59:59Z",
+      "due_on": "2026-12-23T23:59:59Z",
       "description": "MS-0006 · record: plan/MS-0006.json.\n\nOutcome: the repository names one product. Executable names, environment variable prefixes, schema identifier namespaces and prose all read Steel-Mission.\n\nNot in scope: no behaviour change of any kind. A rename that also fixes something is a rename whose regression cannot be attributed.\n\nSequenced last: this milestone collides with the file paths of every other phase. The one exception is the package name, settled up front by decision PRJ-0001-D4 so that P1 never creates a package P5 must rename.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification.\n\nTarget reset to 2026-12-03 from the 2026-08-20 PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
     }
   ],
@@ -549,6 +585,48 @@
       "outcome": "The four findings from the review of PRJ-0000 are closed: the published image carries no front-end toolchain under /workspace, every domain capability is either assigned or recorded as deliberately unowned with a reason, running the product no longer modifies version-controlled configuration, and a fresh loopback console session resolves to a real registered actor rather than a capability-less synthetic identity.",
       "notInScope": "No new product capability, no interface redesign, no change to the vocabulary or information architecture, and no change to the build toolchain itself. No login screen or identity picker, and no change to oidc-required behaviour: the identity fix stays inside the existing development-local loopback trust boundary. A finding that turns out to need design is raised rather than absorbed here.",
       "done": "The image is rebuilt and inspected with the size difference recorded, and a strengthened guard test fails if a future image would carry the front-end toolchain under /workspace. Capability ownership or a deliberate exception with a stated reason is asserted by a test. Running the server against a clean checkout leaves the tree clean, demonstrated. A headerless loopback call to /api/auth/whoami resolves the active organization's registered owner by role and can reach Settings -> Users, while oidc-required and non-loopback behaviour remain unchanged."
+    },
+    {
+      "key": "epic-c0",
+      "title": "C0 — Founder console: truthful identity and state",
+      "milestone": "MS-0013",
+      "labels": [
+        "epic",
+        "C0",
+        "area:identity",
+        "prj:PRJ-0001"
+      ],
+      "outcome": "Landing on the console as the registered owner shows the true capability state: owner and admin derive their Domain Capabilities from the workspace grant rather than from the raw per-user assignment field that is empty for them by design, so Morgan Vale sees all thirteen instead of an empty-state message. A declared identity that resolves to no registered user falls back the same way a missing one does instead of producing a capability-less actor. The sidebar reports real server and authority state from the health and control-plane readiness endpoints, and a provider status strip shows, per provider, connected, online, idle or working, with token usage where the provider reports it.",
+      "notInScope": "No new identity and no new organization: the Founder lands as the existing registered owner, and the shipped Northstar Forge demo company is untouched. No login screen, no identity picker, no change to oidc-required behaviour. No chat surface - that is MS-0014. No new provider - that is MS-0015.",
+      "done": "A fresh incognito session against a clean checkout lands as the registered owner with thirteen capabilities visible, demonstrated against the running server. A request carrying a stale X-Present-Actor naming an unregistered user resolves to the registered owner rather than a ghost, asserted by a test watched to fail first. Stopping and starting the local model observably changes the status strip, and the sidebar no longer contains hardcoded state strings, proven by a test that greps the built page."
+    },
+    {
+      "key": "epic-c1",
+      "title": "C1 — Chat, mission pipeline, and progress",
+      "milestone": "MS-0014",
+      "labels": [
+        "epic",
+        "C1",
+        "area:orchestration",
+        "prj:PRJ-0001"
+      ],
+      "outcome": "The console has a chat surface wired to the existing chat pipeline, with a normal mode carrying a model picker and a Domain-Capabilities mode carrying the delivery workspace. The four-stage mission pipeline runs as a tooling-level bench against granted missions: plan by Claude at Opus 5 or above, develop and commit by the local model in an isolated worktree, a bounded review loop by Codex, and final review, approval and merge by Claude at Opus 5 or above, under machine accounts with auto-merge armed and the definition of done checked mechanically. A session status feed in the draft job-protocol-v2 shape drives a read-only progress panel, and the coordinator answers what needs the Person from pending-decision state. When a plan proves unclean the mission escalates through the existing user-decision functionality and waits.",
+      "notInScope": "No broker or store change - that is MS-0002. The bench implementation is disposable by declaration under D7: it retires when MS-0002 and MS-0003 land, and only the status feed format survives. No new coordinator provider - that is MS-0015. The local model is assigned the smallest mechanical issues first; its weakness relative to the other two workers is a stated operating constraint, not a discovery to be made in review.",
+      "done": "A granted rehearsal mission runs the full pipeline unattended on a real issue: the plan is recorded, the local model commits under its machine account, the review loop completes at least one correction round, the acceptance role approves, auto-merge fires on the approval, and the evidence pack exists. A deliberately unclean plan escalates through the decision endpoint and resumes on the Person's decision, asserted by a test. The progress panel renders live sessions from the feed. The full suite is green throughout, and the bench refuses issues labelled security-review."
+    },
+    {
+      "key": "epic-c2",
+      "title": "C2 — Codex coordinator and maximum models",
+      "milestone": "MS-0015",
+      "labels": [
+        "epic",
+        "C2",
+        "area:orchestration",
+        "prj:PRJ-0001"
+      ],
+      "outcome": "Codex is a first-class coordinator provider, selectable in chat and the default in normal mode. The model role registry's model id and effort flow into the actual adapter invocations, so changing the registry changes the call: the planner and acceptance roles run at Opus 5 or above, and Codex runs at its maximum available model and reasoning setting. The local model provider re-warms on keep-alive expiry instead of refusing, and token usage is captured and surfaced in the status strip.",
+      "notInScope": "No fourth provider and no HTTP-endpoint configurability in the registry. No change to the pipeline role assignments themselves - the registry governs who plans, codes, reviews and accepts, and it already says so.",
+      "done": "A chat is answered by Codex with the provider and model visible in the status strip. Changing the registry's model id demonstrably changes the invoked model, shown from the invocation record rather than the display. A chat issued more than thirty idle minutes after the last one succeeds without a manual warm-up. The provider enum widening is covered by updated contract tests and schema fixtures, and the full suite is green."
     }
   ],
   "issues": [
@@ -2172,6 +2250,255 @@
       "requirement": "A loopback console session with nothing in local storage resolves to a registered user, not to a synthetic actor that matches no one. The console's first call is GET /api/auth/whoami with no X-Present-Role or X-Present-Actor header (steel-mission-ui/src/app.tsx:33-38,63). The server's loopback-development fallback (steel-mission-chat/server.py:2787-2794) reads the role from the URL path; \"auth\" is not in {owner, admin, publisher, user}, so it defaults to role \"user\", actor id \"user\". No user with id \"user\" exists in config/users.json, so registered_user() finds nothing and the actor is hard-coded to capabilities: []. Verified against the running server: curl http://127.0.0.1:8765/api/auth/whoami with no headers returns actorId \"user\", role \"user\", capabilities []. accessLevel comes from that same role, so the console shows the capability empty state, and Settings -> Users -- gated to owner or admin -- refuses it too. There is no path from a fresh browser to the owner account (morgan-vale) that already exists in the registry, even though hitting /api/owner/users directly resolves the same kind of phantom actor to role \"owner\" and succeeds -- the console's own identity check just never asks under that path. This is the exact failure a fresh operator hits: the start screen, the message telling them to ask an owner or admin, and no way to become one.",
       "acceptance": "A test calls /api/auth/whoami as a loopback request with no stored identity and asserts the resolved actor can reach at least Settings -> Users, or is otherwise handed a real registered identity -- not a role string that matches nobody in the user registry. The fix stays inside the development-local loopback trust boundary already documented for this mode; oidc-required behaviour is untouched, and no login screen or identity picker is added. A clean checkout, started fresh with an empty browser profile, reaches a console that is not a dead end.",
       "surface": "authentication, authorization, or session handling"
+    },
+    {
+      "key": "c0-owner-capability-truth",
+      "title": "Show owner and admin their real Domain Capabilities",
+      "milestone": "MS-0013",
+      "labels": [
+        "task",
+        "C0",
+        "area:identity",
+        "prj:PRJ-0001",
+        "security-review"
+      ],
+      "epic": "epic-c0",
+      "requirement": "The capability workspace derives owner and admin capabilities the way the server already does, instead of reading the raw per-user assignment field. Today capabilityWorkspaceView (steel-mission-ui/src/capabilities.ts) filters actor.capabilities, which is empty for owner and admin by design, while corporate_workspace (steel-mission-chat/server.py, visibleCapabilities) grants those roles all thirteen unconditionally. The result is the registered owner landing on 'No Domain Capabilities are assigned yet' with an instruction to ask an owner - a screen that lies about authority to the one person who has all of it.",
+      "acceptance": "A fresh session as the registered owner renders all thirteen capabilities, demonstrated against the running server and asserted by a test watched to fail first. The derivation has one source of truth: the page consumes the workspace grant, and no console code path reads raw assignedCapabilities for display again. Publisher and user views are unchanged, covered by the existing tests.",
+      "surface": "authentication, authorization, or session handling"
+    },
+    {
+      "key": "c0-stale-identity-fallback",
+      "title": "Resolve a stale declared identity to the registered owner",
+      "milestone": "MS-0013",
+      "labels": [
+        "task",
+        "C0",
+        "area:identity",
+        "prj:PRJ-0001",
+        "security-review"
+      ],
+      "epic": "epic-c0",
+      "requirement": "A loopback request whose declared X-Present-Actor matches no registered user resolves the way a request with no declared identity does, instead of fabricating a capability-less actor. The fix for #169 covered only the no-headers path (authenticate_http_request, steel-mission-chat/server.py); the declared-but-unresolvable branch still hard-codes capabilities: [], and the console persists identity headers in localStorage, so one stale value re-creates the dead end the fix closed.",
+      "acceptance": "A loopback request with X-Present-Actor naming an unregistered user resolves to the registered owner, asserted by a test watched to fail first. The audit trail records that a declared identity was discarded and why. oidc-required behaviour is untouched, shown by the existing identity-boundary tests.",
+      "surface": "authentication, authorization, or session handling"
+    },
+    {
+      "key": "c0-truthful-sidebar-and-status-strip",
+      "title": "Bind the sidebar and a provider status strip to real state",
+      "milestone": "MS-0013",
+      "labels": [
+        "task",
+        "C0",
+        "area:ui",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c0",
+      "requirement": "The console reports server, authority and provider state from the endpoints that already know it. 'Server: Not connected' and 'Authority: Advisory' are hardcoded JSX (steel-mission-ui/src/app.tsx) even when /api/health returns live coordinator readiness including a real local-model probe, and /api/control-plane/readiness returns authority state. A status strip shows, per provider - claude, codex, glimmer - connected, online, idle or working, with token usage where the provider reports it.",
+      "acceptance": "Stopping and starting the local model observably changes the strip, demonstrated against the running server. No status string in the built page is a constant: a test greps the committed page for the retired literals and fails if they return. Idle versus working reflects live job state, asserted by a test that starts a job and reads the strip's source endpoint.",
+      "surface": "none of the above — console rendering only"
+    },
+    {
+      "key": "c1-chat-composer",
+      "title": "Give the console a chat surface on the existing pipeline",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:ui",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c1",
+      "requirement": "The landing screen carries a chat composer wired to the pipeline the server already ships: POST /api/chat, job polling, follow-ups and decisions (steel-mission-chat/server.py) have been orphaned since the legacy console was deleted in PR #162 - the machinery answers, no page asks. The composer streams a conversation with the coordinator under the active runtime profile.",
+      "acceptance": "A Person types a question on the landing screen and receives the coordinator's answer, demonstrated against the running server with the local model. The orphaned endpoints have a consumer again, covered by page-level tests. The plain form at /plain is unchanged.",
+      "surface": "none of the above — console rendering only"
+    },
+    {
+      "key": "c1-work-modes",
+      "title": "Make the two work modes real, with a model picker",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:ui",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c1",
+      "requirement": "The existing work-mode toggle stops being decoration. Normal mode is a plain chat carrying a model picker over the registered coordinator providers; Domain-Capabilities mode is the capability workspace with the delivery setup. Codex becomes the normal-mode default when MS-0015 lands; until then the picker offers what the registry can actually route.",
+      "acceptance": "Switching modes changes the surface, and the picker's selection changes which provider answers, both demonstrated against the running server and asserted by tests. The picker never offers a provider the registry cannot route, proven by a test against the resolution endpoint.",
+      "surface": "none of the above — console rendering only",
+      "dependsOn": [
+        "c1-chat-composer"
+      ]
+    },
+    {
+      "key": "c1-session-status-feed",
+      "title": "Define the session status feed as the draft of job protocol v2",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:orchestration",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c1",
+      "requirement": "One schema describes the state of an agent session - claimed issue, stage, worker, machine account, started, last event, budget spent, outcome - written as append-only JSONL. This is the durable artifact of the bench under D7: MS-0002 persists it in the store and MS-0003's job protocol carries it, so it is designed as a contract, not a log format.",
+      "acceptance": "The schema exists under schemas/ with valid and invalid fixtures, and a validator test covers both. The bench writes it and the progress panel reads it with no intermediate translation. A schema-authority review confirms the shape before P1 consumes it.",
+      "surface": "control plane"
+    },
+    {
+      "key": "c1-mission-pipeline-bench",
+      "title": "Run granted missions through the four-stage pipeline bench",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:orchestration",
+        "prj:PRJ-0001",
+        "security-review"
+      ],
+      "epic": "epic-c1",
+      "requirement": "A tooling-level bench executes a granted mission unattended through the D8 pipeline: plan by Claude at Opus 5 or above; develop and commit by the local model in an isolated worktree under its machine account; a bounded review loop by Codex; final review, approval and merge by Claude at Opus 5 or above, with auto-merge armed so the approval is what lands it. The bench claims the issue by assignment, feeds the agent exactly the issue's requirement and acceptance text, enforces the workplan's gates mechanically - no push while the suite is red, failing-test evidence in the pull request body - refuses security-review-labelled issues, honours per-session time and turn budgets, and escalates through the existing user-decision functionality when the plan proves unclean. It lives in tooling/, never product code, and is disposable by declaration under D7.",
+      "acceptance": "A granted rehearsal mission runs the full pipeline on a real issue to a merged pull request with no human action after the grant, and the evidence pack records every stage. A deliberately unclean plan escalates and waits, then resumes on the Person's decision, asserted by a test. The bench cannot merge: branch protection is the wall, and the merge fires only on the acceptance account's approval. Killing a session leaves the main checkout untouched, shown by git status.",
+      "surface": "subprocess or container execution",
+      "dependsOn": [
+        "c1-session-status-feed"
+      ]
+    },
+    {
+      "key": "c1-progress-panel",
+      "title": "Show pipeline progress in the console",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:ui",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c1",
+      "requirement": "A read-only panel renders the session status feed: which worker holds which issue, the stage each mission is in, idle versus working, budget spent, and what is waiting on the Person. It binds to the feed format, not to the bench, so it survives the bench's retirement unchanged.",
+      "acceptance": "Live bench sessions render in the panel, demonstrated with two concurrent sessions. The panel is read-only: it exposes no control that mutates a session. A feed entry the schema rejects renders as an error state rather than being silently skipped.",
+      "surface": "none of the above — console rendering only",
+      "dependsOn": [
+        "c1-session-status-feed"
+      ]
+    },
+    {
+      "key": "c1-coordinator-pending-decisions",
+      "title": "Let the coordinator answer what needs the Person",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:orchestration",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c1",
+      "requirement": "The coordinator's snapshot includes pending-decision state - escalated missions, waiting approvals, blocked sessions - so asking the coordinator what needs me returns a truthful, current answer drawn from records rather than the model's memory of the conversation.",
+      "acceptance": "With one escalated mission outstanding, asking the coordinator what needs the Person names it, demonstrated against the running server. With nothing outstanding the answer says so plainly. The snapshot source is the decision state itself, asserted by a test that injects a pending decision and reads the snapshot bundle.",
+      "surface": "control plane",
+      "dependsOn": [
+        "c1-session-status-feed"
+      ]
+    },
+    {
+      "key": "c2-codex-coordinator",
+      "title": "Make Codex a first-class coordinator provider",
+      "milestone": "MS-0015",
+      "labels": [
+        "task",
+        "C2",
+        "area:orchestration",
+        "prj:PRJ-0001",
+        "security-review"
+      ],
+      "epic": "epic-c2",
+      "requirement": "Codex joins claude and glimmer as a coordinator provider and becomes the normal-mode chat default. The provider set is pinned in four independent layers today: the request schemas (coordination-report-request-v1, runtime-profile-resolution-v1, model-role-registry-v1), the worker dispatch (bin/present-worker), the server allowlists (steel-mission-chat/server.py), and the page. codex_adapter gains a coordinator_report with the same schema-constrained envelope the other two adapters return, and a codex runtime profile becomes selectable.",
+      "acceptance": "A chat is answered by Codex with provider and model visible in the status strip, demonstrated against the running server. Every widened enum carries an updated fixture, and the routing contract tests cover the third provider including its unavailable state, which fails closed to the registry's fallback rather than substituting silently. The full suite is green.",
+      "surface": "subprocess or container execution"
+    },
+    {
+      "key": "c2-registry-model-plumbing",
+      "title": "Make the registry's model choice govern the actual call",
+      "milestone": "MS-0015",
+      "labels": [
+        "task",
+        "C2",
+        "area:config-integrity",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c2",
+      "requirement": "The model id and effort resolved from config/model-role-registry.json flow into the adapter invocations. Today cmd_coordinator_report (bin/present-worker) calls the adapters without a model argument, so hardcoded defaults run regardless of the registry - the selection is display and audit metadata only, which means the Settings page can silently have no effect. With the plumbing in place, the planner and acceptance roles are set to Opus 5 or above and Codex to its maximum available model and reasoning setting.",
+      "acceptance": "Changing the registry's model id changes the invoked model, shown from the invocation record rather than the display, asserted by a test watched to fail first. The maximum settings are recorded in the registry, and a chat demonstrates each role running its declared model. A registry model the provider does not recognise is refused at resolution time with a named error, never silently mapped to a default.",
+      "surface": "control plane"
+    },
+    {
+      "key": "c2-glimmer-rewarm",
+      "title": "Re-warm the local model instead of refusing after idle expiry",
+      "milestone": "MS-0015",
+      "labels": [
+        "task",
+        "C2",
+        "area:orchestration",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c2",
+      "requirement": "A chat that arrives after the local model's keep-alive has expired triggers a reload instead of a refusal. Today glimmer readiness requires the model loaded (adapters/glimmer_adapter.py), Ollama unloads after thirty idle minutes, and the next request returns glimmer_not_ready until someone re-runs the manual start - a dead end on a machine where the model is installed and the server is up. The deliberate refusal to cold-start the server process itself stays: re-warm covers reloading a model into a running server, not booting one.",
+      "acceptance": "A chat issued more than thirty idle minutes after the last one succeeds without manual intervention, with the re-warm visible in the status strip while it happens. The memory floor check still gates an actual server start, covered by the existing tests. A re-warm that fails reports the failure truthfully rather than hanging the chat.",
+      "surface": "control plane"
+    },
+    {
+      "key": "c2-token-usage-capture",
+      "title": "Capture and surface token usage per provider",
+      "milestone": "MS-0015",
+      "labels": [
+        "task",
+        "C2",
+        "area:ui",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c2",
+      "requirement": "Each coordinator invocation records the token usage its provider reports - Ollama returns evaluation counts natively, the CLI stream events carry usage - and the status strip surfaces it per provider. Where a provider reports nothing, the strip says unknown rather than zero.",
+      "acceptance": "After a chat, the strip shows the tokens that invocation reported, matching the invocation record. A provider that reports no usage shows unknown, asserted by a test. Usage lands in the evidence trail with the invocation it belongs to.",
+      "surface": "none of the above — console rendering only"
+    },
+    {
+      "key": "p1-status-feed-persistence",
+      "title": "Persist the session status feed in the durable store",
+      "milestone": "MS-0002",
+      "labels": [
+        "task",
+        "P1",
+        "area:store",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-p1",
+      "requirement": "The store persists agent-session status in the schema the C1 feed established, so pipeline progress survives a restart the same way jobs do and the progress panel reads one source whether the bench or the broker produced it.",
+      "acceptance": "A session recorded before a daemon SIGKILL reads back identically after recovery, added to the coordinator-kill test. The feed schema is the C1 schema unchanged; any divergence is a schema change with a fixture, not a drift. The panel renders store-backed sessions with no code change, demonstrated.",
+      "surface": "control plane",
+      "dependsOn": [
+        "c1-session-status-feed"
+      ]
+    },
+    {
+      "key": "p2-agent-executor",
+      "title": "Run coding agents as runner jobs, and retire the bench",
+      "milestone": "MS-0003",
+      "labels": [
+        "task",
+        "P2",
+        "area:runner",
+        "prj:PRJ-0001",
+        "security-review"
+      ],
+      "epic": "epic-p2",
+      "requirement": "The runner gains an agent-executor job class: a coding agent runs in an isolated worktree with a commit step, its machine-account git identity, credentials scoped to exactly the job's declared set, a network policy admitting exactly the model endpoints the job declares, and timeout ceilings sized for agent runs rather than the current shell-command limits. The current delivery path cannot host this by design: the scoped environment strips agent credentials, Docker mode defaults to no network, commands are capped at 500 characters and 180 seconds, and no node commits (steel-mission-chat/server.py, bin/present-private-runner). The D8 pipeline runs through broker and runner, and the C1 bench retires.",
+      "acceptance": "A granted mission runs plan, develop and commit, review loop, and final review to a merged pull request through the broker and a runner agent, with the bench retired and the retirement recorded. The executor's environment is asserted by test: credentials present are exactly the declared set, and a sentinel secret never appears in arguments, logs, store or artifacts. The existing shell-command delivery path is unchanged, covered by its current tests.",
+      "surface": "subprocess or container execution",
+      "dependsOn": [
+        "c1-mission-pipeline-bench",
+        "p1-status-feed-persistence"
+      ]
     }
   ]
 }

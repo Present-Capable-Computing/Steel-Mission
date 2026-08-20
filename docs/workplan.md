@@ -63,6 +63,9 @@ that supersedes it — not a preference expressed in a review.
 | D4 | The new root package is `steel_core/`. The originating plan asked for both a `present_core` package and a repository that names one product; those conflict, and this repository names Steel-Mission. |
 | D5 | The database is the queue. The broker command line, the daemon and the chat server are direct clients of one store, sharing one command module and one state machine. There is no command-line-to-daemon remote call. |
 | D6 | Two network surfaces exist and no more: the runner-facing gRPC gateway on the daemon, and an authenticated HTTP operations API. Anything else that wants to listen argues for itself first. |
+| D7 | The founder console, the chat surface, codex as a coordinator provider and the four-stage mission pipeline fold into PRJ-0001 as milestones C0–C2, with the status feed persisted at P1 and the agent executor at P2. No separate project, and no durable second dispatch path: the C1 bench is disposable by declaration, and only its session status feed format — the draft of job protocol v2 — survives into P1/P2. |
+| D8 | The Okay happens at mission grant. A grant binds a plan, a machine-checkable definition of done, budgets and abort conditions; within those bounds the mission runs unattended through plan (Claude, Opus 5 at least), develop and commit (the local model), a bounded review loop (Codex), and final review, approval and merge (Claude, Opus 5 at least). When the plan proves unclean the mission escalates through the existing user-decision functionality and waits; it never widens its own authority, and a mission that cannot reach its definition of done stops and reports rather than redefining done. |
+| D9 | One machine account per model worker, so commit authorship, review provenance and approval are real on GitHub rather than reconstructed from evidence packs. The acceptance account is a code owner for non-authority paths only; `schemas/canonical/` stays human-owned, and a mission touching it escalates instead of merging. Account creation is the maintainer's act. |
 
 ## 3. Milestone sequence — PRJ-0001
 
@@ -72,27 +75,31 @@ other phase.
 | Milestone | Phase | Outcome in one line | Budget (focused days) | Target |
 |---|---|---|---|---|
 | [MS-0001](../plan/MS-0001.json) | P0 | Dependency and runtime jumps resolved; CI compiles every entrypoint; test harness ready | 1.0 | 2026-08-27 |
-| [MS-0002](../plan/MS-0002.json) | P1 | Durable transactional broker with fencing, sweeping and a daemon | 6.0 | 2026-09-17 |
-| [MS-0003](../plan/MS-0003.json) | P2 | Remote pull-runner over mutual TLS returning signed, bound results | 7.0 | 2026-10-15 |
-| [MS-0004](../plan/MS-0004.json) | P3 | Transactional connector inbox and outbox with backoff and a dead-letter queue | 3.0 | 2026-10-29 |
-| [MS-0005](../plan/MS-0005.json) | P4 | One orchestration path; missions resume after restart | 3.0 | 2026-11-19 |
-| [MS-0006](../plan/MS-0006.json) | P5 | The repository names one product | 2.0 | 2026-12-03 |
+| [MS-0013](../plan/MS-0013.json) | C0 | The Founder lands as the registered owner and sees true capability, server, authority and provider state | 2.0 | 2026-09-03 |
+| [MS-0014](../plan/MS-0014.json) | C1 | Chat on the landing screen; granted missions run the four-stage pipeline on a disposable bench; progress is visible | 4.3 | 2026-09-17 |
+| [MS-0015](../plan/MS-0015.json) | C2 | Codex is a coordinator provider and the registry's model choices govern the actual calls | 4.0 | 2026-09-24 |
+| [MS-0002](../plan/MS-0002.json) | P1 | Durable transactional broker with fencing, sweeping, a daemon — and the session status feed persisted | 7.0 | 2026-10-15 |
+| [MS-0003](../plan/MS-0003.json) | P2 | Remote pull-runner over mutual TLS returning signed, bound results; coding agents run as runner jobs and the bench retires | 10.8 | 2026-11-12 |
+| [MS-0004](../plan/MS-0004.json) | P3 | Transactional connector inbox and outbox with backoff and a dead-letter queue | 3.0 | 2026-11-26 |
+| [MS-0005](../plan/MS-0005.json) | P4 | One orchestration path; missions resume after restart | 3.0 | 2026-12-10 |
+| [MS-0006](../plan/MS-0006.json) | P5 | The repository names one product | 2.0 | 2026-12-23 |
 
-Total estimated effort is 16.1 days before contingency and approximately 20 days
+Total estimated effort is 31.5 days before contingency and approximately 39.4 days
 with the declared 25 percent. It is estimated per category and divided by an
 expected acceleration factor, with security-sensitive and novel integration work
 held at the cautious end of its range and irreducible empirical time — kill tests,
-image builds, continuous integration waits — counted at no acceleration at all. It
-is not a commitment, and a milestone being inside its budget is not evidence that
-the work is correct. Re-defend the estimate at every milestone boundary and
-print the delta rather than absorbing it.
+image builds, live pipeline rehearsals, continuous integration waits — counted at
+no acceleration at all. It is not a commitment, and a milestone being inside its
+budget is not evidence that the work is correct. Re-defend the estimate at every
+milestone boundary and print the delta rather than absorbing it.
 
-Re-defended at the second 2026-08-20 resume boundary, after MS-0012: the scope,
-risk categories and irreducible empirical work are unchanged, so the focused
-estimate remains 16.1 days and the printed delta is **+0.0 focused days**. The
-declared contingency remains approximately 20 days. The interruption began and
-ended on the same date, so the targets already reset at the first resume remain
-true and do not move again.
+Re-defended at the D7 rescope on 2026-08-20: the console, chat, provider and
+pipeline work folds in, the status feed persists at P1 and the agent executor
+lands at P2. Conventional effort grows 140 to 223 person-days and the focused
+estimate 16.1 to 31.5 days — a printed delta of **+15.4 focused days**, with the
+per-category derivation on the project record. Target dates from MS-0014 onward
+assume pipeline-assisted throughput; that assumption is a hypothesis, and it is
+re-examined at the MS-0014 boundary with the delta printed.
 
 Target dates on the milestone records are targets. `AT_RISK` describes the schedule.
 It never describes the work.
@@ -204,6 +211,18 @@ A milestone is done when every task in it is closed or explicitly dropped with a
 written reason, and the completion evidence named on the milestone record exists.
 `COMPLETE` means the work is closed. It does not mean anything passed verification.
 
+**Work executed inside a granted mission** (D8, D9) meets the same seven conditions
+with two substitutions, both bounded by the grant. The requirement in item 1 is
+fixed at grant time — the planner may draft it, but the grant is a person's act and
+the mission cannot amend its own requirement. The review in item 6 is performed by
+the acceptance role (Claude, Opus 5 at least) through its machine account for
+non-authority paths; `schemas/canonical/` and this document's binding sections stay
+human-owned, and a mission touching them escalates through the existing
+user-decision functionality and waits. The definition of done in a grant is
+machine-checkable — acceptance criteria as tests the CI scaffolding runs, not
+prose — and a mission that cannot reach it stops and reports rather than
+redefining done.
+
 ## 6. How this is enforced
 
 Prose does not bind anyone. These do:
@@ -218,6 +237,7 @@ Prose does not bind anyone. These do:
 | Issue templates | A task cannot enter with an empty requirement, matching the control plane's own refusal |
 | Dependabot | Action, pip and container bumps arrive as reviewable pull requests, because a workflow runs with repository credentials |
 | `make release-check` | Whitespace, compilation of every entrypoint, full suite — the same gate locally and in CI |
+| Machine accounts, one per model worker | Author and approver are different GitHub identities on mission pull requests, so review provenance is real; the acceptance account owns non-authority paths only, and `schemas/canonical/` stays human-owned |
 
 If you find a way to land a change that skips one of these, that is a defect in the
 setup. Report it rather than using it.
@@ -248,6 +268,10 @@ and the templates do not have a bypass in normal use.
   Silent blockage is the most expensive state in the project.
 - **Dropped work is recorded.** A task closed without doing it gets one written line
   saying why. Milestone completion depends on being able to read that line.
+- **Missions claim by assignment.** A granted mission assigns its issue and comments
+  its session id before the first commit, so two workers never hold one issue and
+  the board shows who has what. Mission branches follow the same
+  `<milestone>/<short-slug>` convention as everyone else's.
 
 ## 8. Acceptance criteria for the project
 
@@ -287,6 +311,16 @@ subprocess, matching how this suite already tests.
 6. **The runtime jumps in P0.** The container base image and the continuous
    integration interpreter matrix are different runtimes that fail independently.
    A green matrix says nothing about the container.
+7. **The local coder is the weakest worker.** A 14-billion-parameter local model
+   drafting changes produces review burden faster than it removes work if it is
+   handed anything large. Mitigated by assignment discipline — smallest mechanical
+   issues first — and by the Codex review loop standing between its commits and
+   the acceptance review.
+8. **Pipeline authority creep.** An unattended mission that quietly widens its own
+   scope is the failure mode D8 exists to prevent. Mitigated by grant-time budgets
+   and abort conditions, escalation through the existing decision functionality,
+   the bench refusing security-review-labelled issues, and `schemas/canonical/`
+   staying human-owned.
 
 ## 10. Changing this document
 

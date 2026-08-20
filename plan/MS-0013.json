@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "projectId": "PRJ-0001",
+  "createdAt": "2026-08-20T00:00:00Z",
+  "producedAt": "2026-08-20T00:00:00Z",
+  "producer": "human",
+  "provenance": {
+    "source": "control-plane"
+  },
+  "state": "PLANNED",
+  "taskIds": [],
+  "milestoneId": "MS-0013",
+  "title": "C0 - Founder console: truthful identity and state",
+  "targetDate": "2026-09-03",
+  "outcome": "Landing on the console as the registered owner shows the true capability state: owner and admin derive their Domain Capabilities from the workspace grant rather than from the raw per-user assignment field that is empty for them by design, so Morgan Vale sees all thirteen instead of an empty-state message. A declared identity that resolves to no registered user falls back the same way a missing one does instead of producing a capability-less actor. The sidebar reports real server and authority state from the health and control-plane readiness endpoints, and a provider status strip shows, per provider, connected, online, idle or working, with token usage where the provider reports it.",
+  "notInScope": "No new identity and no new organization: the Founder lands as the existing registered owner, and the shipped Northstar Forge demo company is untouched. No login screen, no identity picker, no change to oidc-required behaviour. No chat surface - that is MS-0014. No new provider - that is MS-0015.",
+  "completionEvidence": "A fresh incognito session against a clean checkout lands as the registered owner with thirteen capabilities visible, demonstrated against the running server. A request carrying a stale X-Present-Actor naming an unregistered user resolves to the registered owner rather than a ghost, asserted by a test watched to fail first. Stopping and starting the local model observably changes the status strip, and the sidebar no longer contains hardcoded state strings, proven by a test that greps the built page.",
+  "metadata": {
+    "phase": "C0",
+    "focusedDaysBudget": 2.0,
+    "origin": "Folded in at the D7 rescope of 2026-08-20 from the console investigation of the same date.",
+    "risk": "The identity fixes touch the authentication fallback path and carry a security review. The temptation is to special-case the owner in the page; the fix belongs where the truth already lives, in the workspace derivation the server ships."
+  }
+}
