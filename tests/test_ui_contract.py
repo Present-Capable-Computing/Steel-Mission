@@ -259,6 +259,14 @@ def test_application_capability_workspace_has_an_actionable_empty_state():
     assert "Settings → Users" in empty_text
 
 
+def test_application_has_an_owner_capability_assignment_interface():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "capabilityAssignmentForm" in html
+    assert "/api/owner/assignments" in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")
