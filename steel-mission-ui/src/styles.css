@@ -256,6 +256,48 @@ select {
   margin-top: 2rem;
 }
 
+.parity-panel,
+.panel-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.parity-panel {
+  margin-top: 1.5rem;
+}
+
+.panel-actions,
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem;
+}
+
+.panel-form > label,
+.panel-grid label,
+.panel-actions label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.panel-form input,
+.panel-form select,
+.panel-form textarea,
+.panel-form button,
+.panel-actions select,
+.panel-actions button {
+  border: 1px solid #34404c;
+  border-radius: 0.65rem;
+  background: #141b23;
+  padding: 0.7rem 0.8rem;
+  color: inherit;
+}
+
+.panel-form button,
+.panel-actions button {
+  cursor: pointer;
+}
+
 .assignment-form > label {
   display: grid;
   gap: 0.5rem;

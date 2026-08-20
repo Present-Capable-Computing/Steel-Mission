@@ -237,6 +237,42 @@ select {
   gap: 1rem;
   margin-top: 2rem;
 }
+.parity-panel,
+.panel-form {
+  display: grid;
+  gap: 1rem;
+}
+.parity-panel {
+  margin-top: 1.5rem;
+}
+.panel-actions,
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem;
+}
+.panel-form > label,
+.panel-grid label,
+.panel-actions label {
+  display: grid;
+  gap: 0.45rem;
+}
+.panel-form input,
+.panel-form select,
+.panel-form textarea,
+.panel-form button,
+.panel-actions select,
+.panel-actions button {
+  border: 1px solid #34404c;
+  border-radius: 0.65rem;
+  background: #141b23;
+  padding: 0.7rem 0.8rem;
+  color: inherit;
+}
+.panel-form button,
+.panel-actions button {
+  cursor: pointer;
+}
 .assignment-form > label {
   display: grid;
   gap: 0.5rem;
@@ -903,6 +939,251 @@ select {
     { id: "audit", label: "Audit", hint: "Configuration mutations" }
   ];
 
+  // steel-mission-ui/src/organizations.ts
+  function organizationPanelAvailable(accessLevel2) {
+    return accessLevel2 === "owner" || accessLevel2 === "admin";
+  }
+  function assertManager(accessLevel2) {
+    if (!organizationPanelAvailable(accessLevel2)) {
+      throw new Error("owner or admin access is required to manage organizations");
+    }
+  }
+  function asRegistry(value) {
+    const source = value && typeof value === "object" ? value : {};
+    if (!Array.isArray(source.organizations)) throw new Error("Organization registry is unavailable");
+    return {
+      ...source,
+      activeOrganizationId: String(source.activeOrganizationId || ""),
+      organizations: source.organizations.filter((item) => Boolean(item) && typeof item === "object" && typeof item.id === "string")
+    };
+  }
+  async function loadOrganizationRegistry(request, accessLevel2) {
+    assertManager(accessLevel2);
+    const response = await request(`/api/${accessLevel2}/organizations`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "Organizations are unavailable");
+    return asRegistry(result.payload);
+  }
+  async function saveOrganizationRegistry(request, accessLevel2, registry) {
+    assertManager(accessLevel2);
+    const response = await request(`/api/${accessLevel2}/organizations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registry)
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "Organization could not be saved");
+    return asRegistry(result.payload);
+  }
+  function updateOrganization(registry, organization) {
+    const organizations = [...registry.organizations];
+    const index = organizations.findIndex((item) => item.id === organization.id);
+    if (index >= 0) organizations[index] = organization;
+    else organizations.push(organization);
+    return {
+      ...registry,
+      activeOrganizationId: registry.activeOrganizationId || organization.id,
+      organizations
+    };
+  }
+
+  // node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
+  var f3 = 0;
+  function u3(e3, t3, n2, o3, i3, u4) {
+    t3 || (t3 = {});
+    var a3, c3, p3 = t3;
+    if ("ref" in p3) for (c3 in p3 = {}, t3) "ref" == c3 ? a3 = t3[c3] : p3[c3] = t3[c3];
+    var l3 = { type: e3, props: p3, key: n2, ref: a3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: --f3, __i: -1, __u: 0, __source: i3, __self: u4 };
+    if ("function" == typeof e3 && (a3 = e3.defaultProps)) for (c3 in a3) void 0 === p3[c3] && (p3[c3] = a3[c3]);
+    return l.vnode && l.vnode(l3), l3;
+  }
+
+  // steel-mission-ui/src/organizations-panel.tsx
+  function stringList(value) {
+    return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  }
+  function jsonList(value, label) {
+    const parsed = JSON.parse(value || "[]");
+    if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array`);
+    return parsed;
+  }
+  function template() {
+    return {
+      id: "",
+      name: "",
+      slug: "",
+      identifiers: { legalName: "", domain: "", country: "", environment: "starter", dataClassification: "internal" },
+      knowledgeDomainKeys: [],
+      domainCapabilityKeys: [],
+      knowledgeSources: { repositories: [], documents: [] },
+      notes: ""
+    };
+  }
+  function slug(value) {
+    return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  }
+  function OrganizationsPanel({ accessLevel: accessLevel2, request }) {
+    const [registry, setRegistry] = d2(null);
+    const [selectedId, setSelectedId] = d2("");
+    const [draft, setDraft] = d2(template());
+    const [status, setStatus] = d2("Loading organizations\u2026");
+    h2(() => {
+      let current = true;
+      if (!organizationPanelAvailable(accessLevel2)) {
+        setStatus("Owner or admin access is required to manage organizations.");
+        return () => {
+          current = false;
+        };
+      }
+      loadOrganizationRegistry(request, accessLevel2).then((loaded) => {
+        if (!current) return;
+        const initial = loaded.organizations.find((item) => item.id === loaded.activeOrganizationId) || loaded.organizations[0] || template();
+        setRegistry(loaded);
+        setSelectedId(initial.id);
+        setDraft(initial);
+        setStatus("");
+      }).catch((error) => current && setStatus(error instanceof Error ? error.message : "Organizations are unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [accessLevel2, request]);
+    if (!organizationPanelAvailable(accessLevel2)) {
+      return /* @__PURE__ */ u3("div", { id: "organizationsPanel", children: /* @__PURE__ */ u3("p", { children: status }) });
+    }
+    const selectOrganization = (id) => {
+      const selected = registry?.organizations.find((item) => item.id === id) || template();
+      setSelectedId(id);
+      setDraft(selected);
+      setStatus("");
+    };
+    const setField = (key, value) => setDraft((current) => ({ ...current, [key]: value }));
+    const setIdentifier = (key, value) => setDraft((current) => ({
+      ...current,
+      identifiers: { ...current.identifiers, [key]: value }
+    }));
+    const save = async (event) => {
+      event.preventDefault();
+      if (!registry) return;
+      setStatus("Saving organization\u2026");
+      try {
+        const next = updateOrganization(registry, {
+          ...draft,
+          id: slug(draft.id || draft.name),
+          name: draft.name.trim(),
+          slug: slug(draft.slug || draft.name),
+          knowledgeDomainKeys: stringList((draft.knowledgeDomainKeys || []).join(", ")),
+          domainCapabilityKeys: stringList((draft.domainCapabilityKeys || []).join(", ")),
+          knowledgeSources: {
+            repositories: jsonList(JSON.stringify(draft.knowledgeSources?.repositories || []), "Repositories"),
+            documents: jsonList(JSON.stringify(draft.knowledgeSources?.documents || []), "Documents")
+          }
+        });
+        const saved = await saveOrganizationRegistry(request, accessLevel2, next);
+        setRegistry(saved);
+        setSelectedId(draft.id);
+        setStatus("Organization saved and reloaded.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Organization could not be saved");
+      }
+    };
+    const identifiers = draft.identifiers || {};
+    const sources = draft.knowledgeSources || {};
+    return /* @__PURE__ */ u3("div", { id: "organizationsPanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("div", { class: "panel-actions", children: [
+        /* @__PURE__ */ u3("label", { children: [
+          "Organization",
+          /* @__PURE__ */ u3("select", { value: selectedId, onChange: (event) => selectOrganization(event.currentTarget.value), children: registry?.organizations.map((item) => /* @__PURE__ */ u3("option", { value: item.id, children: item.name || item.id }, item.id)) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "button", onClick: () => {
+          setSelectedId("");
+          setDraft(template());
+        }, children: "Create Organization" })
+      ] }),
+      /* @__PURE__ */ u3("form", { class: "panel-form", onSubmit: save, children: [
+        /* @__PURE__ */ u3("label", { children: [
+          "Active Organization",
+          /* @__PURE__ */ u3(
+            "select",
+            {
+              value: registry?.activeOrganizationId || "",
+              onChange: (event) => registry && setRegistry({ ...registry, activeOrganizationId: event.currentTarget.value }),
+              children: registry?.organizations.map((item) => /* @__PURE__ */ u3("option", { value: item.id, children: item.name || item.id }, item.id))
+            }
+          )
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "Organization ID",
+            /* @__PURE__ */ u3("input", { value: draft.id, readOnly: Boolean(selectedId), onInput: (event) => setField("id", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Display Name",
+            /* @__PURE__ */ u3("input", { value: draft.name, onInput: (event) => {
+              const name = event.currentTarget.value;
+              setDraft((current) => ({ ...current, name, ...!selectedId ? { id: slug(name), slug: slug(name) } : {} }));
+            } })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Slug",
+            /* @__PURE__ */ u3("input", { value: draft.slug, onInput: (event) => setField("slug", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Legal Name",
+            /* @__PURE__ */ u3("input", { value: String(identifiers.legalName || ""), onInput: (event) => setIdentifier("legalName", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Primary Domain",
+            /* @__PURE__ */ u3("input", { value: String(identifiers.domain || ""), onInput: (event) => setIdentifier("domain", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Country",
+            /* @__PURE__ */ u3("input", { value: String(identifiers.country || ""), onInput: (event) => setIdentifier("country", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Environment",
+            /* @__PURE__ */ u3("input", { value: String(identifiers.environment || ""), onInput: (event) => setIdentifier("environment", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Data Classification",
+            /* @__PURE__ */ u3("input", { value: String(identifiers.dataClassification || ""), onInput: (event) => setIdentifier("dataClassification", event.currentTarget.value) })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Knowledge Domain Keys",
+          /* @__PURE__ */ u3("input", { value: (draft.knowledgeDomainKeys || []).join(", "), onInput: (event) => setField("knowledgeDomainKeys", stringList(event.currentTarget.value)) })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Domain Capability Keys",
+          /* @__PURE__ */ u3("input", { value: (draft.domainCapabilityKeys || []).join(", "), onInput: (event) => setField("domainCapabilityKeys", stringList(event.currentTarget.value)) })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Organization Repositories and Folders JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 5, value: JSON.stringify(sources.repositories || [], null, 2), onInput: (event) => {
+            try {
+              setDraft((current) => ({ ...current, knowledgeSources: { ...current.knowledgeSources, repositories: jsonList(event.currentTarget.value, "Repositories") } }));
+            } catch {
+            }
+          } })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Organization Documents JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 5, value: JSON.stringify(sources.documents || [], null, 2), onInput: (event) => {
+            try {
+              setDraft((current) => ({ ...current, knowledgeSources: { ...current.knowledgeSources, documents: jsonList(event.currentTarget.value, "Documents") } }));
+            } catch {
+            }
+          } })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Notes",
+          /* @__PURE__ */ u3("textarea", { rows: 3, value: draft.notes || "", onInput: (event) => setField("notes", event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "submit", disabled: !registry || !draft.name.trim(), children: "Save Organization" }),
+        status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+      ] })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -916,17 +1197,6 @@ select {
       description: "Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens."
     }
   ];
-
-  // node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
-  var f3 = 0;
-  function u3(e3, t3, n2, o3, i3, u4) {
-    t3 || (t3 = {});
-    var a3, c3, p3 = t3;
-    if ("ref" in p3) for (c3 in p3 = {}, t3) "ref" == c3 ? a3 = t3[c3] : p3[c3] = t3[c3];
-    var l3 = { type: e3, props: p3, key: n2, ref: a3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: --f3, __i: -1, __u: 0, __source: i3, __self: u4 };
-    if ("function" == typeof e3 && (a3 = e3.defaultProps)) for (c3 in a3) void 0 === p3[c3] && (p3[c3] = a3[c3]);
-    return l.vnode && l.vnode(l3), l3;
-  }
 
   // steel-mission-ui/src/app.tsx
   function browserCookie(name) {
@@ -1137,6 +1407,7 @@ select {
                 /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Settings" }),
                 /* @__PURE__ */ u3("h2", { children: section.label }),
                 /* @__PURE__ */ u3("p", { children: section.hint }),
+                section.id === "organizations" && activeSettingsSection === "organizations" && capabilityState.view && /* @__PURE__ */ u3(OrganizationsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",

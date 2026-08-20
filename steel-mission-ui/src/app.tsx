@@ -15,6 +15,7 @@ import {
   type CapabilityWorkspaceView,
 } from "./capabilities";
 import {SETTINGS_SECTIONS, type SettingsSectionId} from "./settings";
+import {OrganizationsPanel} from "./organizations-panel";
 import {WORK_MODES, type WorkMode} from "./work-mode";
 
 
@@ -258,6 +259,9 @@ function App() {
                   <p class="eyebrow">Settings</p>
                   <h2>{section.label}</h2>
                   <p>{section.hint}</p>
+                  {section.id === "organizations" && activeSettingsSection === "organizations" && capabilityState.view && (
+                    <OrganizationsPanel accessLevel={capabilityState.view.accessLevel} request={apiRequest} />
+                  )}
                   {section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && (
                     <form id="capabilityAssignmentForm" class="assignment-form" onSubmit={saveAssignments}>
                       <label>
