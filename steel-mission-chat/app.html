@@ -286,6 +286,24 @@ select {
   margin-bottom: 0;
   color: #aab4bf;
 }
+.audit-hashes {
+  display: grid;
+  gap: 0.35rem;
+}
+.audit-hashes div {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+.audit-hashes dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #aab4bf;
+}
+.record-list pre {
+  overflow: auto;
+  white-space: pre-wrap;
+}
 .assignment-form > label {
   display: grid;
   gap: 0.5rem;
@@ -2400,6 +2418,81 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/audit.ts
+  function auditPanelAvailable(accessLevel2) {
+    return accessLevel2 === "owner" || accessLevel2 === "admin";
+  }
+  async function loadMutationLedger(request, accessLevel2) {
+    if (!auditPanelAvailable(accessLevel2)) throw new Error("owner or admin access is required to view the mutation ledger");
+    const response = await request(`/api/${accessLevel2}/mutations`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "Mutation ledger is unavailable");
+    return Array.isArray(result.mutations) ? result.mutations.filter((item) => Boolean(item) && typeof item === "object" && typeof item.mutationId === "string") : [];
+  }
+
+  // steel-mission-ui/src/audit-panel.tsx
+  function AuditPanel({ accessLevel: accessLevel2, request }) {
+    const [mutations, setMutations] = d2([]);
+    const [status, setStatus] = d2("Loading mutation ledger\u2026");
+    h2(() => {
+      let current = true;
+      if (!auditPanelAvailable(accessLevel2)) {
+        setStatus("Owner or admin access is required to view the mutation ledger.");
+        return () => {
+          current = false;
+        };
+      }
+      loadMutationLedger(request, accessLevel2).then((loaded) => {
+        if (!current) return;
+        setMutations(loaded);
+        setStatus("");
+      }).catch((error) => current && setStatus(error instanceof Error ? error.message : "Mutation ledger is unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [accessLevel2, request]);
+    if (!auditPanelAvailable(accessLevel2)) return /* @__PURE__ */ u3("div", { id: "auditPanel", children: /* @__PURE__ */ u3("p", { children: status }) });
+    return /* @__PURE__ */ u3("div", { id: "auditPanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("h3", { children: "Mutation Ledger" }),
+      /* @__PURE__ */ u3("p", { children: "Configuration changes are recorded with actor role, target path, Before Hash, After Hash, and Details." }),
+      /* @__PURE__ */ u3("div", { class: "record-list", children: [
+        mutations.length === 0 && /* @__PURE__ */ u3("p", { children: "No mutations recorded. Settings changes will appear here after they are saved." }),
+        mutations.slice(0, 20).map((mutation) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: [
+            mutation.action || "mutation",
+            " \xB7 ",
+            mutation.status || "recorded"
+          ] }),
+          /* @__PURE__ */ u3("p", { children: [
+            mutation.actorRole || "unknown actor",
+            " \xB7 ",
+            mutation.producedAt || "unknown time"
+          ] }),
+          /* @__PURE__ */ u3("p", { children: mutation.targetPath || "unknown target" }),
+          /* @__PURE__ */ u3("dl", { class: "audit-hashes", children: [
+            /* @__PURE__ */ u3("div", { children: [
+              /* @__PURE__ */ u3("dt", { children: "Before Hash" }),
+              /* @__PURE__ */ u3("dd", { children: mutation.beforeHash || "none" })
+            ] }),
+            /* @__PURE__ */ u3("div", { children: [
+              /* @__PURE__ */ u3("dt", { children: "After Hash" }),
+              /* @__PURE__ */ u3("dd", { children: mutation.afterHash || "none" })
+            ] }),
+            /* @__PURE__ */ u3("div", { children: [
+              /* @__PURE__ */ u3("dt", { children: "Changed" }),
+              /* @__PURE__ */ u3("dd", { children: mutation.changed ? "yes" : "no" })
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("details", { children: [
+            /* @__PURE__ */ u3("summary", { children: "Details" }),
+            /* @__PURE__ */ u3("pre", { children: JSON.stringify(mutation.details || {}, null, 2) })
+          ] })
+        ] }, mutation.mutationId))
+      ] }),
+      status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -2630,6 +2723,7 @@ select {
                 section.id === "profiles" && activeSettingsSection === "profiles" && capabilityState.view && /* @__PURE__ */ u3(RuntimeProfilesPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "integrations" && activeSettingsSection === "integrations" && capabilityState.view && /* @__PURE__ */ u3(ControlPlanePanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "models" && activeSettingsSection === "models" && capabilityState.view && /* @__PURE__ */ u3(ModelRolesPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
+                section.id === "audit" && activeSettingsSection === "audit" && capabilityState.view && /* @__PURE__ */ u3(AuditPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",
