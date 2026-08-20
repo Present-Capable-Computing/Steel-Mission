@@ -21,11 +21,14 @@ commit so the rest of us can see what is being worked on without asking.
 
 ## Style
 
-Engineering prose (comments, docstrings, commit messages, PR descriptions,
-README and `docs/` content) follows
-[Present's engineering style guide](https://github.com/Present-Capable-Computing/Present/blob/main/engineering/STYLE.md),
-enforced here by the `engineering-style` CI job (`.vale.ini`,
-`.vale/styles/Present/`).
+Engineering prose follows
+[Present's engineering style guide](https://github.com/Present-Capable-Computing/Present/blob/main/engineering/STYLE.md).
+The `engineering-style` CI job (`.vale.ini`, `.vale/styles/Present/`) enforces
+it on tracked files: Markdown prose, Python comments, whole Python files for
+the em-dash ban (docstrings included), and the `.github` templates and
+workflows. Commit messages and pull request descriptions follow the same
+guide but are not in the checkout, so review enforces them, not the job. Run
+the same gate locally with `make style-check`.
 
 ## Boundaries
 

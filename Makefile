@@ -1,4 +1,4 @@
-.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop docker-build docker-up docker-down docker-status private-runner-image private-runner-status ui-build ui-check ui-test release-check plan-check plan-sync
+.PHONY: install-dev doctor test run local claude codex glimmer-start glimmer-status glimmer-stop docker-build docker-up docker-down docker-status private-runner-image private-runner-status ui-build ui-check ui-test style-check release-check plan-check plan-sync
 
 PYTHON ?= python3
 HOST ?= 127.0.0.1
@@ -74,7 +74,14 @@ plan-sync:
 	$(PYTHON) tooling/gh-plan-sync.py
 	$(PYTHON) tooling/gh-project-fields.py
 
+style-check:
+	@command -v vale >/dev/null 2>&1 || { echo "vale is not installed. Install it (macOS: brew install vale) and re-run; the engineering-style CI job runs this same target."; exit 1; }
+	vale sync
+	vale --minAlertLevel=error .
+	@! git grep -n -e '—' -- '*.py' || { echo "em dash in Python source; the ban covers whole files, docstrings included"; exit 1; }
+
 release-check:
 	git diff --check
+	$(MAKE) style-check
 	$(PYTHON) -m py_compile steel-mission-chat/server.py bin/present-worker bin/present-control-plane bin/present-private-runner bin/present-evidence-signer
 	$(PYTHON) -m pytest

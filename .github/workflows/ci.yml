@@ -110,15 +110,21 @@ jobs:
 
       - name: Install Vale
         run: |
+          # A user-writable directory, not /usr/local/bin: the hosted image
+          # happens to make that runner-writable today, but nothing promises it.
+          mkdir -p "$HOME/.local/bin"
           curl -sfL https://github.com/errata-ai/vale/releases/download/v3.17.1/vale_3.17.1_Linux_64-bit.tar.gz \
-            | tar -xz -C /usr/local/bin vale
+            | tar -xz -C "$HOME/.local/bin" vale
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Sync style packages (Google style, referenced not vendored)
-        run: vale sync
-
-      # .vale.ini's include-scope covers README, CONTRIBUTING, AGENTS.md, docs,
-      # architecture/operations, plan/, and .github (never LICENSE.md or
-      # CODE_OF_CONDUCT.md, which carry fixed legal/boilerplate wording). See
-      # Present/engineering/STYLE.md, adopted here, for the full rule set.
+      # One shared gate: this is the same `make style-check` a contributor runs
+      # locally inside `make release-check`. Scope (from .vale.ini): Markdown
+      # prose (README, CONTRIBUTING, AGENTS.md, docs/, plan/, .github Markdown),
+      # Python comments, whole Python files for the em-dash ban (docstrings
+      # included, via git grep in the target), and .github YAML templates and
+      # workflows;
+      # never LICENSE.md or CODE_OF_CONDUCT.md, which carry fixed legal wording.
+      # Commit messages and PR descriptions are not in the checkout; review
+      # enforces those. See Present/engineering/STYLE.md for the rule set.
       - name: Vale (engineering prose style)
-        run: vale --minAlertLevel=error .
+        run: make style-check
