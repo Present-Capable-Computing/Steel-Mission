@@ -331,7 +331,7 @@ def require_actor_role(actor: dict[str, str], allowed: set[str]) -> None:
 def authorize_mission_bindings(actor: dict[str, Any], user_ids: list[str], capability_keys: list[str]) -> None:
     role = corporate_role(str(actor.get("role") or "user"))
     actor_capabilities = set(clean_string_list(actor.get("capabilities"), limit=200))
-    if role not in {"owner", "admin"} and identity_mode() == "oidc-required":
+    if role not in {"owner", "admin"}:
         unauthorized = sorted(set(capability_keys) - actor_capabilities)
         if unauthorized:
             raise PermissionError("actor is not assigned requested capabilities: " + ", ".join(unauthorized))
