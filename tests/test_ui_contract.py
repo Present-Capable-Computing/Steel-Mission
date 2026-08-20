@@ -329,6 +329,17 @@ def test_application_runtime_profiles_panel_uses_existing_management_contracts()
         assert field in html
 
 
+def test_application_control_plane_panel_uses_existing_policy_and_integration_contracts():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "controlPlanePanel" in html
+    for path in ("/control-plane/readiness", "/integrations", "/control-policy", "/auth-policy"):
+        assert path in html
+    for field in ("Control Plane Readiness", "Model Providers", "Tool Integrations", "Control Policy JSON", "Auth Policy JSON", "Integration Registry JSON"):
+        assert field in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")
