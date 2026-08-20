@@ -6473,6 +6473,34 @@ def test_steel_mission_user_registry_names_an_unknown_capability_key(tmp_path):
     assert before == after
 
 
+def test_steel_mission_organization_registry_preserves_explicit_empty_scopes(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    organization_registry = tmp_path / "organizations.json"
+    submitted = json.loads((WORKER_DIR / "config" / "organizations.json").read_text())
+    submitted["organizations"][0]["knowledgeDomainKeys"] = []
+    submitted["organizations"][0]["domainCapabilityKeys"] = []
+    organization_registry.write_text((WORKER_DIR / "config" / "organizations.json").read_text())
+
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["ORGANIZATION_REGISTRY_PATH"] = organization_registry
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    responses = []
+    globals_["read_json"] = lambda _handler: submitted
+    globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/owner/organizations"
+    handler.authenticate = lambda _path, _method: {"actorId": "owner", "role": "owner"}
+    handler.do_POST()
+
+    assert responses[0][0] == 200
+    organization = responses[0][1]["payload"]["organizations"][0]
+    assert organization["domainCapabilityKeys"] == []
+    assert organization["knowledgeDomainKeys"] == []
+    persisted = json.loads(organization_registry.read_text())["organizations"][0]
+    assert persisted["domainCapabilityKeys"] == []
+    assert persisted["knowledgeDomainKeys"] == []
+
+
 def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     role_registry = tmp_path / "role-registry.json"

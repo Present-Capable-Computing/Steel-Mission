@@ -663,8 +663,12 @@ def normalize_organization_registry(payload: dict[str, Any]) -> dict[str, Any]:
                     limit=120,
                 ),
             },
-            "knowledgeDomainKeys": kd_keys or sorted(valid_kds),
-            "domainCapabilityKeys": dc_keys or sorted(valid_dcs),
+            "knowledgeDomainKeys": (
+                kd_keys if isinstance(item.get("knowledgeDomainKeys"), list) else sorted(valid_kds)
+            ),
+            "domainCapabilityKeys": (
+                dc_keys if isinstance(item.get("domainCapabilityKeys"), list) else sorted(valid_dcs)
+            ),
             "knowledgeSources": {
                 "repositories": sources.get("repositories", []),
                 "documents": sources.get("documents", []),
