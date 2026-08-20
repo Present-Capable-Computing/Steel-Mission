@@ -1432,6 +1432,15 @@ def save_domain_capability_registry(payload: dict[str, Any], actor: str) -> dict
     role = corporate_role(actor)
     if role not in {"owner", "admin"}:
         raise ValueError("only owner and admin endpoints can assign domain capabilities")
+    submitted_assignments = (
+        payload.get("assignments")
+        if isinstance(payload.get("assignments"), list)
+        else payload.get("userAssignments")
+        if isinstance(payload.get("userAssignments"), list)
+        else None
+    )
+    if not submitted_assignments:
+        raise ValueError("assignments must contain at least one assignment")
     registered_ids = {
         str(item.get("id"))
         for item in user_registry().get("users", [])
