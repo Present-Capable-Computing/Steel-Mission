@@ -1316,7 +1316,7 @@
             <nav id="profileList" class="profile-list"></nav>
             <section class="manager-panel">
               <div id="managerMessage" class="manager-message"></div>
-              <p id="domainCapabilityDefinition" class="form-hint">A Domain Capability is an assignable organizational role and workflow lens backed by governed knowledge.</p>
+              <p id="domainCapabilityDefinition" class="form-hint" data-vocabulary-term="domain-capability"></p>
               <section id="organizationPanel" class="knowledge-panel settings-section" data-settings-section="organizations"></section>
               <section id="userPanel" class="assignment-panel settings-section" data-settings-section="people"></section>
               <section id="assignmentPanel" class="assignment-panel settings-section" data-settings-section="people"></section>
@@ -1406,6 +1406,7 @@
     const missionTemplateSummary = document.querySelector("#missionTemplateSummary");
     const workspaceSummary = document.querySelector("#workspaceSummary");
     const managerMessage = document.querySelector("#managerMessage");
+    const domainCapabilityDefinition = document.querySelector("#domainCapabilityDefinition");
     const serverState = document.querySelector("#serverState");
     const modelState = document.querySelector("#modelState");
     const brokerState = document.querySelector("#brokerState");
@@ -1644,6 +1645,16 @@
       return Array.isArray(modelRoleRegistry.models) ? modelRoleRegistry.models.map(model => model.id).filter(Boolean) : [];
     }
 
+    function renderVocabularyTerms() {
+      const terms = Array.isArray(uiVocabulary.terms) ? uiVocabulary.terms : [];
+      const domainCapability = terms.find(item => item.conceptKey === "domain-capability");
+      if (domainCapabilityDefinition) {
+        domainCapabilityDefinition.textContent = domainCapability
+          ? `${domainCapability.label}: ${domainCapability.description}`
+          : "";
+      }
+    }
+
     async function loadUiVocabulary() {
       try {
         const response = await fetch(new URL("/api/vocabulary", window.location.href), {cache: "no-store"});
@@ -1652,6 +1663,7 @@
       } catch {
         uiVocabulary = {terms: [], capabilities: []};
       }
+      renderVocabularyTerms();
     }
 
     async function loadKnowledgeRegistry() {
