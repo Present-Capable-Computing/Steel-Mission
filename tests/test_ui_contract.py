@@ -340,6 +340,17 @@ def test_application_control_plane_panel_uses_existing_policy_and_integration_co
         assert field in html
 
 
+def test_application_model_roles_panel_uses_existing_binding_contracts():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "modelRolesPanel" in html
+    for path in ("/api/model-roles", "/model-roles/save"):
+        assert path in html
+    for field in ("Delivery Coordinator Model Binding", "Native capabilities", "Primary Model", "Fallback Models", "Governance Capabilities", "Save Binding"):
+        assert field in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")

@@ -2245,6 +2245,161 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/model-roles.ts
+  function modelRoleManagementAvailable(accessLevel2) {
+    return accessLevel2 === "owner" || accessLevel2 === "admin";
+  }
+  function assertManager6(accessLevel2) {
+    if (!modelRoleManagementAvailable(accessLevel2)) throw new Error("owner or admin access is required to manage model roles");
+  }
+  async function checked4(response, fallback) {
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(String(result.error || fallback));
+    return result;
+  }
+  function asRegistry3(value) {
+    const source = value && typeof value === "object" ? value : {};
+    const roles = Array.isArray(source.roles) ? source.roles.filter((item) => Boolean(item) && typeof item === "object" && typeof item.id === "string") : [];
+    const models = Array.isArray(source.models) ? source.models.filter((item) => Boolean(item) && typeof item === "object" && typeof item.id === "string") : [];
+    return { ...source, roles, models };
+  }
+  async function loadModelRoles(request) {
+    const response = await request("/api/model-roles", { cache: "no-store" });
+    const result = await checked4(response, "Model roles are unavailable");
+    return asRegistry3(result.registry);
+  }
+  async function saveModelRole(request, accessLevel2, role) {
+    assertManager6(accessLevel2);
+    const response = await request("/api/model-roles/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role })
+    });
+    const result = await checked4(response, "Model role could not be saved");
+    return asRegistry3(result.payload);
+  }
+
+  // steel-mission-ui/src/model-roles-panel.tsx
+  var EMPTY3 = { roles: [], models: [] };
+  function list3(value) {
+    return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  }
+  function ModelRolesPanel({ accessLevel: accessLevel2, request }) {
+    const [registry, setRegistry] = d2(EMPTY3);
+    const [selectedId, setSelectedId] = d2("");
+    const [role, setRole] = d2({ id: "" });
+    const [roleJson, setRoleJson] = d2("{}");
+    const [status, setStatus] = d2("Loading model roles\u2026");
+    const select = (next) => {
+      setSelectedId(next.id);
+      setRole(next);
+      setRoleJson(JSON.stringify(next, null, 2));
+      setStatus("");
+    };
+    const reload = async (preferredId) => {
+      const loaded = await loadModelRoles(request);
+      setRegistry(loaded);
+      select(loaded.roles.find((item) => item.id === preferredId) || loaded.roles[0] || { id: "" });
+    };
+    h2(() => {
+      let current = true;
+      loadModelRoles(request).then((loaded) => {
+        if (!current) return;
+        setRegistry(loaded);
+        select(loaded.roles[0] || { id: "" });
+      }).catch((error) => current && setStatus(error instanceof Error ? error.message : "Model roles are unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [request]);
+    const update = (key, value) => {
+      const next = { ...role, [key]: value };
+      setRole(next);
+      setRoleJson(JSON.stringify(next, null, 2));
+    };
+    const save = async () => {
+      setStatus("Saving binding\u2026");
+      try {
+        const parsed = JSON.parse(roleJson);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || typeof parsed.id !== "string") throw new Error("Model Role JSON must be an object with an id");
+        const current = parsed;
+        await saveModelRole(request, accessLevel2, current);
+        await reload(current.id);
+        setStatus("Delivery Coordinator model binding saved and reloaded.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Binding could not be saved");
+      }
+    };
+    const canManage = modelRoleManagementAvailable(accessLevel2);
+    const modelIds = registry.models.map((model) => model.id);
+    return /* @__PURE__ */ u3("div", { id: "modelRolesPanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("h3", { children: "Delivery Coordinator Model Binding" }),
+      /* @__PURE__ */ u3("p", { children: canManage ? "Owners and admins can change which model instance a coordinator role binds to first." : "Existing model bindings are read-only for this access level." }),
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Models and Native capabilities" }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: registry.models.map((model) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: [
+            model.id,
+            " \xB7 ",
+            String(model.provider || "provider")
+          ] }),
+          /* @__PURE__ */ u3("p", { children: [
+            "Native capabilities: ",
+            Array.isArray(model.nativeCapabilities) ? model.nativeCapabilities.join(", ") : "not declared"
+          ] })
+        ] }, model.id)) })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "panel-form", children: [
+        /* @__PURE__ */ u3("label", { children: [
+          "Model Role",
+          /* @__PURE__ */ u3("select", { value: selectedId, onChange: (event) => {
+            const next = registry.roles.find((item) => item.id === event.currentTarget.value);
+            if (next) select(next);
+          }, children: registry.roles.map((item) => /* @__PURE__ */ u3("option", { value: item.id, children: String(item.title || item.id) }, item.id)) })
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "Role ID",
+            /* @__PURE__ */ u3("input", { value: role.id, readOnly: true })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Title",
+            /* @__PURE__ */ u3("input", { value: String(role.title || ""), readOnly: !canManage, onInput: (event) => update("title", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Primary Model",
+            /* @__PURE__ */ u3("select", { value: String(role.primaryModel || ""), disabled: !canManage, onChange: (event) => update("primaryModel", event.currentTarget.value), children: modelIds.map((id) => /* @__PURE__ */ u3("option", { value: id, children: id }, id)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Snapshot policy",
+            /* @__PURE__ */ u3("input", { value: String(role.snapshotProfile || ""), readOnly: !canManage, onInput: (event) => update("snapshotProfile", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Fallback Models",
+            /* @__PURE__ */ u3("input", { value: Array.isArray(role.fallbackModels) ? role.fallbackModels.join(", ") : "", readOnly: !canManage, onInput: (event) => update("fallbackModels", list3(event.currentTarget.value).filter((id) => id !== role.primaryModel)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Governance Capabilities",
+            /* @__PURE__ */ u3("input", { value: Array.isArray(role.governanceCapabilities) ? role.governanceCapabilities.join(", ") : "", readOnly: !canManage, onInput: (event) => update("governanceCapabilities", list3(event.currentTarget.value)) })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Model Role JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 12, value: roleJson, readOnly: !canManage, onInput: (event) => {
+            setRoleJson(event.currentTarget.value);
+            try {
+              const next = JSON.parse(event.currentTarget.value);
+              if (next && typeof next === "object") setRole(next);
+            } catch {
+            }
+          } })
+        ] }),
+        canManage && /* @__PURE__ */ u3("button", { type: "button", onClick: save, children: "Save Binding" }),
+        status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+      ] })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -2474,6 +2629,7 @@ select {
                 section.id === "knowledge" && activeSettingsSection === "knowledge" && capabilityState.view && /* @__PURE__ */ u3(KnowledgePanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "profiles" && activeSettingsSection === "profiles" && capabilityState.view && /* @__PURE__ */ u3(RuntimeProfilesPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "integrations" && activeSettingsSection === "integrations" && capabilityState.view && /* @__PURE__ */ u3(ControlPlanePanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
+                section.id === "models" && activeSettingsSection === "models" && capabilityState.view && /* @__PURE__ */ u3(ModelRolesPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",
