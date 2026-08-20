@@ -6491,6 +6491,32 @@ def test_steel_mission_capability_assignments_refuse_an_empty_post_without_writi
     assert assignment_registry.read_bytes() == before
 
 
+@pytest.mark.parametrize("identity_override", [None, "oidc-required"])
+def test_steel_mission_capability_binding_authorization_is_identity_mode_independent(
+    monkeypatch, identity_override
+):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["authorize_mission_bindings"].__globals__
+    globals_["AUTH_POLICY_PATH"] = WORKER_DIR / "config" / "auth-policy.json"
+    if identity_override is None:
+        monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+        assert chat["identity_mode"]() == "development-local"
+    else:
+        monkeypatch.setenv("PRESENT_IDENTITY_MODE", identity_override)
+        assert chat["identity_mode"]() == identity_override
+
+    publisher = {
+        "actorId": "avery-stone",
+        "role": "publisher",
+        "capabilities": ["DC13"],
+    }
+    with pytest.raises(PermissionError, match="not assigned requested capabilities: DC03"):
+        chat["authorize_mission_bindings"](publisher, [], ["DC03", "DC13"])
+
+    chat["authorize_mission_bindings"](publisher, [], ["DC13"])
+    chat["authorize_mission_bindings"]({"role": "admin", "capabilities": []}, [], ["DC03"])
+
+
 def _post_user_registry_payload(tmp_path, submitted):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     user_registry = tmp_path / "users.json"
