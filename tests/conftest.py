@@ -42,21 +42,36 @@ class ManagedProcess:
         return self.stderr_path.read_text()
 
     def stop(self, timeout: float = 5) -> None:
-        if self.process.poll() is None:
+        deadline = time.monotonic() + timeout
+        try:
             try:
                 os.killpg(self.process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            try:
-                self.process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
+
+            if self.process.poll() is None:
+                try:
+                    self.process.wait(timeout=max(0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    pass
+
+            while time.monotonic() < deadline:
+                try:
+                    os.killpg(self.process.pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.01)
+            else:
                 try:
                     os.killpg(self.process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+
+            if self.process.poll() is None:
                 self.process.wait(timeout=timeout)
-        self._stdout_stream.close()
-        self._stderr_stream.close()
+        finally:
+            self._stdout_stream.close()
+            self._stderr_stream.close()
 
 
 class ProcessManager:

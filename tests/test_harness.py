@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -31,6 +33,52 @@ def test_process_managers_capture_output(daemon_process_manager, agent_process_m
     assert agent.wait(timeout=10) == 0
     assert daemon.stdout() == "daemon ready\n"
     assert agent.stdout() == "agent ready\n"
+
+
+def test_process_manager_kills_descendants_after_the_leader_exits(
+    tmp_path,
+    daemon_process_manager,
+):
+    child_pid_path = tmp_path / "child.pid"
+    child_ready_path = tmp_path / "child.ready"
+    child_script = (
+        "import signal, time; from pathlib import Path; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"Path({str(child_ready_path)!r}).touch(); time.sleep(60)"
+    )
+    parent_script = (
+        "import subprocess, sys; "
+        f"child = subprocess.Popen([sys.executable, '-c', {child_script!r}]); "
+        f"open({str(child_pid_path)!r}, 'w').write(str(child.pid))"
+    )
+    parent = daemon_process_manager.start(
+        [sys.executable, "-c", parent_script],
+        name="parent-with-child",
+    )
+
+    assert parent.wait(timeout=10) == 0
+    deadline = time.monotonic() + 10
+    while not child_ready_path.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert child_ready_path.exists()
+    child_pid = int(child_pid_path.read_text())
+
+    try:
+        daemon_process_manager.close()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError(f"descendant process {child_pid} survived teardown")
+    finally:
+        try:
+            os.killpg(parent.process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def test_fake_connector_is_scriptable_and_records_requests(fake_connector):
