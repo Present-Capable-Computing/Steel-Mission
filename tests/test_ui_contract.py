@@ -109,13 +109,22 @@ def ui_contract_errors(
         errors.append("the Domain Capability definition must be visible to non-manager users")
 
     work_mode_group = next(
-        (group for group in parser.groups if group.get("aria-label", "").lower() == "work mode"),
+        (
+            group
+            for group in parser.groups
+            if group.get("aria-labelledby") == "workModeLabel"
+        ),
         None,
     )
-    description_id = work_mode_group.get("aria-describedby") if work_mode_group else None
-    description = parser.nodes.get(description_id or "")
-    description_text = " ".join(description["text"]).strip() if description else ""
-    if not description or not all(term in description_text for term in ("Normal chat", "Domain Capabilities")):
+    description_ids = (
+        work_mode_group.get("aria-describedby", "").split() if work_mode_group else []
+    )
+    description_text = " ".join(
+        " ".join(parser.nodes[node_id]["text"]).strip()
+        for node_id in description_ids
+        if node_id in parser.nodes
+    )
+    if not all(term in description_text for term in ("Normal chat", "Domain Capabilities")):
         errors.append("the work-mode control must describe what its modes change")
     return errors
 
@@ -183,7 +192,10 @@ def test_ui_behavior_contract_rejects_each_required_regression():
         candidate_html=html.replace('id="domainCapabilityDefinition"', 'id="removedDefinition"')
     )
     assert "the work-mode control must describe what its modes change" in errors(
-        candidate_html=html.replace('aria-describedby="workModeDescription"', "")
+        candidate_html=html.replace(
+            'aria-describedby="normalModeDescription domainCapabilityModeDescription"',
+            "",
+        )
     )
 
 
@@ -260,3 +272,33 @@ def test_domain_capability_definition_is_registry_backed_for_every_access_level(
     assert all(word in term["description"].lower() for word in ("assignable", "role", "workflow"))
     assert term["description"] not in html
     assert "renderVocabularyTerms()" in html
+
+
+def test_work_mode_has_a_visible_label_and_accessible_description_per_mode():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    parser = ContractPageParser()
+    parser.feed(chat["chat_index"]())
+
+    label = parser.nodes.get("workModeLabel")
+    assert label and " ".join(label["text"]).strip() == "Work mode"
+    group = next(
+        (item for item in parser.groups if item.get("aria-labelledby") == "workModeLabel"),
+        None,
+    )
+    assert group
+    assert group.get("aria-describedby", "").split() == [
+        "normalModeDescription",
+        "domainCapabilityModeDescription",
+    ]
+
+    normal_button = parser.nodes["normalMode"]
+    capability_button = parser.nodes["domainCapabilityMode"]
+    assert normal_button["attrs"].get("aria-describedby") == "normalModeDescription"
+    assert capability_button["attrs"].get("aria-describedby") == "domainCapabilityModeDescription"
+    normal_text = " ".join(parser.nodes["normalModeDescription"]["text"]).strip()
+    capability_text = " ".join(
+        parser.nodes["domainCapabilityModeDescription"]["text"]
+    ).strip()
+    assert "direct prompts and answers" in normal_text
+    assert "assigned role and governed knowledge lens" in capability_text
+    assert 'setAttribute("aria-pressed"' in chat["chat_index"]()

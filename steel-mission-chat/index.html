@@ -348,6 +348,17 @@
       justify-items: start;
     }
 
+    .mode-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .mode-descriptions {
+      display: grid;
+      gap: 2px;
+    }
+
     .mode-description {
       margin: 0;
       max-width: 420px;
@@ -1284,11 +1295,15 @@
           <p id="coordinatorModelDescription" class="coordinator-model-description">Selects the model configuration that executes the Delivery Coordinator.</p>
         </div>
         <div class="mode-control">
-          <div class="mode-switch" role="group" aria-label="Work mode" aria-describedby="workModeDescription">
-            <button id="normalMode" type="button" data-work-mode="normal">Normal</button>
-            <button id="domainCapabilityMode" type="button" data-work-mode="domain-capabilities">Domain Capabilities</button>
+          <span id="workModeLabel" class="mode-label">Work mode</span>
+          <div class="mode-switch" role="group" aria-labelledby="workModeLabel" aria-describedby="normalModeDescription domainCapabilityModeDescription">
+            <button id="normalMode" type="button" data-work-mode="normal" aria-describedby="normalModeDescription" aria-pressed="false">Normal</button>
+            <button id="domainCapabilityMode" type="button" data-work-mode="domain-capabilities" aria-describedby="domainCapabilityModeDescription" aria-pressed="false">Domain Capabilities</button>
           </div>
-          <p id="workModeDescription" class="mode-description">Normal chat answers directly; Domain Capabilities applies assigned organizational roles and governed knowledge.</p>
+          <div class="mode-descriptions">
+            <p id="normalModeDescription" class="mode-description"><strong>Normal chat:</strong> uses direct prompts and answers while keeping assigned capabilities available as context.</p>
+            <p id="domainCapabilityModeDescription" class="mode-description"><strong>Domain Capabilities:</strong> uses capability-focused prompts and answers through the assigned role and governed knowledge lens.</p>
+          </div>
         </div>
         <div class="bar-actions">
           <button id="manageProfiles" type="button">Settings</button>
@@ -1603,8 +1618,14 @@
     function setWorkMode(value) {
       activeWorkMode = value === "normal" ? "normal" : "domain-capabilities";
       localStorage.setItem(workModeKey, activeWorkMode);
-      if (normalMode) normalMode.classList.toggle("active", activeWorkMode === "normal");
-      if (domainCapabilityMode) domainCapabilityMode.classList.toggle("active", activeWorkMode === "domain-capabilities");
+      if (normalMode) {
+        normalMode.classList.toggle("active", activeWorkMode === "normal");
+        normalMode.setAttribute("aria-pressed", String(activeWorkMode === "normal"));
+      }
+      if (domainCapabilityMode) {
+        domainCapabilityMode.classList.toggle("active", activeWorkMode === "domain-capabilities");
+        domainCapabilityMode.setAttribute("aria-pressed", String(activeWorkMode === "domain-capabilities"));
+      }
       question.placeholder = activeWorkMode === "normal"
         ? "Ask normally. DC13 will still keep shared Domain Capabilities context available."
         : "Ask Delivery Coordinator through the Domain Capabilities role and knowledge lens.";
