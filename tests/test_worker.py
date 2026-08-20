@@ -8514,6 +8514,29 @@ def test_steel_mission_http_identity_boundary_is_fail_closed_and_loopback_only(t
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
+def test_steel_mission_registered_user_role_outranks_loopback_header_claim(monkeypatch):
+    import runpy
+    from types import SimpleNamespace
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["authenticate_http_request"].__globals__
+    globals_["AUTH_POLICY_PATH"] = WORKER_DIR / "config" / "auth-policy.json"
+    globals_["USER_REGISTRY_PATH"] = WORKER_DIR / "config" / "users.json"
+    monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+    request = SimpleNamespace(
+        headers={"X-Present-Role": "owner", "X-Present-Actor": "avery-stone"},
+        client_address=("127.0.0.1", 51000),
+    )
+
+    actor = chat["authenticate_http_request"](request, "/api/owner/users", "GET")
+
+    assert actor["actorId"] == "avery-stone"
+    assert actor["role"] == "publisher"
+    assert actor["identitySource"] == "user-registry"
+    with pytest.raises(PermissionError, match="not allowed"):
+        chat["require_actor_role"](actor, {"owner"})
+
+
 def test_steel_mission_external_kms_signer_is_used_for_mission_integrity(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
