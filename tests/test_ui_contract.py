@@ -296,6 +296,17 @@ def test_application_users_panel_loads_and_saves_the_existing_contract():
         assert field in html
 
 
+def test_application_missions_panel_uses_existing_start_and_lifecycle_contracts():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "missionsPanel" in html
+    for path in ("/missions", "/mission-templates", "/api/missions/start"):
+        assert path in html
+    for field in ("Mission Template", "Mission Objective", "Delivery Scope", "Start Mission", "Active Missions"):
+        assert field in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")

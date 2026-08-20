@@ -10,7 +10,7 @@ import {build} from "esbuild";
 const toolingDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = dirname(toolingDir);
 const testDir = await mkdtemp(join(tmpdir(), "steel-mission-ui-tests-"));
-const testEntries = ["assignments.test.ts", "capabilities.test.ts", "organizations.test.ts", "settings.test.ts", "users.test.ts", "work-mode.test.ts"];
+const testEntries = ["assignments.test.ts", "capabilities.test.ts", "missions.test.ts", "organizations.test.ts", "settings.test.ts", "users.test.ts", "work-mode.test.ts"];
 const bundledTests = testEntries.map((name) => join(testDir, name.replace(/\.ts$/, ".mjs")));
 
 try {

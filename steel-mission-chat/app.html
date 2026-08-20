@@ -273,6 +273,19 @@ select {
 .panel-actions button {
   cursor: pointer;
 }
+.record-list {
+  display: grid;
+  gap: 0.75rem;
+}
+.record-list article {
+  border: 1px solid #29323d;
+  border-radius: 0.7rem;
+  padding: 0.85rem;
+}
+.record-list article p {
+  margin-bottom: 0;
+  color: #aab4bf;
+}
 .assignment-form > label {
   display: grid;
   gap: 0.5rem;
@@ -1371,6 +1384,241 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/missions.ts
+  function records(value, key) {
+    const source = value && typeof value === "object" ? value : {};
+    return Array.isArray(source[key]) ? source[key] : [];
+  }
+  async function checkedJson(response, fallback) {
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(String(result.error || fallback));
+    return result;
+  }
+  async function loadMissionPanel(request, accessLevel2) {
+    const [missionsResponse, templatesResponse] = await Promise.all([
+      request(`/api/${accessLevel2}/missions`, { cache: "no-store" }),
+      request(`/api/${accessLevel2}/mission-templates`, { cache: "no-store" })
+    ]);
+    const missions = await checkedJson(missionsResponse, "Missions are unavailable");
+    const templates = await checkedJson(templatesResponse, "Mission templates are unavailable");
+    return { missions: records(missions, "missions"), templates: records(templates, "templates") };
+  }
+  async function startMission(request, payload) {
+    const response = await request("/api/missions/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    return checkedJson(response, "Mission could not be started");
+  }
+  async function runMissionAction(request, missionId, action) {
+    const response = await request(`/api/missions/${encodeURIComponent(missionId)}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action === "approve" ? { note: "Approved from Mission Control." } : {})
+    });
+    return checkedJson(response, "Mission action failed");
+  }
+
+  // steel-mission-ui/src/missions-panel.tsx
+  var EMPTY_PANEL = { missions: [], templates: [] };
+  var DEFAULT_DELIVERY = {
+    repositoryPath: "",
+    worktreeMode: "isolated",
+    baseBranch: "main",
+    deliveryBranch: "",
+    worktreePath: "",
+    branch: "",
+    prProvider: "github",
+    githubRepository: "",
+    prMode: "readiness",
+    ciProvider: "github-actions",
+    ciRequired: false,
+    ciWait: false,
+    ciCommand: "",
+    deployProvider: "none",
+    deployEnvironment: "",
+    deployUrl: "",
+    modifyCommand: "",
+    buildCommand: "",
+    testCommand: "",
+    inspectCommand: "",
+    repairCommand: "",
+    prCommand: "",
+    prTarget: "",
+    prTitle: "",
+    prBody: "",
+    deployCommand: "",
+    deployTarget: "",
+    deployHealthCommand: "",
+    rollbackCommand: "",
+    repairBudget: 2
+  };
+  function list2(value) {
+    return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  }
+  function MissionsPanel({ accessLevel: accessLevel2, request }) {
+    const [panel, setPanel] = d2(EMPTY_PANEL);
+    const [templateId, setTemplateId] = d2("");
+    const [objective, setObjective] = d2("");
+    const [userIds, setUserIds] = d2("");
+    const [capabilityKeys, setCapabilityKeys] = d2("");
+    const [delivery, setDelivery] = d2(DEFAULT_DELIVERY);
+    const [deliveryJson, setDeliveryJson] = d2(JSON.stringify(DEFAULT_DELIVERY, null, 2));
+    const [status, setStatus] = d2("Loading missions\u2026");
+    const reload = async () => {
+      const loaded = await loadMissionPanel(request, accessLevel2);
+      setPanel(loaded);
+      setTemplateId((current) => current || loaded.templates[0]?.templateId || "");
+      setStatus("");
+    };
+    h2(() => {
+      let current = true;
+      loadMissionPanel(request, accessLevel2).then((loaded) => {
+        if (!current) return;
+        setPanel(loaded);
+        setTemplateId(loaded.templates[0]?.templateId || "");
+        setStatus("");
+      }).catch((error) => current && setStatus(error instanceof Error ? error.message : "Missions are unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [accessLevel2, request]);
+    const parseDelivery = (value) => {
+      setDeliveryJson(value);
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) setDelivery(parsed);
+      } catch {
+      }
+    };
+    const submit = async (event) => {
+      event.preventDefault();
+      setStatus("Starting mission\u2026");
+      try {
+        const parsed = JSON.parse(deliveryJson);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Delivery Options must be a JSON object");
+        const payload = {
+          templateId,
+          objective: objective.trim(),
+          userIds: list2(userIds),
+          domainCapabilityKeys: list2(capabilityKeys),
+          delivery: parsed
+        };
+        await startMission(request, payload);
+        setObjective("");
+        await reload();
+        setStatus("Mission started.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Mission could not be started");
+      }
+    };
+    const action = async (missionId, nextAction) => {
+      setStatus(`${nextAction} in progress\u2026`);
+      try {
+        await runMissionAction(request, missionId, nextAction);
+        await reload();
+        setStatus(`Mission ${nextAction} completed.`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Mission action failed");
+      }
+    };
+    return /* @__PURE__ */ u3("div", { id: "missionsPanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("form", { class: "panel-form", onSubmit: submit, children: [
+        /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "Mission Template",
+            /* @__PURE__ */ u3("select", { value: templateId, onChange: (event) => setTemplateId(event.currentTarget.value), children: panel.templates.map((template3) => /* @__PURE__ */ u3("option", { value: template3.templateId, children: template3.title || template3.templateId }, template3.templateId)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Mission Users",
+            /* @__PURE__ */ u3("input", { value: userIds, placeholder: "user ids, comma separated", onInput: (event) => setUserIds(event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Capability Work Set",
+            /* @__PURE__ */ u3("input", { value: capabilityKeys, placeholder: "Domain Capability keys", onInput: (event) => setCapabilityKeys(event.currentTarget.value) })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Mission Objective",
+          /* @__PURE__ */ u3("textarea", { rows: 4, value: objective, onInput: (event) => setObjective(event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("h3", { children: "Delivery Scope" }),
+        /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "Repository Path",
+            /* @__PURE__ */ u3("input", { value: String(delivery.repositoryPath || ""), onInput: (event) => {
+              const next = { ...delivery, repositoryPath: event.currentTarget.value };
+              setDelivery(next);
+              setDeliveryJson(JSON.stringify(next, null, 2));
+            } })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Worktree Mode",
+            /* @__PURE__ */ u3("select", { value: String(delivery.worktreeMode || "isolated"), onChange: (event) => {
+              const next = { ...delivery, worktreeMode: event.currentTarget.value };
+              setDelivery(next);
+              setDeliveryJson(JSON.stringify(next, null, 2));
+            }, children: [
+              /* @__PURE__ */ u3("option", { value: "isolated", children: "Isolated delivery worktree" }),
+              /* @__PURE__ */ u3("option", { value: "in-place", children: "Use bound repository" })
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Base Branch",
+            /* @__PURE__ */ u3("input", { value: String(delivery.baseBranch || ""), onInput: (event) => {
+              const next = { ...delivery, baseBranch: event.currentTarget.value };
+              setDelivery(next);
+              setDeliveryJson(JSON.stringify(next, null, 2));
+            } })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Delivery Branch",
+            /* @__PURE__ */ u3("input", { value: String(delivery.deliveryBranch || ""), onInput: (event) => {
+              const next = { ...delivery, deliveryBranch: event.currentTarget.value };
+              setDelivery(next);
+              setDeliveryJson(JSON.stringify(next, null, 2));
+            } })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Delivery Options JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 12, value: deliveryJson, onInput: (event) => parseDelivery(event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "submit", disabled: !templateId || !objective.trim(), children: "Start Mission" })
+      ] }),
+      /* @__PURE__ */ u3("section", { "aria-label": "Mission templates", children: [
+        /* @__PURE__ */ u3("h3", { children: "Mission Templates" }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: panel.templates.map((template3) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: template3.title || template3.templateId }),
+          /* @__PURE__ */ u3("p", { children: template3.description || template3.templateId })
+        ] }, template3.templateId)) })
+      ] }),
+      /* @__PURE__ */ u3("section", { "aria-label": "Active Missions", children: [
+        /* @__PURE__ */ u3("h3", { children: "Active Missions" }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: [
+          panel.missions.length === 0 && /* @__PURE__ */ u3("p", { children: "No missions yet." }),
+          panel.missions.slice(0, 8).map((mission) => /* @__PURE__ */ u3("article", { children: [
+            /* @__PURE__ */ u3("strong", { children: mission.objective || mission.templateTitle || mission.missionId }),
+            /* @__PURE__ */ u3("p", { children: [
+              mission.missionId,
+              " \xB7 ",
+              mission.state || "unknown",
+              mission.profile ? ` \xB7 ${mission.profile}` : ""
+            ] }),
+            /* @__PURE__ */ u3("div", { class: "panel-actions", children: [
+              mission.state === "waiting_for_approval" && /* @__PURE__ */ u3("button", { type: "button", onClick: () => action(mission.missionId, "approve"), children: "Approve" }),
+              (mission.state === "running" || mission.state === "waiting_for_approval") && /* @__PURE__ */ u3("button", { type: "button", onClick: () => action(mission.missionId, "pause"), children: "Pause" }),
+              mission.state === "paused" && /* @__PURE__ */ u3("button", { type: "button", onClick: () => action(mission.missionId, "resume"), children: "Resume" }),
+              /* @__PURE__ */ u3("a", { href: `/mission/${encodeURIComponent(mission.missionId)}?role=${accessLevel2}`, children: "Open mission detail" })
+            ] })
+          ] }, mission.missionId))
+        ] })
+      ] }),
+      status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -1596,6 +1844,7 @@ select {
                 /* @__PURE__ */ u3("p", { children: section.hint }),
                 section.id === "organizations" && activeSettingsSection === "organizations" && capabilityState.view && /* @__PURE__ */ u3(OrganizationsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && activeSettingsSection === "people" && capabilityState.view && /* @__PURE__ */ u3(UsersPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
+                section.id === "missions" && activeSettingsSection === "missions" && capabilityState.view && /* @__PURE__ */ u3(MissionsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",
