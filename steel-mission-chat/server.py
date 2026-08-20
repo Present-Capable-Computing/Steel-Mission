@@ -5215,6 +5215,11 @@ def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[st
     handler.wfile.write(data)
 
 
+def admin_failure_response(handler: BaseHTTPRequestHandler, error: Exception) -> None:
+    status = 403 if isinstance(error, PermissionError) else 400
+    json_response(handler, status, {"ok": False, "error": str(error)})
+
+
 def html_response(handler: BaseHTTPRequestHandler, status: int, html: str) -> None:
     data = html.encode("utf-8")
     handler.send_response(status)
@@ -9293,7 +9298,7 @@ class Handler(BaseHTTPRequestHandler):
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_domain_capability_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 200, {"ok": True, "payload": registry})
             return
@@ -9304,7 +9309,7 @@ class Handler(BaseHTTPRequestHandler):
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_general_knowledge_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 200, {"ok": True, "payload": registry})
             return
@@ -9315,7 +9320,7 @@ class Handler(BaseHTTPRequestHandler):
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_organization_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 200, {"ok": True, "payload": registry})
             return
@@ -9326,7 +9331,7 @@ class Handler(BaseHTTPRequestHandler):
                 require_actor_role(actor, {"owner", "admin"})
                 payload = upload_organization_knowledge(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 202, {"ok": True, "payload": payload})
             return
@@ -9337,7 +9342,7 @@ class Handler(BaseHTTPRequestHandler):
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_user_registry(body, actor["role"])
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 200, {"ok": True, "payload": registry})
             return
@@ -9385,11 +9390,8 @@ class Handler(BaseHTTPRequestHandler):
                 actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 policy = save_control_policy(body, actor["role"])
-            except PermissionError as exc:
-                json_response(self, 403, {"ok": False, "error": str(exc)})
-                return
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 200, {"ok": True, "policy": policy, "payload": policy})
             return
@@ -9399,11 +9401,8 @@ class Handler(BaseHTTPRequestHandler):
                 actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 registry = save_integration_registry(body, actor["role"])
-            except PermissionError as exc:
-                json_response(self, 403, {"ok": False, "error": str(exc)})
-                return
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 200, {"ok": True, "registry": registry, "payload": registry})
             return
@@ -9413,11 +9412,8 @@ class Handler(BaseHTTPRequestHandler):
                 actor = actor or {"actorId": "user", "role": "user"}
                 require_actor_role(actor, {"owner", "admin"})
                 policy = save_auth_policy(body, actor["role"])
-            except PermissionError as exc:
-                json_response(self, 403, {"ok": False, "error": str(exc)})
-                return
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, 200, {"ok": True, "policy": policy, "payload": policy})
             return
@@ -9508,7 +9504,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("profile is required")
                 status, payload = worker_json_command(["runtime-profile-validate"], profile)
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, status, payload)
             return
@@ -9532,7 +9528,7 @@ class Handler(BaseHTTPRequestHandler):
                         details={"profileId": profile.get("id")},
                     )
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, status, payload)
             return
@@ -9563,7 +9559,7 @@ class Handler(BaseHTTPRequestHandler):
                         details={"sourceId": source.strip(), "newId": new_id.strip()},
                     )
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, status, payload)
             return
@@ -9587,7 +9583,7 @@ class Handler(BaseHTTPRequestHandler):
                         details={"roleId": role.get("id")},
                     )
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, status, payload)
             return
@@ -9611,7 +9607,7 @@ class Handler(BaseHTTPRequestHandler):
                         details={"roleId": role_id.strip()},
                     )
             except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
+                admin_failure_response(self, exc)
                 return
             json_response(self, status, payload)
             return
