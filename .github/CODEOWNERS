@@ -20,6 +20,8 @@
 /.github/workflows/             @andrewHermann
 /Dockerfile.private-runner      @andrewHermann
 /requirements-dev.txt           @andrewHermann
+/package.json                   @andrewHermann
+/package-lock.json              @andrewHermann
 
 # The durable core. Every transaction boundary, lease, fence token and state
 # transition in the project lives here once P1 starts.

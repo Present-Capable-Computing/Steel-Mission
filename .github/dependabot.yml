@@ -21,6 +21,14 @@ updates:
       dev-dependencies:
         patterns: ["*"]
 
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "security"]
+    commit-message:
+      prefix: "npm"
+
   - package-ecosystem: "docker"
     directory: "/"
     schedule:

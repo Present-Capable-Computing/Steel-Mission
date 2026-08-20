@@ -13,6 +13,8 @@ PACKAGE_MANIFEST = REPO_DIR / "package.json"
 PACKAGE_LOCK = REPO_DIR / "package-lock.json"
 APP_PAGE = REPO_DIR / "steel-mission-chat" / "app.html"
 CI_WORKFLOW = REPO_DIR / ".github" / "workflows" / "ci.yml"
+CODEOWNERS = REPO_DIR / ".github" / "CODEOWNERS"
+DEPENDABOT = REPO_DIR / ".github" / "dependabot.yml"
 
 
 def test_real_iife_bundle_satisfies_the_legacy_script_constraints(tmp_path):
@@ -133,3 +135,21 @@ def test_ci_watches_an_edited_committed_page_fail_then_restores_it():
     assert "deliberate rebuild drift" in workflow
     assert "must reject an edited committed page" in workflow
     assert workflow.count("npm run ui:check") >= 3
+
+
+def test_ui_package_files_are_codeowned_supply_chain_surfaces():
+    codeowners = CODEOWNERS.read_text().splitlines()
+
+    assert "/package.json                   @andrewHermann" in codeowners
+    assert "/package-lock.json              @andrewHermann" in codeowners
+
+
+def test_dependabot_covers_the_locked_npm_ecosystem_weekly():
+    config = DEPENDABOT.read_text()
+    _before, npm_and_after = config.split('- package-ecosystem: "npm"', 1)
+    npm_block = npm_and_after.split("\n  - package-ecosystem:", 1)[0]
+
+    assert 'directory: "/"' in npm_block
+    assert 'interval: "weekly"' in npm_block
+    assert 'labels: ["dependencies", "security"]' in npm_block
+    assert 'prefix: "npm"' in npm_block
