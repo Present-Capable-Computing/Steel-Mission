@@ -11,14 +11,15 @@
   },
   "state": "ACTIVE",
   "targetDate": "2026-08-22",
-  "outcome": "The three findings from the review of PRJ-0000 are closed. The published image carries no front-end toolchain, so the reversibility condition that the image gains no node dependency is true rather than intended. Every one of the thirteen domain capabilities is either assigned or recorded as deliberately unowned with a reason, so a gap is a decision rather than an oversight. Running the product does not modify configuration files that are under version control, so development and testing stop dirtying the tree.",
+  "outcome": "The three findings from the review of PRJ-0000 are closed. The published image carries no front-end toolchain under /workspace, so the reversibility condition that the image gains no node dependency for the product is true rather than intended. The provider command-line tools under /usr/local/lib legitimately ship node and their own modules, and are untouched. Every one of the thirteen domain capabilities is either assigned or recorded as deliberately unowned with a reason, so a gap is a decision rather than an oversight. Running the product does not modify configuration files that are under version control, so development and testing stop dirtying the tree.",
   "notInScope": "No new product capability, no interface redesign, no change to the vocabulary or the information architecture settled in MS-0008 and MS-0010. No change to the build toolchain itself: the three pinned packages, the committed page and the drift gate all stand. This milestone closes findings, and a finding that turns out to need design is raised rather than absorbed here.",
   "taskIds": [],
-  "completionEvidence": "The image is rebuilt and inspected: no node_modules, no front-end source directory, and the size difference from before is recorded in the pull request. A test fails if a future image would carry them. Every capability resolves to an owner or to a recorded decision, asserted by a test rather than by reading the file. Running the server against a clean checkout leaves `git status` clean, demonstrated by starting it, exercising it and showing no modification.",
+  "completionEvidence": "The image is rebuilt and inspected: no /workspace/node_modules, no /workspace front-end source directory, with the provider tooling under /usr/local/lib intact, and the size difference from before is recorded in the pull request. A test fails if a future image would carry them. Every capability resolves to an owner or to a recorded decision, asserted by a test rather than by reading the file. Running the server against a clean checkout leaves `git status` clean, demonstrated by starting it, exercising it and showing no modification.",
   "metadata": {
     "stage": "U5",
     "focusedDaysBudget": 0.5,
     "origin": "Findings from the review of PRJ-0000 on 2026-08-20. PRJ-0000 returns to ACTIVE because a project whose review found an unmet reversibility condition is not finished; COMPLETE would say the tasks were closed, which was true, and would imply the outcome held, which was not.",
-    "risk": "The image finding is the only one with a shipped consequence. The other two are hygiene, and the temptation is to fix the two cheap ones and describe the expensive one as acceptable. The image ships to whoever pulls it, so it is the one that must not be deferred."
+    "risk": "The image finding is the only one with a shipped consequence. The other two are hygiene, and the temptation is to fix the two cheap ones and describe the expensive one as acceptable. The image ships to whoever pulls it, so it is the one that must not be deferred.",
+    "githubMilestone": 12
   }
 }

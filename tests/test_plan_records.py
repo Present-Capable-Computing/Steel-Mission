@@ -177,7 +177,15 @@ def test_prj_0001_resume_is_dated_and_its_estimate_delta_is_explicit():
         "MS-0006": "2026-12-03",
     }
 
-    assert project["state"] == "ACTIVE"
+    # The invariant is that the resume was dated and the estimate re-defended with
+    # its delta printed -- not that the project is ACTIVE right now. A project may
+    # pause again, as this one did when PRJ-0000 reopened, and pinning the current
+    # state would make an honest pause look like a regression.
+    assert project["state"] in {"ACTIVE", "PAUSED"}
+    if project["state"] == "PAUSED":
+        assert project["metadata"].get("pauseReason"), (
+            "a paused project must record why, or the pause reads as drift"
+        )
     assert project["metadata"]["resumedAt"] == "2026-08-20"
     assert estimate["redefendedAt"] == "2026-08-20"
     assert estimate["baselineFocusedDays"] == 16.1
