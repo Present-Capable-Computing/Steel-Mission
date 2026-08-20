@@ -1619,6 +1619,241 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/knowledge.ts
+  function knowledgeManagementAvailable(accessLevel2) {
+    return accessLevel2 === "owner" || accessLevel2 === "admin";
+  }
+  function assertManager3(accessLevel2) {
+    if (!knowledgeManagementAvailable(accessLevel2)) throw new Error("owner or admin access is required to manage knowledge");
+  }
+  async function checked(response, fallback) {
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(String(result.error || fallback));
+    return result;
+  }
+  async function loadKnowledgeRegistry(request, accessLevel2) {
+    const response = await request(`/api/${accessLevel2}/knowledge`, { cache: "no-store" });
+    return checked(response, "Knowledge registry is unavailable");
+  }
+  async function saveKnowledgeSources(request, accessLevel2, sources) {
+    assertManager3(accessLevel2);
+    const response = await request(`/api/${accessLevel2}/knowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sources)
+    });
+    const result = await checked(response, "Knowledge sources could not be saved");
+    return result.payload;
+  }
+  async function previewPreparedSnapshot(request, accessLevel2) {
+    assertManager3(accessLevel2);
+    const response = await request(`/api/${accessLevel2}/knowledge/prepared`, { cache: "no-store" });
+    const result = await checked(response, "Prepared snapshot is unavailable");
+    return result.payload;
+  }
+  async function uploadKnowledge(request, accessLevel2, payload) {
+    assertManager3(accessLevel2);
+    const response = await request(`/api/${accessLevel2}/knowledge/upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await checked(response, "Knowledge upload failed");
+    return result.payload;
+  }
+
+  // steel-mission-ui/src/knowledge-panel.tsx
+  function records2(value) {
+    return Array.isArray(value) ? value.filter((item) => Boolean(item) && typeof item === "object") : [];
+  }
+  function parseList(value, label) {
+    const parsed = JSON.parse(value || "[]");
+    if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array`);
+    return parsed;
+  }
+  async function uploadRecords(files) {
+    return Promise.all(files.slice(0, 200).map(async (file) => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 8192) {
+        binary += String.fromCharCode(...bytes.slice(offset, offset + 8192));
+      }
+      return {
+        name: file.name,
+        relativePath: file.webkitRelativePath || file.name,
+        type: file.type || "",
+        size: file.size,
+        contentBase64: btoa(binary)
+      };
+    }));
+  }
+  function KnowledgePanel({ accessLevel: accessLevel2, request }) {
+    const [registry, setRegistry] = d2(null);
+    const [repositoriesJson, setRepositoriesJson] = d2("[]");
+    const [documentsJson, setDocumentsJson] = d2("[]");
+    const [uploadLabel, setUploadLabel] = d2("organization-knowledge");
+    const [files, setFiles] = d2([]);
+    const [status, setStatus] = d2("Loading knowledge\u2026");
+    const setLoaded = (loaded) => {
+      setRegistry(loaded);
+      setRepositoriesJson(JSON.stringify(loaded.generalKnowledge?.repositories || [], null, 2));
+      setDocumentsJson(JSON.stringify(loaded.generalKnowledge?.documents || [], null, 2));
+      setStatus("");
+    };
+    const reload = async () => setLoaded(await loadKnowledgeRegistry(request, accessLevel2));
+    h2(() => {
+      let current = true;
+      loadKnowledgeRegistry(request, accessLevel2).then((loaded) => current && setLoaded(loaded)).catch((error) => current && setStatus(error instanceof Error ? error.message : "Knowledge is unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [accessLevel2, request]);
+    const save = async () => {
+      setStatus("Saving knowledge sources\u2026");
+      try {
+        await saveKnowledgeSources(request, accessLevel2, {
+          repositories: parseList(repositoriesJson, "Repositories"),
+          documents: parseList(documentsJson, "Documents")
+        });
+        await reload();
+        setStatus("Knowledge sources saved and reloaded.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Knowledge sources could not be saved");
+      }
+    };
+    const preview = async () => {
+      setStatus("Preparing snapshot preview\u2026");
+      try {
+        const payload = await previewPreparedSnapshot(request, accessLevel2);
+        const quality2 = payload.knowledgeQuality && typeof payload.knowledgeQuality === "object" ? payload.knowledgeQuality : {};
+        setStatus(`Prepared snapshot: ${payload.availableSourceCount || 0}/${payload.sourceCount || 0} sources available \xB7 quality ${quality2.status || "unknown"}.`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Prepared snapshot is unavailable");
+      }
+    };
+    const prepare = async () => {
+      setStatus("Starting snapshot preparation\u2026");
+      try {
+        const result = await startMission(request, {
+          templateId: "prepare-knowledge",
+          objective: "Prepare the organization knowledge snapshot from the current source registry."
+        });
+        setStatus(`Snapshot preparation mission ${result.missionId || "started"}.`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Snapshot mission could not be started");
+      }
+    };
+    const upload = async () => {
+      if (files.length === 0) {
+        setStatus("Choose files first.");
+        return;
+      }
+      setStatus("Uploading knowledge\u2026");
+      try {
+        const payload = await uploadKnowledge(request, accessLevel2, {
+          label: uploadLabel,
+          sourceKind: files.some((file) => Boolean(file.webkitRelativePath)) ? "folder" : "files",
+          organizationId: String(registry?.activeOrganization?.id || ""),
+          files: await uploadRecords(files)
+        });
+        await reload();
+        const mission = payload.mission && typeof payload.mission === "object" ? payload.mission : {};
+        setStatus(`Knowledge uploaded.${mission.missionId ? ` Mission ${mission.missionId} started.` : ""}`);
+        setFiles([]);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Knowledge upload failed");
+      }
+    };
+    const capabilities = records2(registry?.capabilities || registry?.roles);
+    const domains = records2(registry?.knowledgeDomains || registry?.foundations);
+    const effective = registry?.effectiveKnowledge || registry?.generalKnowledge || { repositories: [], documents: [] };
+    const quality = registry?.knowledgeQuality || {};
+    const issues = records2(quality.issues);
+    const canManage = knowledgeManagementAvailable(accessLevel2);
+    return /* @__PURE__ */ u3("div", { id: "knowledgePanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Knowledge Quality" }),
+        /* @__PURE__ */ u3("p", { children: [
+          String(quality.status || "unknown"),
+          " \xB7 context sufficient: ",
+          quality.contextSufficient ? "yes" : "no",
+          " \xB7 ",
+          String(quality.staleSourceCount || 0),
+          " stale \xB7 ",
+          String(quality.unownedSourceCount || 0),
+          " unowned"
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: issues.slice(0, 8).map((issue, index) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: [
+            String(issue.severity || "warning"),
+            " \xB7 ",
+            String(issue.id || "knowledge-warning")
+          ] }),
+          /* @__PURE__ */ u3("p", { children: String(issue.message || "") })
+        ] }, String(issue.id || index))) })
+      ] }),
+      canManage && /* @__PURE__ */ u3("section", { class: "panel-form", "aria-label": "Shared Knowledge Source Pool", children: [
+        /* @__PURE__ */ u3("h3", { children: "Shared Knowledge Source Pool" }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Repositories and Folders JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 8, value: repositoriesJson, onInput: (event) => setRepositoriesJson(event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Documents JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 8, value: documentsJson, onInput: (event) => setDocumentsJson(event.currentTarget.value) })
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "panel-actions", children: [
+          /* @__PURE__ */ u3("button", { type: "button", onClick: save, children: "Save Sources" }),
+          /* @__PURE__ */ u3("button", { type: "button", onClick: preview, children: "Preview Prepared Snapshot" }),
+          /* @__PURE__ */ u3("button", { type: "button", onClick: prepare, children: "Prepare Snapshot" })
+        ] }),
+        /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "Upload Label",
+            /* @__PURE__ */ u3("input", { value: uploadLabel, onInput: (event) => setUploadLabel(event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Files",
+            /* @__PURE__ */ u3("input", { type: "file", multiple: true, onChange: (event) => setFiles(Array.from(event.currentTarget.files || [])) })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("button", { type: "button", disabled: files.length === 0, onClick: upload, children: "Add Files and Prepare Snapshot" })
+      ] }),
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Effective Source Registry" }),
+        /* @__PURE__ */ u3("p", { children: [
+          (effective.repositories || []).length,
+          " repositories/folders \xB7 ",
+          (effective.documents || []).length,
+          " documents"
+        ] })
+      ] }),
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Knowledge Domains" }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: domains.map((domain, index) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: [
+            String(domain.domainKey || domain.fNumber || domain.role_key || ""),
+            " \xB7 ",
+            String(domain.displayName || domain.display_name || "")
+          ] }),
+          /* @__PURE__ */ u3("p", { children: String(domain.canonPath || domain.canon_path || "") })
+        ] }, String(domain.domainKey || domain.role_key || index))) })
+      ] }),
+      /* @__PURE__ */ u3("section", { children: [
+        /* @__PURE__ */ u3("h3", { children: "Domain Capabilities" }),
+        /* @__PURE__ */ u3("div", { class: "record-list", children: capabilities.map((capability, index) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: [
+            String(capability.capabilityKey || capability.roleKey || ""),
+            " \xB7 ",
+            String(capability.displayName || "")
+          ] }),
+          /* @__PURE__ */ u3("p", { children: String(capability.canonPath || "") })
+        ] }, String(capability.capabilityKey || capability.roleKey || index))) })
+      ] }),
+      status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -1845,6 +2080,7 @@ select {
                 section.id === "organizations" && activeSettingsSection === "organizations" && capabilityState.view && /* @__PURE__ */ u3(OrganizationsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && activeSettingsSection === "people" && capabilityState.view && /* @__PURE__ */ u3(UsersPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "missions" && activeSettingsSection === "missions" && capabilityState.view && /* @__PURE__ */ u3(MissionsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
+                section.id === "knowledge" && activeSettingsSection === "knowledge" && capabilityState.view && /* @__PURE__ */ u3(KnowledgePanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",
