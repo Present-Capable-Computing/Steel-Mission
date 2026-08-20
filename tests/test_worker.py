@@ -6423,6 +6423,56 @@ def test_steel_mission_capability_assignments_refuse_unknown_users_without_writi
     assert assignment_registry.read_bytes() == before
 
 
+def _post_user_registry_payload(tmp_path, submitted):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    user_registry = tmp_path / "users.json"
+    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
+    before = user_registry.read_bytes()
+
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["USER_REGISTRY_PATH"] = user_registry
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    responses = []
+    globals_["read_json"] = lambda _handler: submitted
+    globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/owner/users"
+    handler.authenticate = lambda _path, _method: {"actorId": "owner", "role": "owner"}
+    handler.do_POST()
+    return responses[0], before, user_registry.read_bytes()
+
+
+def test_steel_mission_user_registry_refuses_an_empty_user_list(tmp_path):
+    (status, response), before, after = _post_user_registry_payload(tmp_path, {"users": []})
+
+    assert status == 400
+    assert response["ok"] is False
+    assert "users" in response["error"]
+    assert before == after
+
+
+def test_steel_mission_user_registry_refuses_an_unsupported_status(tmp_path):
+    submitted = json.loads((WORKER_DIR / "config" / "users.json").read_text())
+    submitted["users"][0]["status"] = "suspended"
+    (status, response), before, after = _post_user_registry_payload(tmp_path, submitted)
+
+    assert status == 400
+    assert response["ok"] is False
+    assert "suspended" in response["error"]
+    assert before == after
+
+
+def test_steel_mission_user_registry_names_an_unknown_capability_key(tmp_path):
+    submitted = json.loads((WORKER_DIR / "config" / "users.json").read_text())
+    submitted["users"][0]["assignedCapabilities"].append("DC99")
+    (status, response), before, after = _post_user_registry_payload(tmp_path, submitted)
+
+    assert status == 400
+    assert response["ok"] is False
+    assert "DC99" in response["error"]
+    assert before == after
+
+
 def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     role_registry = tmp_path / "role-registry.json"

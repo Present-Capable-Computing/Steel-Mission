@@ -1265,6 +1265,35 @@ def save_user_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
     role = corporate_role(actor)
     if role not in {"owner", "admin"}:
         raise ValueError("only owner and admin endpoints can manage users")
+    users = payload.get("users")
+    if not isinstance(users, list) or not users:
+        raise ValueError("users must contain at least one user")
+    unsupported_statuses = sorted({
+        str(item.get("status")).strip()
+        for item in users
+        if isinstance(item, dict)
+        and item.get("status") not in {None, "", "active", "disabled"}
+    })
+    if unsupported_statuses:
+        raise ValueError(
+            "unsupported user statuses: " + ", ".join(unsupported_statuses)
+            + "; accepted values are active and disabled"
+        )
+    valid_domain_capabilities = {
+        str(item.get("roleKey"))
+        for item in knowledge_registry().get("roles", [])
+        if isinstance(item, dict) and item.get("roleKey")
+    }
+    submitted_capabilities = {
+        str(value).strip()
+        for item in users
+        if isinstance(item, dict) and isinstance(item.get("assignedCapabilities"), list)
+        for value in item.get("assignedCapabilities", [])
+        if str(value).strip()
+    }
+    unknown_capabilities = sorted(submitted_capabilities - valid_domain_capabilities)
+    if unknown_capabilities:
+        raise ValueError("unknown assigned capability keys: " + ", ".join(unknown_capabilities))
     before = read_json_file(USER_REGISTRY_PATH)
     registry = normalize_user_registry({**payload, "producedAt": utc_now()})
     atomic_write_json(USER_REGISTRY_PATH, registry)
