@@ -9,7 +9,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "PLANNED",
+  "state": "COMPLETE",
   "targetDate": "2026-09-30",
   "outcome": "Settings are navigable structures rather than one dialog holding eight sections whose element identifiers are all named after profiles. The capability workspace renders for the roles it was written for, having previously rendered for nobody. The owner assignment editor exists, is authorized, and is the interface for the endpoint that had none. The rebuilt application becomes the default page.",
   "notInScope": "No new product capability and no change to any interface contract: every call the new application makes exists today, and the twelve non-coordinator Domain Capabilities do not become conversational agents. The page that ships today remains in the tree and remains reachable. No visual redesign beyond what the information architecture and the named defects require.",

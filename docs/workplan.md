@@ -8,15 +8,15 @@ contract wins and this document is corrected.
 It binds everyone who lands a commit here — employees, contractors, and agents
 running under a person's account. An agent's commit is that person's commit.
 
-**Active project: `PRJ-0000`.** `PRJ-0001` is paused and resumes at the close of
+**Active project: `PRJ-0001`.** `PRJ-0000` completed on 2026-08-20 at the close of
 MS-0011. Each project's decisions live in its own record; §2 below carries
 PRJ-0001's, and PRJ-0000's are in `plan/PRJ-0000.json`. The rules in §4, the
 definition of done in §5 and the enforcement in §6 apply to both.
 
 | | Project | Technical plan | Milestones |
 |---|---|---|---|
-| **Active** | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0011](../plan/MS-0011.json) |
-| Paused | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
+| Complete | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0011](../plan/MS-0011.json) |
+| **Active** | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
 
 - How the plan layer maps onto GitHub: [`plan/README.md`](../plan/README.md)
 
@@ -62,19 +62,19 @@ that supersedes it — not a preference expressed in a review.
 | D5 | The database is the queue. The broker command line, the daemon and the chat server are direct clients of one store, sharing one command module and one state machine. There is no command-line-to-daemon remote call. |
 | D6 | Two network surfaces exist and no more: the runner-facing gRPC gateway on the daemon, and an authenticated HTTP operations API. Anything else that wants to listen argues for itself first. |
 
-## 3. Milestone sequence — PRJ-0001 (paused)
+## 3. Milestone sequence — PRJ-0001
 
 Milestones run in order. P5 is last because it collides with the file paths of every
 other phase.
 
-| Milestone | Phase | Outcome in one line | Budget (focused days) |
-|---|---|---|---|
-| [MS-0001](../plan/MS-0001.json) | P0 | Dependency and runtime jumps resolved; CI compiles every entrypoint; test harness ready | 1.0 |
-| [MS-0002](../plan/MS-0002.json) | P1 | Durable transactional broker with fencing, sweeping and a daemon | 6.0 |
-| [MS-0003](../plan/MS-0003.json) | P2 | Remote pull-runner over mutual TLS returning signed, bound results | 7.0 |
-| [MS-0004](../plan/MS-0004.json) | P3 | Transactional connector inbox and outbox with backoff and a dead-letter queue | 3.0 |
-| [MS-0005](../plan/MS-0005.json) | P4 | One orchestration path; missions resume after restart | 3.0 |
-| [MS-0006](../plan/MS-0006.json) | P5 | The repository names one product | 2.0 |
+| Milestone | Phase | Outcome in one line | Budget (focused days) | Target |
+|---|---|---|---|---|
+| [MS-0001](../plan/MS-0001.json) | P0 | Dependency and runtime jumps resolved; CI compiles every entrypoint; test harness ready | 1.0 | 2026-08-27 |
+| [MS-0002](../plan/MS-0002.json) | P1 | Durable transactional broker with fencing, sweeping and a daemon | 6.0 | 2026-09-17 |
+| [MS-0003](../plan/MS-0003.json) | P2 | Remote pull-runner over mutual TLS returning signed, bound results | 7.0 | 2026-10-15 |
+| [MS-0004](../plan/MS-0004.json) | P3 | Transactional connector inbox and outbox with backoff and a dead-letter queue | 3.0 | 2026-10-29 |
+| [MS-0005](../plan/MS-0005.json) | P4 | One orchestration path; missions resume after restart | 3.0 | 2026-11-19 |
+| [MS-0006](../plan/MS-0006.json) | P5 | The repository names one product | 2.0 | 2026-12-03 |
 
 Total estimated effort is 16.1 days before contingency and approximately 20 days
 with the declared 25 percent. It is estimated per category and divided by an
@@ -84,6 +84,12 @@ image builds, continuous integration waits — counted at no acceleration at all
 is not a commitment, and a milestone being inside its budget is not evidence that
 the work is correct. Re-defend the estimate at every milestone boundary and
 print the delta rather than absorbing it.
+
+Re-defended at the 2026-08-20 resume boundary: the scope, risk categories and
+irreducible empirical work are unchanged, so the focused estimate remains 16.1 days
+and the printed delta is **+0.0 focused days**. The declared contingency remains
+approximately 20 days. The original milestone cadence is preserved from the resume
+date, moving each target one calendar day from its pre-pause value.
 
 Target dates on the milestone records are targets. `AT_RISK` describes the schedule.
 It never describes the work.
@@ -164,6 +170,19 @@ into a throughput collapse. Heartbeats write to the leases table directly.
 The legacy JSON state document is mirrored after every mutation for as long as tests
 assert on it. Retiring the mirror is its own decision, taken once, deliberately —
 not a side effect of a convenient refactor.
+
+### 4.11 The front-end dependency budget is three
+
+The browser build has exactly three direct front-end packages: esbuild, Preact and
+TypeScript. They stay pinned to an exact version in `package.json` and the committed
+lockfile. Adding or replacing a direct package requires a written decision that
+re-defends the budget; it is not smuggled into a version bump. Version bumps arrive
+as their own reviewable pull requests.
+
+Continuous integration installs only from the lockfile, runs
+`npm audit --audit-level=high`, type-checks and tests the typed source, then proves
+the committed self-contained page is byte-identical to a clean rebuild. Node remains
+a build dependency only and does not enter the runtime image.
 
 ## 5. Definition of done
 

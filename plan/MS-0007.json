@@ -9,7 +9,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "ACTIVE",
+  "state": "COMPLETE",
   "targetDate": "2026-08-27",
   "outcome": "Every writer of a configuration file refuses input it cannot represent instead of coercing it and answering 200. The domain-capability registry loses its one-way door: a file in the shipped shape stays readable after the first save, and a user identifier absent from the user registry is refused rather than accepted. Capability authorization on mission bindings is enforced in every identity mode, with the development allowance stated in the auth policy rather than implied by a mode branch. Every configuration writer validates against a registered schema before it writes. The only writer of the capability registry has tests.",
   "notInScope": "No interface change of any kind, no build step, no framework. No renaming of any wire field, configuration key, environment variable or module-level function: snapshotProfile, runtimeProfile, the runtime-profile endpoint, STEEL_MISSION_RUNTIME_PROFILE and resolve_runtime_profile keep their names, because the runtime-profile tests pin them and the harness silently stops patching a renamed function rather than failing. No schema work outside the configuration directory.",
