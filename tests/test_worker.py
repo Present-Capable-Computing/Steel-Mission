@@ -6524,6 +6524,47 @@ def test_steel_mission_organization_registry_preserves_explicit_empty_scopes(tmp
     assert persisted["knowledgeDomainKeys"] == []
 
 
+def test_steel_mission_refuses_unknown_worktree_mode_before_starting_delivery(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    marker = repository / "unchanged.txt"
+    marker.write_text("source checkout")
+    started = []
+    responses = []
+    request = {
+        "templateId": "delivery-execution",
+        "objective": "Keep the source checkout isolated.",
+        "delivery": {
+            "repositoryPath": str(repository),
+            "worktreeMode": "sandboxed",
+        },
+    }
+
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["read_json"] = lambda _handler: request
+    globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
+    globals_["start_orchestrated_mission"] = (
+        lambda *args, **kwargs: started.append((args, kwargs)) or {"ok": True}
+    )
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/missions/start"
+    handler.authenticate = lambda _path, _method: {
+        "actorId": "owner",
+        "role": "owner",
+        "organizationId": "northstar-forge",
+    }
+    handler.do_POST()
+
+    assert responses[0][0] == 400
+    assert responses[0][1]["ok"] is False
+    assert "isolated" in responses[0][1]["error"]
+    assert "in-place" in responses[0][1]["error"]
+    assert started == []
+    assert list(repository.iterdir()) == [marker]
+    assert marker.read_text() == "source checkout"
+
+
 def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     role_registry = tmp_path / "role-registry.json"

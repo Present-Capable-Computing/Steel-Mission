@@ -4278,9 +4278,13 @@ def normalize_delivery_context(value: Any) -> dict[str, Any]:
     except (TypeError, ValueError):
         repair_budget_int = 1
     repair_budget_int = max(0, min(repair_budget_int, 10))
-    worktree_mode = clean_optional_string(payload.get("worktreeMode") or payload.get("workspaceMode"), limit=40)
-    if worktree_mode not in {"isolated", "in-place"}:
+    worktree_mode = clean_optional_string(
+        payload.get("worktreeMode") or payload.get("workspaceMode"), limit=40
+    )
+    if not worktree_mode:
         worktree_mode = "in-place"
+    elif worktree_mode not in {"isolated", "in-place"}:
+        raise ValueError("worktreeMode must be one of: isolated, in-place")
     return {
         "repositoryPath": clean_optional_string(payload.get("repositoryPath"), limit=1000),
         "branch": clean_optional_string(payload.get("branch"), limit=200),
