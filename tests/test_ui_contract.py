@@ -129,6 +129,45 @@ def ui_contract_errors(
     return errors
 
 
+def ui_lexicon_errors(html: str) -> list[str]:
+    """Return user-visible vocabulary collisions in the shipped page source."""
+    errors = []
+    capability_labels = re.findall(
+        r'<label[^>]*>([^<${}]+?)\s+\$\{renderCapabilityChecks\(',
+        html,
+        flags=re.IGNORECASE,
+    )
+    if any(re.search(r"\bProfiles?\b", label, flags=re.IGNORECASE) for label in capability_labels):
+        errors.append("Profile must not be adjacent to a capability list")
+    if any(re.search(r"\bRole\b", label, flags=re.IGNORECASE) for label in capability_labels):
+        errors.append("Role must not label a capability control")
+
+    string_literals = [literal for _quote, literal in re.findall(r'(["`])([^\n]*?)\1', html)]
+    static_text = re.findall(r">\s*([^<>{}\n]+?)\s*<", html)
+    bare_keys_in_prose = [
+        literal
+        for literal in [*string_literals, *static_text]
+        if re.search(r"\bDC\d{2}\b", literal)
+        and re.search(r"\s", literal)
+        and re.search(r"[.!?]", literal)
+    ]
+    if bare_keys_in_prose:
+        errors.append("bare capability keys must not appear in prose")
+
+    profile_labels = re.findall(
+        r">\s*([^<>{}\n]*\bProfiles?\b[^<>{}\n]*)\s*<",
+        html,
+        flags=re.IGNORECASE,
+    )
+    profile_concepts = {
+        "snapshot" if re.search(r"\bsnapshot profiles?\b", label, flags=re.IGNORECASE) else "runtime"
+        for label in profile_labels
+    }
+    if len(profile_concepts) > 1:
+        errors.append("only one Profile concept may be user-visible")
+    return errors
+
+
 def test_shipped_page_satisfies_the_ui_behavior_contract():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")
@@ -302,3 +341,46 @@ def test_work_mode_has_a_visible_label_and_accessible_description_per_mode():
     assert "direct prompts and answers" in normal_text
     assert "assigned role and governed knowledge lens" in capability_text
     assert 'setAttribute("aria-pressed"' in chat["chat_index"]()
+
+
+def test_shipped_page_obeys_the_ui_lexicon():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+
+    assert ui_lexicon_errors(chat["chat_index"]()) == []
+
+
+def test_ui_lexicon_rejects_each_banned_collocation():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["chat_index"]()
+
+    profile_capability = html.replace(
+        "Visible Domain Capabilities ${renderCapabilityChecks(",
+        "Profile ${renderCapabilityChecks(",
+        1,
+    )
+    assert "Profile must not be adjacent to a capability list" in ui_lexicon_errors(
+        profile_capability
+    )
+
+    role_capability = html.replace(
+        "Visible Domain Capabilities ${renderCapabilityChecks(",
+        "Role ${renderCapabilityChecks(",
+        1,
+    )
+    assert "Role must not label a capability control" in ui_lexicon_errors(role_capability)
+
+    bare_key = html.replace(
+        "Selects the model configuration that executes the Delivery Coordinator.",
+        "Selects the model configuration that executes DC13.",
+        1,
+    )
+    assert "bare capability keys must not appear in prose" in ui_lexicon_errors(bare_key)
+
+    competing_profile = html.replace(
+        "Coordinator Role",
+        "Snapshot Profile",
+        1,
+    )
+    assert "only one Profile concept may be user-visible" in ui_lexicon_errors(
+        competing_profile
+    )
