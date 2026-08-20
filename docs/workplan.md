@@ -8,15 +8,17 @@ contract wins and this document is corrected.
 It binds everyone who lands a commit here — employees, contractors, and agents
 running under a person's account. An agent's commit is that person's commit.
 
-**Active project: `PRJ-0001`.** `PRJ-0000` completed on 2026-08-20 at the close of
-MS-0011. Each project's decisions live in its own record; §2 below carries
-PRJ-0001's, and PRJ-0000's are in `plan/PRJ-0000.json`. The rules in §4, the
-definition of done in §5 and the enforcement in §6 apply to both.
+**Active project: `PRJ-0000`.** It completed MS-0011 on 2026-08-20, then reopened
+the same day for the four review findings in MS-0012. `PRJ-0001` is paused until
+MS-0012 closes, as required by PRJ-0000-D2. Each project's decisions live in its
+own record; §2 below carries PRJ-0001's, and PRJ-0000's are in
+`plan/PRJ-0000.json`. The rules in §4, the definition of done in §5 and the
+enforcement in §6 apply to both.
 
 | | Project | Technical plan | Milestones |
 |---|---|---|---|
-| Complete | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0011](../plan/MS-0011.json) |
-| **Active** | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
+| **Active** | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0012](../plan/MS-0012.json) |
+| Paused | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
 
 - How the plan layer maps onto GitHub: [`plan/README.md`](../plan/README.md)
 

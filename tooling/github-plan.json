@@ -1,11 +1,11 @@
 {
-  "$comment": "Manifest of the GitHub working surface for PRJ-0001. Applied by tooling/gh-plan-sync.py, which searches by title before it creates anything. Edit here, re-run the sync; do not hand-edit GitHub and expect it to survive.",
+  "$comment": "Manifest of the GitHub working surface for Steel-Mission delivery. Applied by tooling/gh-plan-sync.py, which searches by title before it creates anything. Edit here, re-run the sync; do not hand-edit GitHub and expect it to survive.",
   "repository": "Present-Capable-Computing/Steel-Mission",
   "project": {
     "recordId": "PRJ-0001",
     "recordFile": "plan/PRJ-0001.json",
     "boardTitle": "Steel-Mission — Delivery",
-    "boardDescription": "Steel-Mission delivery. PRJ-0000 usable surface and honest admin writes (complete); PRJ-0001 durable broker and remote pull-runner (active). Source of truth for the shape of this work is plan/ in the repository; this board is the working surface.",
+    "boardDescription": "Steel-Mission delivery. PRJ-0000 usable surface and honest admin writes (active); PRJ-0001 durable broker and remote pull-runner (paused). Source of truth for the shape of this work is plan/ in the repository; this board is the working surface.",
     "boardVisibility": "public",
     "$commentVisibility": "The repository is public and every item on the board is a public issue, so a private board would hide a view of public information without protecting anything.",
     "fields": [
@@ -72,7 +72,8 @@
           "U1",
           "U2",
           "U3",
-          "U4"
+          "U4",
+          "U5"
         ],
         "$comment": "PRJ-0000 stage. PRJ-0001 uses Phase; an item carrying neither label is reported unset rather than guessed."
       }
@@ -91,7 +92,7 @@
           "Milestone",
           "Assignees"
         ],
-        "$comment": "The active project's tasks in phase order."
+        "$comment": "PRJ-0001's tasks in phase order; the project is paused while PRJ-0000 closes MS-0012."
       },
       {
         "name": "By phase",
@@ -246,12 +247,12 @@
     {
       "name": "prj:PRJ-0000",
       "color": "6a737d",
-      "description": "Usable surface and honest admin writes (complete)"
+      "description": "Usable surface and honest admin writes (active)"
     },
     {
       "name": "prj:PRJ-0001",
       "color": "0e8a16",
-      "description": "Durable broker and remote pull-runner (active)"
+      "description": "Durable broker and remote pull-runner (paused)"
     },
     {
       "name": "stage:U0",
@@ -292,6 +293,11 @@
       "name": "area:config-integrity",
       "color": "c5def5",
       "description": "Configuration writers, validation, refusals"
+    },
+    {
+      "name": "stage:U5",
+      "color": "b60205",
+      "description": "MS-0012 Review findings"
     }
   ],
   "milestones": [
@@ -324,6 +330,12 @@
       "title": "U4 — Legacy retirement and the standing rule",
       "due_on": "2026-10-04T23:59:59Z",
       "description": "MS-0011 · record: plan/MS-0011.json · PRJ-0000 · stage U4\n\nOutcome: The page that shipped before the rebuild is removed as its own recorded decision, and the workplan carries the standing rule for front-end dependencies so the next person does not relitigate it. PRJ-0001 returns to ACTIVE with its milestone dates re-set from the date it resumes.\n\nNot in scope: Nothing else. A removal that also changes something is a removal whose regression cannot be attributed. No new dependency, no visual change, no behaviour change.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
+    },
+    {
+      "recordId": "MS-0012",
+      "title": "U5 — Review findings",
+      "due_on": "2026-08-22T23:59:59Z",
+      "description": "MS-0012 · record: plan/MS-0012.json · PRJ-0000 · stage U5\n\nOutcome: The four findings from the review of PRJ-0000 are closed. The published image carries no front-end toolchain under /workspace, so the reversibility condition that the image gains no node dependency for the product is true rather than intended. The provider command-line tools under /usr/local/lib legitimately ship node and their own modules, and are untouched. Every one of the thirteen domain capabilities is either assigned or recorded as deliberately unowned with a reason, so a gap is a decision rather than an oversight. Running the product does not modify configuration files that are under version control, so development and testing stop dirtying the tree. A loopback console session with no locally stored identity resolves to a real registered actor rather than an anonymous one that matches nobody and holds no capabilities, so opening the console for the first time is never a dead end with no way to reach Settings.\n\nNot in scope: No new product capability, no interface redesign, no change to the vocabulary or the information architecture settled in MS-0008 and MS-0010. No change to the build toolchain itself: the three pinned packages, the committed page and the drift gate all stand. This milestone closes findings, and a finding that turns out to need design is raised rather than absorbed here. No login screen or identity-picker UI, and no change to oidc-required behaviour: the fix stays inside the development-local loopback trust boundary that already exists.\n\nThis GitHub milestone is a projection of the record. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification."
     },
     {
       "recordId": "MS-0001",
@@ -517,6 +529,20 @@
       "outcome": "The page that shipped before the rebuild is removed as its own recorded decision, the workplan carries the standing rule for front-end dependencies, and PRJ-0001 returns to active with dates re-set from the day it resumes.",
       "notInScope": "Nothing else. A removal that also changes something is a removal whose regression cannot be attributed.",
       "done": "The removal names the decision that authorises it and states how it is undone. The suite is green before and after. PRJ-0001 reads active and its estimate is re-defended with the delta printed."
+    },
+    {
+      "key": "epic-u5",
+      "title": "U5 — Review findings",
+      "milestone": "MS-0012",
+      "labels": [
+        "epic",
+        "prj:PRJ-0000",
+        "stage:U5",
+        "area:ci"
+      ],
+      "outcome": "The four findings from the review of PRJ-0000 are closed: the published image carries no front-end toolchain under /workspace, every domain capability is either assigned or recorded as deliberately unowned with a reason, running the product no longer modifies version-controlled configuration, and a fresh loopback console session resolves to a real registered actor rather than a capability-less synthetic identity.",
+      "notInScope": "No new product capability, no interface redesign, no change to the vocabulary or information architecture, and no change to the build toolchain itself. No login screen or identity picker, and no change to oidc-required behaviour: the identity fix stays inside the existing development-local loopback trust boundary. A finding that turns out to need design is raised rather than absorbed here.",
+      "done": "The image is rebuilt and inspected with the size difference recorded, and a strengthened guard test fails if a future image would carry the front-end toolchain under /workspace. Capability ownership or a deliberate exception with a stated reason is asserted by a test. Running the server against a clean checkout leaves the tree clean, demonstrated. A headerless loopback call to /api/auth/whoami resolves the active organization's registered owner by role and can reach Settings -> Users, while oidc-required and non-loopback behaviour remain unchanged."
     }
   ],
   "issues": [
@@ -2078,6 +2104,68 @@
       "dependsOn": [
         "u4-remove-legacy"
       ]
+    },
+    {
+      "key": "u5-image-excludes-toolchain",
+      "title": "Keep the front-end toolchain out of the published image",
+      "milestone": "MS-0012",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U5",
+        "area:ci",
+        "security-review"
+      ],
+      "epic": "epic-u5",
+      "requirement": "The published image carries no front-end toolchain under /workspace. It currently ships 43 MB of /workspace/node_modules plus the UI source directory, because the image copies the tree wholesale and the exclusion list never gained them. This contradicts the reversibility condition recorded on PRJ-0000 that the image gains no node runtime dependency for the product, and it puts a JavaScript dependency tree inside a Python runtime image on a product whose case rests on a supply chain one person can review. The toolchain is a build-time tool for people changing the front end; the committed page is what the product serves. Scope matters here: /usr/local/lib/node_modules is 519 MB of Claude and Codex provider tooling that the Dockerfile copies deliberately, and node itself is required by those tools. Leave them alone -- an acceptance criterion that says no node_modules at all cannot pass.",
+      "acceptance": "A rebuilt image contains no /workspace/node_modules and no /workspace front-end source directory, shown by inspecting the image rather than by reading the ignore file, with the provider tooling under /usr/local/lib still present and the CLIs still resolving. The size before and after is recorded in the pull request. A test fails when the exclusion list would let either back in, so this cannot silently return: today's guard checks only that .env, plan and tooling are named, and a fourth entry that is missing is invisible to it. The Dockerfile itself is unchanged.",
+      "surface": "subprocess or container execution"
+    },
+    {
+      "key": "u5-capability-ownership-complete",
+      "title": "Give every domain capability an owner or a recorded reason",
+      "milestone": "MS-0012",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U5",
+        "area:ci"
+      ],
+      "epic": "epic-u5",
+      "requirement": "Each of the thirteen domain capabilities either resolves to an owner or is recorded as deliberately unowned with a reason. Four that had no owner were assigned during MS-0007; DC07 Intelligence and DC10 Ecosystem were not, because the instruction that named the four was itself incomplete. They are unowned today and were unowned before, so this is not a regression, but an unowned capability that nobody decided about is indistinguishable from one that was overlooked -- which is how the first four came to be overlooked.",
+      "acceptance": "A test asserts every capability key in the registry resolves to an owner or appears in a recorded list of deliberate exceptions carrying a reason. The two currently unowned capabilities are resolved either way in this pull request, and the choice is stated rather than implied by the file.",
+      "surface": "control plane"
+    },
+    {
+      "key": "u5-runtime-writes-leave-the-tree-clean",
+      "title": "Stop the running product modifying version-controlled configuration",
+      "milestone": "MS-0012",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U5",
+        "area:ci"
+      ],
+      "epic": "epic-u5",
+      "requirement": "Running the product does not modify files that are under version control. Starting the server and using it rewrites config/users.json in place -- normalised, reordered and restamped with a new producer and timestamp -- so development and testing leave the working tree dirty and a real change becomes hard to see in the noise. The normalisation itself is not the problem; writing it back over product configuration is.",
+      "acceptance": "Starting the server against a clean checkout, exercising the paths that trigger a normalising write, and running git status shows no modification. Whatever behaviour depended on the write still works, with a test covering it. If the write is genuinely required, it goes somewhere outside the product tree and that location is documented.",
+      "surface": "control plane"
+    },
+    {
+      "key": "u5-loopback-session-resolves-to-a-real-identity",
+      "title": "Give a fresh loopback session a real identity instead of a capability-less ghost",
+      "milestone": "MS-0012",
+      "labels": [
+        "task",
+        "prj:PRJ-0000",
+        "stage:U5",
+        "area:identity",
+        "security-review"
+      ],
+      "epic": "epic-u5",
+      "requirement": "A loopback console session with nothing in local storage resolves to a registered user, not to a synthetic actor that matches no one. The console's first call is GET /api/auth/whoami with no X-Present-Role or X-Present-Actor header (steel-mission-ui/src/app.tsx:33-38,63). The server's loopback-development fallback (steel-mission-chat/server.py:2787-2794) reads the role from the URL path; \"auth\" is not in {owner, admin, publisher, user}, so it defaults to role \"user\", actor id \"user\". No user with id \"user\" exists in config/users.json, so registered_user() finds nothing and the actor is hard-coded to capabilities: []. Verified against the running server: curl http://127.0.0.1:8765/api/auth/whoami with no headers returns actorId \"user\", role \"user\", capabilities []. accessLevel comes from that same role, so the console shows the capability empty state, and Settings -> Users -- gated to owner or admin -- refuses it too. There is no path from a fresh browser to the owner account (morgan-vale) that already exists in the registry, even though hitting /api/owner/users directly resolves the same kind of phantom actor to role \"owner\" and succeeds -- the console's own identity check just never asks under that path. This is the exact failure a fresh operator hits: the start screen, the message telling them to ask an owner or admin, and no way to become one.",
+      "acceptance": "A test calls /api/auth/whoami as a loopback request with no stored identity and asserts the resolved actor can reach at least Settings -> Users, or is otherwise handed a real registered identity -- not a role string that matches nobody in the user registry. The fix stays inside the development-local loopback trust boundary already documented for this mode; oidc-required behaviour is untouched, and no login screen or identity picker is added. A clean checkout, started fresh with an empty browser profile, reaches a console that is not a dead end.",
+      "surface": "authentication, authorization, or session handling"
     }
   ]
 }
