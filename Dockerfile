@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS model-clis
+FROM node:26-bookworm-slim AS model-clis
 
 ARG CLAUDE_CODE_VERSION=2.1.234
 ARG CODEX_CLI_VERSION=0.136.0
