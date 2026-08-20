@@ -42,13 +42,15 @@ def test_ci_installs_runtime_and_development_requirements():
     assert "python -m pip install -r requirements.txt -r requirements-dev.txt" in workflow
 
 
-def test_runtime_images_install_only_runtime_python_requirements():
+def test_product_and_private_runner_images_install_their_required_groups():
     product_image = (REPO_DIR / "Dockerfile").read_text()
     runner_image = (REPO_DIR / "Dockerfile.private-runner").read_text()
 
     assert "pip install --no-cache-dir -r /tmp/steel-mission-requirements.txt" in product_image
-    assert "COPY requirements.txt /tmp/steel-mission-requirements.txt" in runner_image
-    assert "requirements-dev" not in runner_image
+    assert "requirements-dev" not in product_image
+    assert "COPY requirements.txt requirements-dev.txt /tmp/" in runner_image
+    assert "pip install --no-cache-dir -r /tmp/requirements-dev.txt" in runner_image
+    assert "requirements-postgres" not in runner_image
 
 
 def test_runtime_install_guides_do_not_require_test_dependencies():
