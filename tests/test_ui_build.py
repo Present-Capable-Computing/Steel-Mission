@@ -11,6 +11,7 @@ REPO_DIR = Path(__file__).resolve().parent.parent
 PROOF_PAGE = REPO_DIR / "tests" / "fixtures" / "ui-build-proof.html"
 PACKAGE_MANIFEST = REPO_DIR / "package.json"
 PACKAGE_LOCK = REPO_DIR / "package-lock.json"
+APP_PAGE = REPO_DIR / "steel-mission-chat" / "app.html"
 
 
 def test_real_iife_bundle_satisfies_the_legacy_script_constraints(tmp_path):
@@ -67,3 +68,45 @@ def test_ui_lockfile_carries_the_exact_direct_pins_and_integrity_hashes():
     }
     assert installed
     assert all(package.get("integrity", "").startswith("sha512-") for package in installed.values())
+
+
+def test_ui_build_emits_one_self_contained_unminified_page(tmp_path):
+    html = APP_PAGE.read_text()
+
+    assert '<script src=' not in html
+    assert '<script type="module"' not in html
+    assert '<link rel="stylesheet"' not in html
+    assert "https://" not in html
+    scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
+    assert len(scripts) == 1
+    assert "// node_modules/preact/" in scripts[0]
+    script = tmp_path / "steel-mission-app.js"
+    script.write_text(scripts[0])
+    result = subprocess.run(
+        ["node", "--check", str(script)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_ui_build_and_drift_check_are_make_targets():
+    makefile = (REPO_DIR / "Makefile").read_text()
+    manifest = json.loads(PACKAGE_MANIFEST.read_text())
+
+    assert "ui-build:" in makefile
+    assert "ui-check:" in makefile
+    assert manifest["scripts"]["ui:build"] == "node tooling/build-ui.mjs"
+    assert manifest["scripts"]["ui:check"] == "node tooling/build-ui.mjs --check"
+
+
+def test_ui_builder_is_an_unminified_iife_with_no_external_assets():
+    builder = (REPO_DIR / "tooling" / "build-ui.mjs").read_text()
+
+    assert 'format: "iife"' in builder
+    assert "minify: false" in builder
+    assert "write: false" in builder
+    assert "<style>" in builder
+    assert "<script>" in builder
