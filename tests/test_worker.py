@@ -5631,7 +5631,13 @@ def test_coordinator_progress_messages_show_glimmer_provider_and_model():
         writer({"type": "system", "subtype": "api_retry"})
         retrying = json.loads((progress_dir / "progress.json").read_text())
         assert retrying["timeline"][-1]["detail"].startswith("Glimmer reported a retry")
-        assert "Claude" not in json.dumps(retrying)
+        # Only the wording-bearing fields must be free of Claude branding:
+        # checkpointPath embeds the absolute checkout path, which can itself
+        # contain "Claude" (e.g. a worktree under "Steel-Mission Claude").
+        worded = [retrying["phase"], retrying["providerLabel"], retrying["model"]] + [
+            f"{event.get('label', '')} {event.get('detail', '')}" for event in retrying["timeline"]
+        ]
+        assert "Claude" not in json.dumps(worded), worded
     finally:
         purge_task(task_id)
 
