@@ -59,6 +59,13 @@ the application serves your canon under the shipped company's identity — the
 documents are yours and `activeOrganization` is still Northstar Forge, which reads
 as working and is not.
 
+Authenticated clients read presentation labels from `GET /api/vocabulary`. Its
+`terms` table defines the product vocabulary and wire-name mapping, while
+`capabilities` is derived from the organization's knowledge registry and contains
+each `capabilityKey` with its `displayName`. The response is governed by
+`schemas/canonical/ui-vocabulary-v1.json`; pages must not maintain a second
+capability-label list.
+
 Start from a copy of the shipped `config/` and change the registries you own.
 
 In your own config, paths use `${ORG_DIR}`. A path written as
