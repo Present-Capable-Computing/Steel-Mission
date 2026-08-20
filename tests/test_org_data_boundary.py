@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import pytest
@@ -108,6 +109,33 @@ APPLICATION_DOCKERFILE = REPO_DIR / "Dockerfile"
 MUST_NOT_SHIP = (".env", "plan", "tooling", "node_modules", "steel-mission-ui")
 
 
+def _dockerignore_effectively_excludes(rules: list[str], name: str) -> bool:
+    """Evaluate the ordered rules relevant to one guarded root path.
+
+    A literal exclusion is deliberate and reviewable. Any later exception that
+    can select the root or something below it makes the path publishable again,
+    following Docker's last-matching-rule behavior.
+    """
+    excluded = False
+    candidates = (name, f"{name}/guard", f"parent/{name}", f"parent/{name}/guard")
+    for raw_rule in rules:
+        negated = raw_rule.startswith("!")
+        pattern = raw_rule[1:] if negated else raw_rule
+        pattern = pattern.lstrip("/").rstrip("/")
+        if not pattern:
+            continue
+        if not negated and pattern == name:
+            excluded = True
+            continue
+        can_select_guarded_tree = (
+            name in pattern.split("/")
+            or any(fnmatchcase(candidate, pattern) for candidate in candidates)
+        )
+        if negated and can_select_guarded_tree:
+            excluded = False
+    return excluded
+
+
 @pytest.mark.skipif(
     not APPLICATION_DOCKERFILE.exists(),
     reason="no application Dockerfile in this tree yet",
@@ -133,20 +161,21 @@ def test_the_application_image_excludes_secrets_plans_and_the_frontend_toolchain
         "the image copies the whole tree and there is no .dockerignore; a local "
         ".env would be built into a published image"
     )
-    entries = {
+    rules = [
         line.strip()
         for line in ignore_path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.strip().startswith("#")
-    }
+    ]
     missing = [
         name
         for name in MUST_NOT_SHIP
-        if not any(entry.rstrip("/") == name for entry in entries)
+        if not _dockerignore_effectively_excludes(rules, name)
     ]
     assert not missing, (
-        f".dockerignore does not exclude {missing}. The image copies the tree "
+        f".dockerignore does not effectively exclude {missing}. The image copies the tree "
         "wholesale, so anything not excluded is published to whoever pulls it. "
-        "Keep '!.env.example' if the sample file should still ship."
+        "Docker exceptions are ordered and may re-include an earlier exclusion; "
+        "keep '!.env.example' if the sample file should still ship."
     )
 
 
