@@ -286,6 +286,16 @@ def test_application_organizations_panel_loads_and_saves_the_existing_contract()
         assert field in html
 
 
+def test_application_users_panel_loads_and_saves_the_existing_contract():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "usersPanel" in html
+    assert "/users" in html
+    for field in ("Create User", "Access Level", "Account Status", "Identity Subjects", "Save User"):
+        assert field in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")
