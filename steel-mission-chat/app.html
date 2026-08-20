@@ -435,8 +435,8 @@ select {
           <div class="mode-control">
             <span id="workModeLabel">Work mode</span>
             <div class="mode-switch" role="group" aria-labelledby="workModeLabel" aria-describedby="normalModeDescription domainCapabilityModeDescription">
-              <button type="button" aria-pressed="true" aria-describedby="normalModeDescription">Normal</button>
-              <button type="button" aria-pressed="false" aria-describedby="domainCapabilityModeDescription">Domain Capabilities</button>
+              <button id="normalMode" type="button" aria-pressed="true" aria-describedby="normalModeDescription">Normal</button>
+              <button id="domainCapabilityMode" type="button" aria-pressed="false" aria-describedby="domainCapabilityModeDescription">Domain Capabilities</button>
             </div>
             <p id="normalModeDescription" class="visually-hidden">Normal chat uses direct prompts and answers while keeping assigned capabilities available as context.</p>
             <p id="domainCapabilityModeDescription" class="visually-hidden">Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens.</p>
@@ -477,8 +477,8 @@ select {
         </section>
         <section class="empty-state" aria-labelledby="newConsoleTitle">
           <p class="eyebrow">Rebuilt console</p>
-          <h1 id="newConsoleTitle">A typed shell, ready for parity work.</h1>
-          <p>JavaScript activates the non-default application shell.</p>
+          <h1 id="newConsoleTitle">Steel Mission is ready.</h1>
+          <p>JavaScript activates the application shell.</p>
         </section>
       </section>
     </main>
@@ -2635,6 +2635,7 @@ select {
                 children: WORK_MODES.map((mode) => /* @__PURE__ */ u3(
                   "button",
                   {
+                    id: mode.id === "normal" ? "normalMode" : "domainCapabilityMode",
                     type: "button",
                     "aria-pressed": workMode === mode.id,
                     "aria-describedby": mode.id === "normal" ? "normalModeDescription" : "domainCapabilityModeDescription",
@@ -2741,6 +2742,7 @@ select {
                         "label",
                         {
                           class: "assignment-choice",
+                          "data-capability-control": true,
                           "data-capability-ownership": ownership.status,
                           children: [
                             /* @__PURE__ */ u3("span", { children: [
@@ -2774,8 +2776,8 @@ select {
         ] }),
         /* @__PURE__ */ u3("section", { class: "empty-state", "aria-labelledby": "newConsoleTitle", hidden: settingsOpen, children: [
           /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Rebuilt console" }),
-          /* @__PURE__ */ u3("h1", { id: "newConsoleTitle", children: "A typed shell, ready for parity work." }),
-          /* @__PURE__ */ u3("p", { children: "This non-default application proves the committed single-file build. Existing work, settings, and mission behavior remains on the current console until each surface reaches parity." })
+          /* @__PURE__ */ u3("h1", { id: "newConsoleTitle", children: "Steel Mission is ready." }),
+          /* @__PURE__ */ u3("p", { children: "Use your assigned Domain Capabilities and the settings workspace to prepare and govern delivery work." })
         ] })
       ] })
     ] });

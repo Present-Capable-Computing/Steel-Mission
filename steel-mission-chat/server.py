@@ -276,10 +276,8 @@ def is_page_path(path: str) -> bool:
 
 
 def page_selector(path: str) -> str:
-    if path != "/app":
-        return "legacy"
-    selector = os.environ.get(UI_SELECTOR_ENV, "legacy").strip().lower()
-    return "application" if selector == "application" else "legacy"
+    selector = os.environ.get(UI_SELECTOR_ENV, "application").strip().lower()
+    return "legacy" if selector == "legacy" else "application"
 
 
 def is_legacy_page_path(path: str) -> bool:
@@ -5415,7 +5413,7 @@ def application_chat_index() -> str:
     return APPLICATION_INDEX.read_text()
 
 
-def chat_index(selector: str = "legacy") -> str:
+def chat_index(selector: str = "application") -> str:
     if selector == "application":
         return application_chat_index()
     if selector == "legacy":

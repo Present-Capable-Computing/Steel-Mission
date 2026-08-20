@@ -177,6 +177,7 @@ function App() {
             >
               {WORK_MODES.map((mode) => (
                 <button
+                  id={mode.id === "normal" ? "normalMode" : "domainCapabilityMode"}
                   key={mode.id}
                   type="button"
                   aria-pressed={workMode === mode.id}
@@ -309,6 +310,7 @@ function App() {
                               <label
                                 key={capability.capabilityKey}
                                 class="assignment-choice"
+                                data-capability-control
                                 data-capability-ownership={ownership.status}
                               >
                                 <span>
@@ -338,10 +340,9 @@ function App() {
 
         <section class="empty-state" aria-labelledby="newConsoleTitle" hidden={settingsOpen}>
           <p class="eyebrow">Rebuilt console</p>
-          <h1 id="newConsoleTitle">A typed shell, ready for parity work.</h1>
+          <h1 id="newConsoleTitle">Steel Mission is ready.</h1>
           <p>
-            This non-default application proves the committed single-file build. Existing work,
-            settings, and mission behavior remains on the current console until each surface reaches parity.
+            Use your assigned Domain Capabilities and the settings workspace to prepare and govern delivery work.
           </p>
         </section>
       </section>

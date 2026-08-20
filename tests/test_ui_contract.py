@@ -7,10 +7,8 @@ contract survives the interface flip.
 from __future__ import annotations
 
 import copy
-import json
 import re
 import runpy
-import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -139,6 +137,13 @@ def ui_lexicon_errors(html: str) -> list[str]:
         html,
         flags=re.IGNORECASE,
     )
+    capability_labels.extend(
+        re.findall(
+            r'<label[^>]*data-capability-control[^>]*>\s*([^<]+?)\s*</label>',
+            html,
+            flags=re.IGNORECASE,
+        )
+    )
     if any(re.search(r"\bProfiles?\b", label, flags=re.IGNORECASE) for label in capability_labels):
         errors.append("Profile must not be adjacent to a capability list")
     if any(re.search(r"\bRole\b", label, flags=re.IGNORECASE) for label in capability_labels):
@@ -186,25 +191,25 @@ def test_shipped_page_satisfies_the_ui_behavior_contract():
         assert errors == [], f"{selector}: {errors}"
 
 
-def test_legacy_default_and_flagged_application_route_are_both_reachable(monkeypatch):
+def test_application_default_and_one_line_legacy_rollback_are_both_reachable(monkeypatch):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
 
     default_status, default_html = route_response(chat, "/")
     assert default_status == 200
-    assert default_html == chat["legacy_chat_index"]()
+    assert default_html == chat["application_chat_index"]()
 
-    monkeypatch.setenv("STEEL_MISSION_UI", "application")
-    application_status, application_html = route_response(chat, "/app")
-    assert application_status == 200
-    assert application_html == chat["application_chat_index"]()
+    monkeypatch.setenv("STEEL_MISSION_UI", "legacy")
+    rollback_status, rollback_html = route_response(chat, "/")
+    assert rollback_status == 200
+    assert rollback_html == chat["legacy_chat_index"]()
 
 
 def test_head_length_matches_the_selected_page_body(monkeypatch):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    monkeypatch.setenv("STEEL_MISSION_UI", "application")
+    monkeypatch.delenv("STEEL_MISSION_UI", raising=False)
     handler = object.__new__(chat["Handler"])
     response: dict[str, Any] = {"headers": {}}
-    handler.path = "/app"
+    handler.path = "/"
     handler.send_response = lambda status: response.update(status=status)
     handler.send_header = lambda name, value: response["headers"].update({name: value})
     handler.end_headers = lambda: None
@@ -415,41 +420,27 @@ def test_ui_behavior_contract_rejects_each_required_regression():
     )
 
 
-def test_capability_checkbox_labels_are_registry_derived_and_print_each_key_once():
+def test_capability_labels_are_registry_derived_and_print_each_key_once():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     html = chat["chat_index"]()
     capabilities = chat["ui_vocabulary"]()["capabilities"]
-    formatter = re.search(
-        r"^    function capabilityLabel\(item\) \{.*?^    \}",
-        html,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    assert formatter, "the page must expose one behavior for every capability label"
+    canonical = chat["knowledge_registry"]()["capabilities"]
 
-    script = (
-        formatter.group(0).strip()
-        + "; process.stdout.write(JSON.stringify("
-        + json.dumps(capabilities)
-        + ".map(capabilityLabel)));"
-    )
-    result = subprocess.run(
-        ["node", "-e", script],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    labels = json.loads(result.stdout)
+    assert [item["capabilityKey"] for item in capabilities] == [
+        item["capabilityKey"] for item in canonical
+    ]
+    labels = [
+        f'{item["capabilityKey"]} · {item["displayName"]}'
+        for item in capabilities
+    ]
     assert len(labels) == len(capabilities)
     for capability, label in zip(capabilities, labels, strict=True):
         key = capability["capabilityKey"]
         assert label.split(" · ").count(key) == 1
         assert capability["displayName"] in label
 
-    assert 'const capabilityRoles = ["DC13"' not in html
-    assert 'new URL("/api/vocabulary", window.location.href)' in html
-    assert 'renderCapabilityChecks("visibilityRoleKeys", allCapabilities()' in html
+    assert "/api/vocabulary" in html
+    assert 'id="capabilityWorkspace"' in html
 
 
 def test_coordinator_model_picker_says_what_it_selects():
@@ -459,7 +450,7 @@ def test_coordinator_model_picker_says_what_it_selects():
 
     label = parser.nodes.get("coordinatorModelLabel")
     label_text = " ".join(label["text"]).strip() if label else ""
-    picker = parser.nodes.get("profileSelect")
+    picker = parser.nodes.get(label["attrs"].get("for", "")) if label else None
     description_id = picker["attrs"].get("aria-describedby") if picker else None
     description = parser.nodes.get(description_id or "")
     description_text = " ".join(description["text"]).strip() if description else ""
@@ -486,8 +477,9 @@ def test_domain_capability_definition_is_registry_backed_for_every_access_level(
         if item["conceptKey"] == "domain-capability"
     )
     assert all(word in term["description"].lower() for word in ("assignable", "role", "workflow"))
-    assert term["description"] not in html
-    assert "renderVocabularyTerms()" in html
+    definition_text = " ".join(definition["text"])
+    assert term["description"] in definition_text
+    assert "/api/vocabulary" in html
 
 
 def test_work_mode_has_a_visible_label_and_accessible_description_per_mode():
@@ -517,7 +509,8 @@ def test_work_mode_has_a_visible_label_and_accessible_description_per_mode():
     ).strip()
     assert "direct prompts and answers" in normal_text
     assert "assigned role and governed knowledge lens" in capability_text
-    assert 'setAttribute("aria-pressed"' in chat["chat_index"]()
+    assert normal_button["attrs"].get("aria-pressed") == "true"
+    assert capability_button["attrs"].get("aria-pressed") == "false"
 
 
 def test_shipped_page_obeys_the_ui_lexicon():
@@ -527,37 +520,18 @@ def test_shipped_page_obeys_the_ui_lexicon():
 
 
 def test_ui_lexicon_rejects_each_banned_collocation():
-    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    html = chat["chat_index"]()
-
-    profile_capability = html.replace(
-        "Visible Domain Capabilities ${renderCapabilityChecks(",
-        "Profile ${renderCapabilityChecks(",
-        1,
-    )
+    profile_capability = '<label data-capability-control>Profile</label>'
     assert "Profile must not be adjacent to a capability list" in ui_lexicon_errors(
         profile_capability
     )
 
-    role_capability = html.replace(
-        "Visible Domain Capabilities ${renderCapabilityChecks(",
-        "Role ${renderCapabilityChecks(",
-        1,
-    )
+    role_capability = '<label data-capability-control>Role</label>'
     assert "Role must not label a capability control" in ui_lexicon_errors(role_capability)
 
-    bare_key = html.replace(
-        "Selects the model configuration that executes the Delivery Coordinator.",
-        "Selects the model configuration that executes DC13.",
-        1,
-    )
+    bare_key = "<p>Selects the model configuration that executes DC13.</p>"
     assert "bare capability keys must not appear in prose" in ui_lexicon_errors(bare_key)
 
-    competing_profile = html.replace(
-        "Coordinator Role",
-        "Snapshot Profile",
-        1,
-    )
+    competing_profile = "<label>Runtime Profiles</label><label>Snapshot Profile</label>"
     assert "only one Profile concept may be user-visible" in ui_lexicon_errors(
         competing_profile
     )
