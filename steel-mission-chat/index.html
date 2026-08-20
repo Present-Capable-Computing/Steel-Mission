@@ -306,6 +306,20 @@
       min-width: 0;
     }
 
+    .coordinator-model-control {
+      display: grid;
+      gap: 4px;
+      justify-items: start;
+    }
+
+    .coordinator-model-description {
+      margin: 0;
+      max-width: 320px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
     .profile-control select {
       min-width: 190px;
       max-width: min(280px, 44vw);
@@ -1265,7 +1279,10 @@
 
     <main>
       <div class="bar">
-        <label class="profile-control">Profile <select id="profileSelect"><option value="">loading</option></select></label>
+        <div class="coordinator-model-control">
+          <label id="coordinatorModelLabel" class="profile-control">Coordinator model <select id="profileSelect" aria-describedby="coordinatorModelDescription"><option value="">loading</option></select></label>
+          <p id="coordinatorModelDescription" class="coordinator-model-description">Selects the model configuration that executes the Delivery Coordinator.</p>
+        </div>
         <div class="mode-control">
           <div class="mode-switch" role="group" aria-label="Work mode" aria-describedby="workModeDescription">
             <button id="normalMode" type="button" data-work-mode="normal">Normal</button>

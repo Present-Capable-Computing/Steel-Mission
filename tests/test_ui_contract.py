@@ -210,3 +210,22 @@ def test_capability_checkbox_labels_are_registry_derived_and_print_each_key_once
     assert 'const capabilityRoles = ["DC13"' not in html
     assert 'new URL("/api/vocabulary", window.location.href)' in html
     assert 'renderCapabilityChecks("visibilityRoleKeys", allCapabilities()' in html
+
+
+def test_coordinator_model_picker_says_what_it_selects():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    parser = ContractPageParser()
+    parser.feed(chat["chat_index"]())
+
+    label = parser.nodes.get("coordinatorModelLabel")
+    label_text = " ".join(label["text"]).strip() if label else ""
+    picker = parser.nodes.get("profileSelect")
+    description_id = picker["attrs"].get("aria-describedby") if picker else None
+    description = parser.nodes.get(description_id or "")
+    description_text = " ".join(description["text"]).strip() if description else ""
+
+    assert "Coordinator model" in label_text
+    assert "Profile" not in label_text
+    assert description
+    assert "model configuration" in description_text
+    assert "executes the Delivery Coordinator" in description_text
