@@ -267,6 +267,15 @@ def test_application_has_an_owner_capability_assignment_interface():
     assert "/api/owner/assignments" in html
 
 
+def test_application_names_unowned_capabilities_and_how_to_assign_them():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "data-capability-ownership" in html
+    assert "Unowned" in html
+    assert "Select this capability to assign it to the chosen user." in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")

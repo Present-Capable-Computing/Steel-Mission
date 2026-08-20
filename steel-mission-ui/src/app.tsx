@@ -4,6 +4,7 @@ import {useEffect, useState} from "preact/hooks";
 import "./styles.css";
 import {
   assignmentControlsAvailable,
+  capabilityOwnership,
   saveCapabilityAssignment,
   type AssignmentCapability,
   type AssignmentUser,
@@ -270,16 +271,27 @@ function App() {
                       <fieldset>
                         <legend>Domain Capabilities</legend>
                         <div class="assignment-grid">
-                          {assignmentCapabilities.map((capability) => (
-                            <label key={capability.capabilityKey}>
-                              <input
-                                type="checkbox"
-                                checked={selectedAssignmentCapabilities.includes(capability.capabilityKey)}
-                                onChange={() => toggleAssignmentCapability(capability.capabilityKey)}
-                              />
-                              {capability.capabilityKey} · {capability.displayName}
-                            </label>
-                          ))}
+                          {assignmentCapabilities.map((capability) => {
+                            const ownership = capabilityOwnership(capability, assignmentUsers);
+                            return (
+                              <label
+                                key={capability.capabilityKey}
+                                class="assignment-choice"
+                                data-capability-ownership={ownership.status}
+                              >
+                                <span>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedAssignmentCapabilities.includes(capability.capabilityKey)}
+                                    onChange={() => toggleAssignmentCapability(capability.capabilityKey)}
+                                  />
+                                  {capability.capabilityKey} · {capability.displayName}
+                                </span>
+                                <strong>{ownership.label}</strong>
+                                <small>{ownership.action}</small>
+                              </label>
+                            );
+                          })}
                         </div>
                       </fieldset>
                       <button type="submit" disabled={!selectedAssignmentUser}>Save capability assignment</button>

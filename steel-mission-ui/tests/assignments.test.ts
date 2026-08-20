@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assignmentControlsAvailable,
   assignmentRegistry,
+  capabilityOwnership,
   saveCapabilityAssignment,
 } from "../src/assignments";
 
@@ -32,6 +33,20 @@ test("the owner assignment model writes the capability registry shape", () => {
   assert.deepEqual(architecture?.publishers, ["publisher-1"]);
   assert.deepEqual(architecture?.users, ["user-1"]);
   assert.deepEqual(coordinator?.publishers, ["publisher-1"]);
+});
+
+test("an unowned capability renders as unowned with a way to assign it", () => {
+  const ownership = capabilityOwnership(
+    {capabilityKey: "DC07", displayName: "Intelligence"},
+    users,
+  );
+
+  assert.deepEqual(ownership, {
+    status: "unowned",
+    label: "Unowned",
+    action: "Select this capability to assign it to the chosen user.",
+    userIds: [],
+  });
 });
 
 test("an owner save posts to the registry endpoint and reloads the round trip", async () => {
