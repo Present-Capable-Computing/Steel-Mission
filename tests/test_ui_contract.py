@@ -92,8 +92,20 @@ def ui_contract_errors(
     parser = ContractPageParser()
     parser.feed(html)
     definition = parser.nodes.get("domainCapabilityDefinition")
-    definition_text = " ".join(definition["text"]).strip() if definition else ""
-    if not definition or not all(term in definition_text.lower() for term in ("domain capability", "assignable", "workflow")):
+    definition_term = next(
+        (
+            item
+            for item in vocabulary.get("terms", [])
+            if isinstance(item, dict) and item.get("conceptKey") == "domain-capability"
+        ),
+        {},
+    )
+    definition_text = str(definition_term.get("description") or "")
+    if (
+        not definition
+        or definition["attrs"].get("data-vocabulary-term") != "domain-capability"
+        or not all(term in definition_text.lower() for term in ("assignable", "role", "workflow"))
+    ):
         errors.append("the Domain Capability definition must be visible to non-manager users")
 
     work_mode_group = next(
@@ -229,3 +241,22 @@ def test_coordinator_model_picker_says_what_it_selects():
     assert description
     assert "model configuration" in description_text
     assert "executes the Delivery Coordinator" in description_text
+
+
+def test_domain_capability_definition_is_registry_backed_for_every_access_level():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["chat_index"]()
+    parser = ContractPageParser()
+    parser.feed(html)
+
+    definition = parser.nodes.get("domainCapabilityDefinition")
+    assert definition
+    assert definition["attrs"].get("data-vocabulary-term") == "domain-capability"
+    term = next(
+        item
+        for item in chat["ui_vocabulary"]()["terms"]
+        if item["conceptKey"] == "domain-capability"
+    )
+    assert all(word in term["description"].lower() for word in ("assignable", "role", "workflow"))
+    assert term["description"] not in html
+    assert "renderVocabularyTerms()" in html
