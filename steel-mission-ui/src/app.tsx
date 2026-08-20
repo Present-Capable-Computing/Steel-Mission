@@ -1,7 +1,12 @@
 import {render} from "preact";
-import {useState} from "preact/hooks";
+import {useEffect, useState} from "preact/hooks";
 
 import "./styles.css";
+import {
+  CAPABILITY_EMPTY_STATE,
+  capabilityWorkspaceView,
+  type CapabilityWorkspaceView,
+} from "./capabilities";
 import {SETTINGS_SECTIONS, type SettingsSectionId} from "./settings";
 import {WORK_MODES, type WorkMode} from "./work-mode";
 
@@ -10,6 +15,32 @@ function App() {
   const [workMode, setWorkMode] = useState<WorkMode>("normal");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("organizations");
+  const [capabilityState, setCapabilityState] = useState<
+    {status: "loading" | "ready" | "error"; view?: CapabilityWorkspaceView; error?: string}
+  >({status: "loading"});
+
+  useEffect(() => {
+    let current = true;
+    Promise.all([
+      fetch("/api/auth/whoami", {cache: "no-store"}),
+      fetch("/api/vocabulary", {cache: "no-store"}),
+    ])
+      .then(async ([identityResponse, vocabularyResponse]) => {
+        const identity = await identityResponse.json() as {ok?: boolean; actor?: unknown; error?: string};
+        const vocabulary = await vocabularyResponse.json() as {ok?: boolean; error?: string};
+        if (!identityResponse.ok || !identity.ok) throw new Error(identity.error || "Identity is unavailable");
+        if (!vocabularyResponse.ok || !vocabulary.ok) throw new Error(vocabulary.error || "Vocabulary is unavailable");
+        if (current) setCapabilityState({status: "ready", view: capabilityWorkspaceView(identity.actor, vocabulary)});
+      })
+      .catch((error: unknown) => {
+        if (current) {
+          setCapabilityState({status: "error", error: error instanceof Error ? error.message : "Capability workspace is unavailable"});
+        }
+      });
+    return () => {
+      current = false;
+    };
+  }, []);
 
   return (
     <main class="app-shell">
@@ -78,6 +109,31 @@ function App() {
         >
           Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
         </p>
+
+        <section id="capabilityWorkspace" class="capability-workspace" aria-labelledby="capabilityWorkspaceTitle">
+          <div>
+            <p class="eyebrow">Capability workspace</p>
+            <h2 id="capabilityWorkspaceTitle">Your Domain Capabilities</h2>
+            {capabilityState.view && (
+              <p class="workspace-identity">{capabilityState.view.actorId} · {capabilityState.view.accessLevel}</p>
+            )}
+          </div>
+          {capabilityState.status === "loading" && <p>Loading assigned capabilities…</p>}
+          {capabilityState.status === "error" && <p role="alert">{capabilityState.error}</p>}
+          {capabilityState.status === "ready" && capabilityState.view?.capabilities.length === 0 && (
+            <p id="capabilityEmptyState" class="capability-empty">{CAPABILITY_EMPTY_STATE}</p>
+          )}
+          {capabilityState.status === "ready" && Boolean(capabilityState.view?.capabilities.length) && (
+            <div class="capability-grid">
+              {capabilityState.view?.capabilities.map((capability) => (
+                <article key={capability.capabilityKey} class="capability-card">
+                  <strong>{capability.label}</strong>
+                  <p>Assigned to your workspace</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         {settingsOpen && (
           <section id="settingsPanel" class="settings-panel" aria-label="Settings">
