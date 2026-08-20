@@ -1627,7 +1627,7 @@
         domainCapabilityMode.setAttribute("aria-pressed", String(activeWorkMode === "domain-capabilities"));
       }
       question.placeholder = activeWorkMode === "normal"
-        ? "Ask normally. DC13 will still keep shared Domain Capabilities context available."
+        ? "Ask normally. The Delivery Coordinator will still keep shared Domain Capabilities context available."
         : "Ask Delivery Coordinator through the Domain Capabilities role and knowledge lens.";
       if (!messages.length) render();
     }
@@ -2082,7 +2082,7 @@
             <option value="glimmer" ${profile.modelProvider === "glimmer" ? "selected" : ""}>glimmer</option>
           </select></label>
           <label class="form-field">Required Provider-Native Capabilities <input id="requiredProviderCapabilities" value="${escapeHtml((profile.requiredProviderCapabilities || []).join(", "))}"><span class="form-hint">Resolution fails instead of silently downgrading when the selected provider cannot supply these capabilities.</span></label>
-          <label class="form-field">Snapshot Profile <input id="snapshotProfile" value="${escapeHtml(profile.snapshotProfile || "")}"></label>
+          <label class="form-field">Snapshot policy <input id="snapshotProfile" value="${escapeHtml(profile.snapshotProfile || "")}"></label>
           <label class="form-field">Default For <input id="defaultFor" value="${escapeHtml((profile.defaultFor || []).join(", "))}"></label>
         </div>
         <label class="form-field">Editable By ${renderChecks("editableBy", operators, profile.editableBy)}</label>
@@ -2223,7 +2223,7 @@
       const first = roles[0] || {id: "", title: "", primaryModel: models[0] || "", fallbackModels: [], snapshotProfile: ""};
       roleAdmin.innerHTML = `
         <h2>Delivery Coordinator Model Binding</h2>
-        <div class="form-hint">${admin ? "Owner/Admin endpoints can change which model instance DC13 binds to first." : "Publishers can choose existing model bindings in profiles. Owners/Admins change the binding itself."}</div>
+        <div class="form-hint">${admin ? "Owner/Admin endpoints can change which model instance the Delivery Coordinator binds to first." : "Publishers can choose existing model bindings in profiles. Owners/Admins change the binding itself."}</div>
         <div class="source-list">${modelDescriptors.map(model => `<div class="source-row"><strong>${escapeHtml(model.id || "model")} · ${escapeHtml(model.provider || "provider")}</strong><span>Native capabilities: ${escapeHtml((model.nativeCapabilities || []).join(", ") || "not declared")}</span></div>`).join("")}</div>
         <div class="role-list">${roles.map(role => `
           <div class="role-row">
@@ -2238,7 +2238,7 @@
             <label class="form-field">Role ID <input id="roleId" value="${escapeHtml(role.id || "")}" readonly></label>
             <label class="form-field">Title <input id="roleTitle" value="${escapeHtml(role.title || "")}" ${admin ? "" : "readonly"}></label>
             <label class="form-field">Primary Model <select id="rolePrimary" ${admin ? "" : "disabled"}>${models.map(model => `<option value="${escapeHtml(model)}" ${model === role.primaryModel ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}</select></label>
-            <label class="form-field">Snapshot Profile <input id="roleSnapshot" value="${escapeHtml(role.snapshotProfile || "")}" ${admin ? "" : "readonly"}></label>
+            <label class="form-field">Snapshot policy <input id="roleSnapshot" value="${escapeHtml(role.snapshotProfile || "")}" ${admin ? "" : "readonly"}></label>
             <label class="form-field">Governance Capabilities <input id="roleGovernance" value="${escapeHtml((role.governanceCapabilities || []).join(", "))}" ${admin ? "" : "readonly"}></label>
           </div>
           <label class="form-field">Fallback Models ${renderChecks("roleFallback", models, [...fallbackSet])}</label>
@@ -2270,7 +2270,7 @@
       try {
         const registry = await postJson("/api/model-roles/save", {operatorRole: activeOperatorRole, role: readRoleForm()});
         modelRoleRegistry = registry;
-        setManagerMessage("DC13 model binding saved.", "good");
+        setManagerMessage("Delivery Coordinator model binding saved.", "good");
         await loadRuntimeProfiles();
         await loadMutations();
         renderProfileManager();
@@ -2659,7 +2659,7 @@
         </div>`;
       knowledgePanel.innerHTML = `
         <h2>${canManageKnowledge ? "Knowledge System" : "Assigned Knowledge System"}</h2>
-        <div class="form-hint">${canManageKnowledge ? "KD01-KD03 are organizational document domains. DC01-DC13 are Domain Capabilities: the roles and workflows the organization can assign. Owners/Admins manage durable sources and prepare snapshots; missions and profiles decide which sources become job context." : "Your endpoint can use assigned capabilities and organization knowledge allowed by the active profile. Chat uploads add temporary job context only."}</div>
+        <div class="form-hint">${canManageKnowledge ? "Knowledge Domains organize durable document sources. Domain Capabilities are the roles and workflows the organization can assign. Owners/Admins manage durable sources and prepare snapshots; missions and profiles decide which sources become job context." : "Your endpoint can use assigned capabilities and organization knowledge allowed by the active profile. Chat uploads add temporary job context only."}</div>
         <div class="role-row">
           <div><strong>Effective Source Registry</strong><span>${escapeHtml(organization.name || "active organization")} · ${repositories.length} repositories/folders · ${documents.length} documents · ${sourceRows.filter(item => item.exists).length} available</span></div>
         </div>
@@ -3284,7 +3284,7 @@
       const effect = String(event.effect || "");
       const intent = String(event.intent || "");
       if (effect === "report-progress") {
-        return "You asked for progress. DC13 kept the current run alive and refreshed this status view.";
+        return "You asked for progress. The Delivery Coordinator kept the current run alive and refreshed this status view.";
       }
       if (effect === "cancel-active-job") return "You cancelled the job.";
       if (effect === "answer-decision") {
@@ -3293,7 +3293,7 @@
       if (intent === "scope-change") {
         return content ? `You changed the focus: ${content}` : "You changed the focus for this run.";
       }
-      if (intent === "decision-request-demo") return "You asked DC13 to show a decision request.";
+      if (intent === "decision-request-demo") return "You asked the Delivery Coordinator to show a decision request.";
       return content ? `You added context: ${content}` : "You added follow-up context.";
     }
 
@@ -3835,7 +3835,7 @@
             ? `This chat belongs to a different user, so it can no longer be shown here. `
               + `That happens when the signed-in identity changes while a job is running. `
               + `Ask again to start a fresh one.`
-            : `Local chat failed: ${error.message}. Refresh the page once; if Server says offline, restart the local DC13 server.`,
+            : `Local chat failed: ${error.message}. Refresh the page once; if Server says offline, restart the local Steel Mission server.`,
           error: true,
         });
       } finally {

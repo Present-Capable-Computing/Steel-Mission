@@ -6293,8 +6293,8 @@ def test_main_chat_index_is_the_default_steel_mission_page():
     assert "generalDocuments" in html
     assert "missions" in html
     assert "Mission Roots" in html
-    assert "KD01-KD03 are organizational document domains" in html
-    assert "DC01-DC13 are Domain Capabilities" in html
+    assert "Knowledge Domains organize durable document sources" in html
+    assert "Domain Capabilities are the roles and workflows" in html
     assert "data-settings-target" in html
     assert "data-settings-section" in html
     assert "Save Binding" in html
