@@ -1,0 +1,6 @@
+extends: existence
+message: "No em dashes. Rewrite with a period, comma, colon, or parentheses instead."
+nonword: true
+level: error
+tokens:
+  - '—'

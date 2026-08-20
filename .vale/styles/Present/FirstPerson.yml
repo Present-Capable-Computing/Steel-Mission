@@ -1,0 +1,8 @@
+extends: existence
+message: "Write for the reader in second person, not first person ('%s') — this rule applies to code comments and docstrings, not narrative docs."
+level: warning
+ignorecase: true
+tokens:
+  - '\bI\b'
+  - '\bwe\b'
+  - "\\bour\\b"

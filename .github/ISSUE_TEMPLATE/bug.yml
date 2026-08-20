@@ -33,4 +33,4 @@ body:
     attributes:
       label: Security
       options:
-        - label: This may be exploitable — I have read SECURITY.md and will report privately instead if so
+        - label: This may be exploitable. I have read SECURITY.md and will report privately instead if so

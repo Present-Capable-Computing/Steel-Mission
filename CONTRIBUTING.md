@@ -5,7 +5,7 @@ Contributions are welcome under the published contribution policy.
 ## Start here
 
 [`docs/workplan.md`](docs/workplan.md) is binding for everyone landing a commit in
-this repository — employees, contractors, and agents running under a person's
+this repository: employees, contractors, and agents running under a person's
 account. An agent's commit is that person's commit. Read §4 (the rules), §5 (the
 definition of done) and §6 (how those are enforced) before opening a pull request.
 
@@ -18,6 +18,17 @@ Work is organised as milestones and tasks. Pick up an
 [open issue](https://github.com/Present-Capable-Computing/Steel-Mission/issues),
 branch as `<milestone>/<short-slug>`, and open a draft pull request on the first
 commit so the rest of us can see what is being worked on without asking.
+
+## Style
+
+Engineering prose follows
+[Present's engineering style guide](https://github.com/Present-Capable-Computing/Present/blob/main/engineering/STYLE.md).
+The `engineering-style` CI job (`.vale.ini`, `.vale/styles/Present/`) enforces
+it on tracked files: Markdown prose, Python comments, whole Python files for
+the em-dash ban (docstrings included), and the `.github` templates and
+workflows. Commit messages and pull request descriptions follow the same
+guide but are not in the checkout, so review enforces them, not the job. Run
+the same gate locally with `make style-check`.
 
 ## Boundaries
 

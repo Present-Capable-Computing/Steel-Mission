@@ -100,3 +100,31 @@ jobs:
           mv "$RUNNER_TEMP/steel-mission-app.html" steel-mission-chat/app.html
           npm run ui:check
           git diff --exit-code -- steel-mission-chat/app.html
+
+  engineering-style:
+    name: engineering-style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Vale
+        run: |
+          # A user-writable directory, not /usr/local/bin: the hosted image
+          # happens to make that runner-writable today, but nothing promises it.
+          mkdir -p "$HOME/.local/bin"
+          curl -sfL https://github.com/errata-ai/vale/releases/download/v3.17.1/vale_3.17.1_Linux_64-bit.tar.gz \
+            | tar -xz -C "$HOME/.local/bin" vale
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # One shared gate: this is the same `make style-check` a contributor runs
+      # locally inside `make release-check`. Scope (from .vale.ini): Markdown
+      # prose (README, CONTRIBUTING, AGENTS.md, docs/, plan/, .github Markdown),
+      # Python comments, whole Python files for the em-dash ban (docstrings
+      # included, via git grep in the target), and .github YAML templates and
+      # workflows;
+      # never LICENSE.md or CODE_OF_CONDUCT.md, which carry fixed legal wording.
+      # Commit messages and PR descriptions are not in the checkout; review
+      # enforces those. See Present/engineering/STYLE.md for the rule set.
+      - name: Vale (engineering prose style)
+        run: make style-check

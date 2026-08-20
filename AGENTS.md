@@ -1,9 +1,9 @@
 # Working in this repository
 
-This is **Steel Mission, the product** — public, Apache-2.0, and what every user
+This is **Steel Mission, the product**: public, Apache-2.0, and what every user
 installs. It is not anyone's installation.
 
-An installation's own data — its canon, roster, registries — lives outside this
+An installation's own data (its canon, roster, registries) lives outside this
 tree and is mounted at run time. Never copy it in. See §*The one thing never to do*.
 
 ## Run it in development
@@ -28,12 +28,12 @@ gateway, which is why a containerised run needs a session from `/auth/login`. If
 find yourself pasting tokens during development, you are running the container when
 you wanted `make local`.
 
-The shipped demo organisation is **Northstar Forge**. That is correct and expected —
+The shipped demo organisation is **Northstar Forge**. That is correct and expected:
 it is the synthetic company every user receives.
 
 ```sh
 make test           # the full suite, ~2 minutes
-make release-check  # whitespace, compile, suite — the same gate as CI
+make release-check  # whitespace, compile, suite: the same gate as CI
 ```
 
 ## Before you write anything
@@ -47,7 +47,7 @@ The three rules that matter most here:
 - **One reason per pull request.** A refactor that also fixes a bug produces a
   regression nobody can attribute.
 - **Wrap, never rename.** The suite loads `server.py` by path and monkeypatches
-  module-level names. A renamed function does not fail loudly — it silently stops
+  module-level names. A renamed function does not fail loudly; it silently stops
   being patched, and the suite stays green while testing nothing.
 
 ## The active project is PRJ-0001
@@ -63,8 +63,8 @@ The three rules that matter most here:
 `PRJ-0000` completed again on 2026-08-20 after all four MS-0012 review findings
 closed. `PRJ-0001` was rescoped the same day under its decision D7: the founder
 console, the chat surface, codex as a coordinator provider and the four-stage
-mission pipeline — plan, develop and commit, review loop, final review and
-merge — folded in as milestones C0–C2, with the printed estimate delta and the
+mission pipeline (plan, develop and commit, review loop, final review and
+merge) folded in as milestones C0–C2, with the printed estimate delta and the
 mission rules (Okay at grant, machine accounts, escalation through the existing
 decision functionality) recorded on the project record and in
 [`docs/workplan.md`](docs/workplan.md) §2 and §5.
@@ -92,7 +92,7 @@ canon, roster or registries into them removes the demo company everyone starts f
 *and* publishes that organisation's people and decisions under an open-source
 licence.
 
-This is not hypothetical — it happened once and was caught before it was committed.
+This is not hypothetical: it happened once and was caught before it was committed.
 Two tests fail if it happens again:
 [`tests/test_org_data_boundary.py`](tests/test_org_data_boundary.py).
 
@@ -109,7 +109,7 @@ the shipped company's identity, which reads as working and is not.
 ## Landing a change
 
 The pull request template asks for every commit in the branch, the evidence, the
-surfaces touched, and how the change is undone. Fill it in — a reviewer decides how
+surfaces touched, and how the change is undone. Fill it in: a reviewer decides how
 carefully to read from what you wrote.
 
 Tick **authentication**, **a network-listening service**, **subprocess or container
@@ -119,8 +119,8 @@ review before merge.
 `main` requires both interpreter checks green and every review conversation
 resolved.
 
-When the pull request is finished, arm auto-merge — `gh pr merge <n> --auto
---merge` — and report the queued state rather than waiting for the landing.
+When the pull request is finished, arm auto-merge (`gh pr merge <n> --auto
+--merge`) and report the queued state rather than waiting for the landing.
 Report it truthfully: queued is queued, not merged; the issue closes when the
 merge happens.
 
@@ -133,5 +133,5 @@ merge happens.
 | `config/` | product configuration: organisations, users, capabilities, policy |
 | `starter-company/` | the shipped synthetic organisation, Northstar Forge |
 | `adapters/`, `bin/` | provider adapters and the command-line tools |
-| `schemas/canonical/` | authority-owned contracts — changing one may need ratification |
+| `schemas/canonical/` | authority-owned contracts (changing one may need ratification) |
 | `plan/`, `tooling/` | project records and the GitHub sync; excluded from the image |

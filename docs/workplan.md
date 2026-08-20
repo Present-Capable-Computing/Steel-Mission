@@ -5,7 +5,7 @@ every project in it. It is not a suggestion set. Where it conflicts with habit, 
 document wins; where it conflicts with a schema or a canonical contract, the
 contract wins and this document is corrected.
 
-It binds everyone who lands a commit here — employees, contractors, and agents
+It binds everyone who lands a commit here: employees, contractors, and agents
 running under a person's account. An agent's commit is that person's commit.
 
 **Active project: `PRJ-0001`.** `PRJ-0000` completed again on 2026-08-20 after
@@ -17,8 +17,8 @@ below carries PRJ-0001's, and PRJ-0000's are in `plan/PRJ-0000.json`. The rules 
 
 | | Project | Technical plan | Milestones |
 |---|---|---|---|
-| Complete | [`PRJ-0000`](../plan/PRJ-0000.json) — usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0012](../plan/MS-0012.json) |
-| **Active** | [`PRJ-0001`](../plan/PRJ-0001.json) — durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
+| Complete | [`PRJ-0000`](../plan/PRJ-0000.json): usable surface, honest admin writes | [`docs/ui-plan.md`](ui-plan.md) | [MS-0007](../plan/MS-0007.json) … [MS-0012](../plan/MS-0012.json) |
+| **Active** | [`PRJ-0001`](../plan/PRJ-0001.json): durable broker and remote pull-runner | [`docs/durable-core-plan.md`](durable-core-plan.md) | [MS-0001](../plan/MS-0001.json) … [MS-0006](../plan/MS-0006.json) |
 
 - How the plan layer maps onto GitHub: [`plan/README.md`](../plan/README.md)
 
@@ -50,10 +50,10 @@ signed webhook or API call
   -> evidence ledger + transactional connector outbox
 ```
 
-## 2. Decisions that are already made — PRJ-0001
+## 2. Decisions that are already made: PRJ-0001
 
 These are settled. Reopening one requires new evidence and a written decision record
-that supersedes it — not a preference expressed in a review.
+that supersedes it, not a preference expressed in a review.
 
 | Id | Decision |
 |---|---|
@@ -63,11 +63,11 @@ that supersedes it — not a preference expressed in a review.
 | D4 | The new root package is `steel_core/`. The originating plan asked for both a `present_core` package and a repository that names one product; those conflict, and this repository names Steel-Mission. |
 | D5 | The database is the queue. The broker command line, the daemon and the chat server are direct clients of one store, sharing one command module and one state machine. There is no command-line-to-daemon remote call. |
 | D6 | Two network surfaces exist and no more: the runner-facing gRPC gateway on the daemon, and an authenticated HTTP operations API. Anything else that wants to listen argues for itself first. |
-| D7 | The founder console, the chat surface, codex as a coordinator provider and the four-stage mission pipeline fold into PRJ-0001 as milestones C0–C2, with the status feed persisted at P1 and the agent executor at P2. No separate project, and no durable second dispatch path: the C1 bench is disposable by declaration, and only its session status feed format — the draft of job protocol v2 — survives into P1/P2. |
+| D7 | The founder console, the chat surface, codex as a coordinator provider and the four-stage mission pipeline fold into PRJ-0001 as milestones C0–C2, with the status feed persisted at P1 and the agent executor at P2. No separate project, and no durable second dispatch path: the C1 bench is disposable by declaration, and only its session status feed format, the draft of job protocol v2, survives into P1/P2. |
 | D8 | The Okay happens at mission grant. A grant binds a plan, a machine-checkable definition of done, budgets and abort conditions; within those bounds the mission runs unattended through plan (Claude, Opus 5 at least), develop and commit (the local model), a bounded review loop (Codex), and final review, approval and merge (Claude, Opus 5 at least). When the plan proves unclean the mission escalates through the existing user-decision functionality and waits; it never widens its own authority, and a mission that cannot reach its definition of done stops and reports rather than redefining done. |
 | D9 | One machine account per model worker, so commit authorship, review provenance and approval are real on GitHub rather than reconstructed from evidence packs. The acceptance account is a code owner for non-authority paths only; `schemas/canonical/` stays human-owned, and a mission touching it escalates instead of merging. Account creation is the maintainer's act. |
 
-## 3. Milestone sequence — PRJ-0001
+## 3. Milestone sequence: PRJ-0001
 
 Milestones run in order. P5 is last because it collides with the file paths of every
 other phase.
@@ -78,7 +78,7 @@ other phase.
 | [MS-0013](../plan/MS-0013.json) | C0 | The Founder lands as Andrew Hermann, owner, seeded install-side, and sees true capability, server, authority and provider state | 3.8 | 2026-09-03 |
 | [MS-0014](../plan/MS-0014.json) | C1 | Chat on the landing screen; granted missions run the four-stage pipeline on a disposable bench; progress is visible | 4.3 | 2026-09-17 |
 | [MS-0015](../plan/MS-0015.json) | C2 | Codex is a coordinator provider and the registry's model choices govern the actual calls | 4.0 | 2026-09-24 |
-| [MS-0002](../plan/MS-0002.json) | P1 | Durable transactional broker with fencing, sweeping, a daemon — and the session status feed persisted | 7.0 | 2026-10-15 |
+| [MS-0002](../plan/MS-0002.json) | P1 | Durable transactional broker with fencing, sweeping, a daemon, and the session status feed persisted | 7.0 | 2026-10-15 |
 | [MS-0003](../plan/MS-0003.json) | P2 | Remote pull-runner over mutual TLS returning signed, bound results; coding agents run as runner jobs and the bench retires | 10.8 | 2026-11-12 |
 | [MS-0004](../plan/MS-0004.json) | P3 | Transactional connector inbox and outbox with backoff and a dead-letter queue | 3.0 | 2026-11-26 |
 | [MS-0005](../plan/MS-0005.json) | P4 | One orchestration path; missions resume after restart | 3.0 | 2026-12-10 |
@@ -87,8 +87,8 @@ other phase.
 Total estimated effort is 33.3 days before contingency and approximately 41.6 days
 with the declared 25 percent. It is estimated per category and divided by an
 expected acceleration factor, with security-sensitive and novel integration work
-held at the cautious end of its range and irreducible empirical time — kill tests,
-image builds, live pipeline rehearsals, continuous integration waits — counted at
+held at the cautious end of its range and irreducible empirical time (kill tests,
+image builds, live pipeline rehearsals, continuous integration waits) counted at
 no acceleration at all. It is not a commitment, and a milestone being inside its
 budget is not evidence that the work is correct. Re-defend the estimate at every
 milestone boundary and print the delta rather than absorbing it.
@@ -96,7 +96,7 @@ milestone boundary and print the delta rather than absorbing it.
 Re-defended at the D7 rescope on 2026-08-20: the console, chat, provider and
 pipeline work folds in, the status feed persists at P1 and the agent executor
 lands at P2. Conventional effort grows 140 to 228 person-days and the focused
-estimate 16.1 to 33.3 days — a printed delta of **+17.2 focused days**, with the
+estimate 16.1 to 33.3 days, a printed delta of **+17.2 focused days**, with the
 per-category derivation on the project record. Target dates from MS-0014 onward
 assume pipeline-assisted throughput; that assumption is a hypothesis, and it is
 re-examined at the MS-0014 boundary with the delta printed.
@@ -122,8 +122,8 @@ that is testing nothing.
 ### 4.2 One reason per pull request
 
 A pull request does one thing. A refactor that also fixes a bug produces a
-regression nobody can attribute. The two riskiest changes in this project — the
-container hardening extraction in P2 and the naming migration in P5 — ship as pure
+regression nobody can attribute. The two riskiest changes in this project (the
+container hardening extraction in P2 and the naming migration in P5) ship as pure
 refactors with characterization tests and no behaviour change whatsoever.
 
 ### 4.3 The pull request describes the branch
@@ -149,9 +149,9 @@ ratification separately from the merge that carries it.
 
 ### 4.6 Reversibility is stated before the merge, not discovered after
 
-Every pull request says how the change is undone. If it cannot be undone cleanly —
+Every pull request says how the change is undone. If it cannot be undone cleanly
 a migration that drops a column, a schema identifier that has already been published
-— say that in the pull request. That is a decision to take deliberately, and it is
+then say that in the pull request. That is a decision to take deliberately, and it is
 much cheaper to take it before the merge.
 
 ### 4.7 Schemas move first
@@ -163,7 +163,7 @@ is what validates, and the proto is what transports.
 
 ### 4.8 Secrets are references
 
-A job specification carries `secretRefs` — a name and where to look — never a value.
+A job specification carries `secretRefs` (a name and where to look), never a value.
 Resolution happens just in time in the runner, into the environment of the sandboxed
 process. There is a test that greps the process arguments, the store dump, the logs
 and the artifacts for a sentinel. If you add a path that could carry a secret, add it
@@ -172,13 +172,13 @@ to that test.
 ### 4.9 Never hold a transaction across the world
 
 The exclusive state transaction serializes writers. It must never enclose a worker
-invocation, a network call, or a heartbeat renewal — that converts a correctness fix
+invocation, a network call, or a heartbeat renewal: that converts a correctness fix
 into a throughput collapse. Heartbeats write to the leases table directly.
 
 ### 4.10 A migration keeps the old path green
 
 The legacy JSON state document is mirrored after every mutation for as long as tests
-assert on it. Retiring the mirror is its own decision, taken once, deliberately —
+assert on it. Retiring the mirror is its own decision, taken once, deliberately,
 not a side effect of a convenient refactor.
 
 ### 4.11 The front-end dependency budget is three
@@ -213,14 +213,14 @@ written reason, and the completion evidence named on the milestone record exists
 
 **Work executed inside a granted mission** (D8, D9) meets the same seven conditions
 with two substitutions, both bounded by the grant. The requirement in item 1 is
-fixed at grant time — the planner may draft it, but the grant is a person's act and
+fixed at grant time: the planner may draft it, but the grant is a person's act and
 the mission cannot amend its own requirement. The review in item 6 is performed by
 the acceptance role (Claude, Opus 5 at least) through its machine account for
 non-authority paths; `schemas/canonical/` and this document's binding sections stay
 human-owned, and a mission touching them escalates through the existing
 user-decision functionality and waits. The definition of done in a grant is
-machine-checkable — acceptance criteria as tests the CI scaffolding runs, not
-prose — and a mission that cannot reach it stops and reports rather than
+machine-checkable (acceptance criteria as tests the CI scaffolding runs, not
+prose), and a mission that cannot reach it stops and reports rather than
 redefining done.
 
 ## 6. How this is enforced
@@ -236,7 +236,7 @@ Prose does not bind anyone. These do:
 | Pull request template | Branch-wide description, evidence, surfaces touched, reversibility |
 | Issue templates | A task cannot enter with an empty requirement, matching the control plane's own refusal |
 | Dependabot | Action, pip and container bumps arrive as reviewable pull requests, because a workflow runs with repository credentials |
-| `make release-check` | Whitespace, compilation of every entrypoint, full suite — the same gate locally and in CI |
+| `make release-check` | Whitespace, compilation of every entrypoint, style, full suite: the same gate locally and in CI |
 | Machine accounts, one per model worker | Author and approver are different GitHub identities on mission pull requests, so review provenance is real; the acceptance account owns non-authority paths only, and `schemas/canonical/` stays human-owned |
 
 If you find a way to land a change that skips one of these, that is a defect in the
@@ -244,7 +244,7 @@ setup. Report it rather than using it.
 
 One caveat, stated because a rule everyone quietly bypasses is worse than no rule.
 While there is a single code owner, that person cannot approve their own pull
-request, so their own changes can only land through the repository admin bypass —
+request, so their own changes can only land through the repository admin bypass,
 which is deliberately left available, or the repository would be unmergeable. The
 review requirement therefore binds contributors immediately and the sole maintainer
 only once there is a second reviewer. Every other gate in the table above applies to
@@ -258,12 +258,12 @@ and the templates do not have a bypass in normal use.
 - **Draft early.** A draft pull request opened on the first commit is how the rest of
   us see what is being worked on without asking.
 - **A finished pull request is queued, not watched.** The moment the work is
-  finished — never before, and never while it is still a draft — arm auto-merge
+  finished (never before, and never while it is still a draft) arm auto-merge
   (`gh pr merge <n> --auto --merge`); it lands by itself once the checks and any
   required review pass, which means it lands without you looking at it again.
   Queuing is never a way of not waiting for a review you expect to be told
   something in. Having queued, report completion without
-  waiting for the landing — and report the true state: queued with checks pending
+  waiting for the landing, and report the true state: queued with checks pending
   or green, never "merged" before the merge exists. The issue closes on the merge
   itself, by number. The head branch is deleted on merge; the commits are on
   `main`, so nothing is lost.
@@ -290,7 +290,7 @@ failures injected, not as a checklist someone confirms by hand.
 | A duplicate webhook produces one mission | P3 | Five concurrent signed posts; unique deduplication key; one mission directory |
 | Connector retries produce exactly one reply | P3 | Fake endpoint answers 429 with a hint twice then 200; crash variant kills after the post |
 | No secret appears in arguments, logs, store or artifacts | P2 | Container shim captures arguments; sentinel grepped across the store dump, logs and artifacts |
-| A result is bound to job, runner, image and inputs | P2 | Tampered image digest, then tampered input hashes, then an unenrolled key — each rejected |
+| A result is bound to job, runner, image and inputs | P2 | Tampered image digest, then tampered input hashes, then an unenrolled key; each rejected |
 | Backup and restore preserve integrity | P4 | Archive round-tripped mid-approval; hash chain verifies; approval completes; no duplicate delivery |
 
 Crash points are environment-gated through a test hook module and are inert in
@@ -318,8 +318,8 @@ subprocess, matching how this suite already tests.
    A green matrix says nothing about the container.
 7. **The local coder is the weakest worker.** A 14-billion-parameter local model
    drafting changes produces review burden faster than it removes work if it is
-   handed anything large. Mitigated by assignment discipline — smallest mechanical
-   issues first — and by the Codex review loop standing between its commits and
+   handed anything large. Mitigated by assignment discipline (smallest mechanical
+   issues first) and by the Codex review loop standing between its commits and
    the acceptance review.
 8. **Pipeline authority creep.** An unattended mission that quietly widens its own
    scope is the failure mode D8 exists to prevent. Mitigated by grant-time budgets

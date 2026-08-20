@@ -46,7 +46,7 @@ https://github.com/settings/tokens, then re-authenticate:
 
     gh auth login --with-token < token.txt
 
-Everything else in the plan — labels, milestones, issues, branch protection —
+Everything else in the plan (labels, milestones, issues, branch protection)
 is applied by tooling/gh-plan-sync.py and does not need this scope.
 MSG
   exit 2

@@ -1,0 +1,11 @@
+extends: existence
+message: "Cut the filler — rewrite without '%s'."
+level: error
+ignorecase: true
+tokens:
+  - in order to
+  - it should be noted that
+  - note that
+  - it is worth noting
+  - it is important to note
+  - please note that

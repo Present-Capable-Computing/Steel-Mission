@@ -64,4 +64,4 @@ Native GitHub, Slack, and Jira adapters accept authenticated events, normalize t
 
 ## Workflow Embedding
 
-The primary experience belongs in the tools where work already starts: SCM, issues, chat, CI, IDEs, and provider-native environments. Connector contracts preserve originating identity and thread context, then return status, approval requests, control decisions, completion, evidence links, and an optional investigation deep link. The Steel Mission control surface is for administration, cross-workflow investigation, and fallback—not a mandatory replacement workspace.
+The primary experience belongs in the tools where work already starts: SCM, issues, chat, CI, IDEs, and provider-native environments. Connector contracts preserve originating identity and thread context, then return status, approval requests, control decisions, completion, evidence links, and an optional investigation deep link. The Steel Mission control surface is for administration, cross-workflow investigation, and fallback, not a mandatory replacement workspace.

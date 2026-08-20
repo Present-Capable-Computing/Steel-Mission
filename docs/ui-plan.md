@@ -1,4 +1,4 @@
-# PRJ-0000 — usable surface, honest admin writes
+# PRJ-0000: usable surface, honest admin writes
 
 Project [`PRJ-0000`](../plan/PRJ-0000.json). The rules for how work lands are in
 [`docs/workplan.md`](workplan.md); this document is the design.
@@ -29,7 +29,7 @@ needs.
 Consequences the user meets directly:
 
 - The picker is labelled **"Profile"** with no hint, no description and no tooltip.
-- Capability checkboxes read **`DC01 · DC01 · Counterweight`** — `fNumber` equals
+- Capability checkboxes read **`DC01 · DC01 · Counterweight`**: `fNumber` equals
   `roleKey`, so the key prints twice.
 - A second renderer prints bare `DC13, DC01, …` from a **hardcoded array**.
 - The only definition of a Domain Capability is **behind an owner/admin gate**, so
@@ -50,11 +50,11 @@ Each verified in source.
 |---|---|
 | An organisation saved with **zero** capabilities is granted **all thirteen** | `server.py:666-667` |
 | `POST {"users": []}` answers 200 and **recreates** four accounts with no identity subjects | `server.py:1187-1193` |
-| `"status": "suspended"` becomes `"active"` — suspending a user re-enables them | `server.py:1181` |
+| `"status": "suspended"` becomes `"active"` (suspending a user re-enables them) | `server.py:1181` |
 | An unknown worktree mode silently becomes in-place, **mutating the source checkout**, behind a 202 | `server.py:4159` |
 | A parse error falls back to a **different schema shape** granting the coordinator capability to synthetic identifiers | `server.py:1282-1291, 1356-1363` |
 | An unknown runtime profile id is **fabricated** and recorded as valid | `server.py:367-368` |
-| Capability authorization is skipped unless identity mode is provider-required — and the shipped mode is not | `server.py:325-341` |
+| Capability authorization is skipped unless identity mode is provider-required, and the shipped mode is not | `server.py:325-341` |
 | The same failure class answers 400 in one admin handler group and 403 in another | `server.py:9070` vs `9163` |
 
 None of this is validated: `schemas/` holds thirteen schemas and **none for
@@ -63,7 +63,7 @@ None of this is validated: `schemas/` holds thirteen schemas and **none for
 ### The one-way door
 
 `config/domain-capabilities.json` ships in a shape whose `publishers[]` arrays carry
-real data. That array is **fallback-only** — read at `server.py:1405-1417` solely
+real data. That array is **fallback-only**: read at `server.py:1405-1417` solely
 when no active user of that role has any `assignedCapabilities`, and then granting
 the capability to the role *collectively*, ignoring which user is named. The
 assignment with actual effect is `users.json → assignedCapabilities`.
@@ -74,7 +74,7 @@ save permanently converts the file into the shape where `publishers[]` is never 
 again**, and later hand-edits to it are silently ignored.
 
 This is currently unreachable from a browser, because the UI never calls the
-endpoint — **zero references**. Building the assignment interface without fixing the
+endpoint (**zero references**). Building the assignment interface without fixing the
 loader first would *arm* it. That single fact sets the order of the whole project.
 
 MS-0007 resolves this by making `users.json → assignedCapabilities` the only durable
@@ -112,7 +112,7 @@ supply chain one person can review.
 **The committed-single-file shape is the design, not a convenience:**
 
 - `INDEX = APP_DIR / "index.html"` keeps working untouched, and routing stays the
-  closed allow-list it is today. **No static-asset route is added** — that would be
+  closed allow-list it is today. **No static-asset route is added**: that would be
   the product's first file-serving handler and a new surface on the trust boundary.
 - No container build stage, so the platform-specific-package problem the image
   already works around is not reopened. `tests/test_org_data_boundary.py` fails the
@@ -120,7 +120,7 @@ supply chain one person can review.
 - The Python suite and the container need no Node.
 
 **Two existing tests constrain the bundler flags.** The suite matches a **bare**
-`<script>` element — a module-typed script matches nothing — and runs a syntax check
+`<script>` element (a module-typed script matches nothing) and runs a syntax check
 on the extracted script as an ordinary script file, where a top-level `import` is a
 syntax error. **The bundle must be emitted in immediately-invoked format.** Verify
 against real output as the first commit of U2.
@@ -129,20 +129,20 @@ Minification stays off through the migration so the committed diff is reviewable
 
 **Risk treatment:** exact pins, lockfile integrity, `npm ci` only, a high-severity
 audit as a required check, a Dependabot block, `CODEOWNERS` over the package files,
-and a rebuild-and-diff check — a file a clean checkout reproduces byte-for-byte
+and a rebuild-and-diff check: a file a clean checkout reproduces byte-for-byte
 cannot be a hand-edited bundle.
 
 **Reversibility conditions.** If any stops holding, the decision reopens:
 
 1. The served page is one self-contained file needing no build and no network fetch.
-2. The server knows only a file path — no static route, no MIME map.
+2. The server knows only a file path: no static route, no MIME map.
 3. The image gains no Node runtime dependency.
 4. The superseded page stays behind a server flag for one release.
 5. Deleting the UI source directory and reverting one commit yields a working product.
 
 ## 4. The vocabulary
 
-| Concept | Label | Wire name — **never renamed** |
+| Concept | Label | Wire name (**never renamed**) |
 |---|---|---|
 | DC01–DC13 | Domain Capability | `roleKey`, `capabilityKey`, `assignedCapabilities` |
 | KD01–KD03 | Knowledge Domain | `knowledgeDomainKeys` |
@@ -151,7 +151,7 @@ cannot be a hand-edited bundle.
 | Frozen knowledge for a job | Snapshot policy | `snapshotProfile` |
 | Normal / Domain Capabilities | Work mode | `workMode` |
 
-"Delivery Coordinator (DC13)" on first mention, "Delivery Coordinator" after —
+"Delivery Coordinator (DC13)" on first mention, "Delivery Coordinator" after;
 never a bare key in prose.
 
 This is a **presentation** vocabulary. Every wire name stays: the runtime-profile
@@ -167,7 +167,7 @@ union makes an unknown label a compile error.
 ## 5. Migration
 
 The existing suite contains **231 assertions** matching implementation strings in
-the served page — element identifiers, endpoint paths, even function names. No
+the served page: element identifiers, endpoint paths, even function names. No
 bundler output survives them, minified or not.
 
 They are retired safely, not deleted under pressure:
@@ -176,8 +176,8 @@ They are retired safely, not deleted under pressure:
    ships today, with every assertion watched to fail first.
 2. **U2** lands the build with the default unchanged, so all 231 stay green.
 3. **U3** reaches parity, then flips the default and deletes the 231 in the same
-   pull request — permissible only because the contract test has been green for two
-   milestones.
+   pull request (permissible only because the contract test has been green for two
+   milestones).
 4. **U4** removes the superseded page as its own decision.
 
 The U1 behavioral contract lives in `tests/test_ui_contract.py`. It drives the real
@@ -188,7 +188,7 @@ an injected regression proves that each clause fails independently.
 The router's entry function keeps its name and gains a selector; the legacy and
 application renderers are new names. The head-request handler takes its length from
 the file on disk and will be wrong the moment the served page is not that file, so
-it is corrected in the same pull request as the selector — that is the shape of
+it is corrected in the same pull request as the selector: that is the shape of
 defect that leaves a green suite and a broken client.
 
 ## 6. Estimate

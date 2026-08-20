@@ -20,3 +20,8 @@ test-results/
 .env
 .env.*
 !.env.example
+
+# Vale's synced third-party style package (fetched by `vale sync` in CI):
+# vendoring it would drift from upstream Google style silently. Our own
+# custom rules under .vale/styles/Present/ and the vocab are committed.
+.vale/styles/Google/
