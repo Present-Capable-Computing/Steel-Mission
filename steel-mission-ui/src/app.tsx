@@ -17,6 +17,7 @@ import {
 import {SETTINGS_SECTIONS, type SettingsSectionId} from "./settings";
 import {OrganizationsPanel} from "./organizations-panel";
 import {UsersPanel} from "./users-panel";
+import {MissionsPanel} from "./missions-panel";
 import {WORK_MODES, type WorkMode} from "./work-mode";
 
 
@@ -265,6 +266,9 @@ function App() {
                   )}
                   {section.id === "people" && activeSettingsSection === "people" && capabilityState.view && (
                     <UsersPanel accessLevel={capabilityState.view.accessLevel} request={apiRequest} />
+                  )}
+                  {section.id === "missions" && activeSettingsSection === "missions" && capabilityState.view && (
+                    <MissionsPanel accessLevel={capabilityState.view.accessLevel} request={apiRequest} />
                   )}
                   {section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && (
                     <form id="capabilityAssignmentForm" class="assignment-form" onSubmit={saveAssignments}>
