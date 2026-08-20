@@ -1334,6 +1334,23 @@ def actor_from_registered_user(user: dict[str, Any], policy: dict[str, Any] | No
     }
 
 
+def active_organization_owner() -> dict[str, Any] | None:
+    active_id = str(organization_registry().get("activeOrganizationId") or "")
+    if not active_id:
+        return None
+    for user in user_registry().get("users", []):
+        if not isinstance(user, dict):
+            continue
+        if (
+            user.get("status") != "active"
+            or corporate_role(str(user.get("role") or "")) != "owner"
+        ):
+            continue
+        if active_id in clean_string_list(user.get("organizationIds"), limit=50):
+            return dict(user)
+    return None
+
+
 def resolve_external_identity(source: str, external_actor: dict[str, Any], connector: dict[str, Any]) -> dict[str, Any] | None:
     service_user_id = clean_optional_string(connector.get("serviceUserId"), limit=200)
     if service_user_id:
@@ -2784,15 +2801,44 @@ def authenticate_http_request(handler: BaseHTTPRequestHandler, path: str, method
             "development identity is restricted to loopback requests; this request came "
             f"from {origin}. Sign in with a development session at /auth/login."
         )
-    route_parts = path.strip("/").split("/")
-    fallback_role = route_parts[1] if len(route_parts) > 2 and route_parts[0] == "api" and route_parts[1] in {"owner", "admin", "publisher", "user"} else "user"
-    actor = actor_from_request(handler, fallback_role)
-    user = registered_user(str(actor.get("actorId") or ""))
-    if user and user.get("status") == "active":
+    declared_identity = bool(
+        str(handler.headers.get("X-Present-Role") or "").strip()
+        or str(handler.headers.get("X-Present-Actor") or "").strip()
+    )
+    if not declared_identity:
+        user = active_organization_owner()
+        if user is None:
+            raise PermissionError(
+                "development identity requires an active registered owner for "
+                "the active organization"
+            )
         actor = actor_from_registered_user(user, policy)
     else:
-        actor.update({"organizationIds": [str(organization_registry().get("activeOrganizationId") or "")], "organizationId": str(organization_registry().get("activeOrganizationId") or ""), "capabilities": [], "identitySource": "loopback-development"})
-    actor.update({"sessionVerified": False, "authPolicyHash": canonical_json_hash(policy), "cookieAuthenticated": False})
+        route_parts = path.strip("/").split("/")
+        fallback_role = (
+            route_parts[1]
+            if len(route_parts) > 2
+            and route_parts[0] == "api"
+            and route_parts[1] in {"owner", "admin", "publisher", "user"}
+            else "user"
+        )
+        actor = actor_from_request(handler, fallback_role)
+        user = registered_user(str(actor.get("actorId") or ""))
+        if user and user.get("status") == "active":
+            actor = actor_from_registered_user(user, policy)
+        else:
+            active_id = str(organization_registry().get("activeOrganizationId") or "")
+            actor.update({
+                "organizationIds": [active_id],
+                "organizationId": active_id,
+                "capabilities": [],
+                "identitySource": "loopback-development",
+            })
+    actor.update({
+        "sessionVerified": False,
+        "authPolicyHash": canonical_json_hash(policy),
+        "cookieAuthenticated": False,
+    })
     return actor
 
 

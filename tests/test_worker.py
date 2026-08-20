@@ -8520,6 +8520,42 @@ def test_steel_mission_http_identity_boundary_is_fail_closed_and_loopback_only(t
         globals_["MUTATION_LEDGER_PATH"] = original_ledger
 
 
+def test_steel_mission_headerless_loopback_whoami_resolves_the_active_organization_owner(
+    tmp_path, monkeypatch
+):
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["Handler"].do_GET.__globals__
+    user_registry = json.loads((WORKER_DIR / "config" / "users.json").read_text())
+    owner = next(user for user in user_registry["users"] if user["role"] == "owner")
+    owner["id"] = "installation-owner"
+    (tmp_path / "users.json").write_text(json.dumps(user_registry))
+
+    globals_["AUTH_POLICY_PATH"] = WORKER_DIR / "config" / "auth-policy.json"
+    globals_["USER_REGISTRY_PATH"] = tmp_path / "users.json"
+    globals_["ORGANIZATION_REGISTRY_PATH"] = WORKER_DIR / "config" / "organizations.json"
+    monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+    responses = []
+    globals_["json_response"] = lambda _handler, status, response: responses.append(
+        (status, response)
+    )
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/auth/whoami"
+    handler.headers = {}
+    handler.client_address = ("127.0.0.1", 51000)
+
+    handler.do_GET()
+
+    status, payload = responses[0]
+    assert status == 200
+    assert payload["actor"]["actorId"] == "installation-owner"
+    assert payload["actor"]["role"] == "owner"
+    assert payload["actor"]["organizationId"] == "northstar-forge"
+    assert payload["actor"]["identitySource"] == "user-registry"
+    chat["require_actor_role"](payload["actor"], {"owner", "admin"})
+
+
 def test_steel_mission_registered_user_role_outranks_loopback_header_claim(monkeypatch):
     import runpy
     from types import SimpleNamespace
