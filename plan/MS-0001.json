@@ -14,7 +14,7 @@
   "outcome": "Every dependency and runtime jump currently open is landed or explicitly rejected with the full test suite green on each, the continuous integration job compiles every entrypoint rather than four of them, and the test harness has the markers and fixtures the later phases need before any of them start writing tests.",
   "notInScope": "No durable store, no runner protocol, no orchestration change. This milestone touches build, test and dependency surfaces only. It does not rename anything; naming is MS-0006.",
   "taskIds": [],
-  "completionEvidence": "The four open dependency pull requests are each merged or closed with a written reason. `make release-check` compiles steel-mission-chat/server.py, bin/present-worker, bin/present-control-plane, bin/present-evidence-signer, bin/present-private-runner and bin/present-lease-broker, and the same list is compiled in continuous integration. `python -m pytest` reports the full suite green on the supported interpreter matrix. Absent evidence means unestablished, never done.",
+  "completionEvidence": "Every dependency pull request open at milestone start is merged or closed with a written reason - six at the 2026-08-20 rescope: #6, #7, #8, #9, #147 and #148. `make release-check` compiles steel-mission-chat/server.py, bin/present-worker, bin/present-control-plane, bin/present-evidence-signer, bin/present-private-runner and bin/present-lease-broker, and the same list is compiled in continuous integration. `python -m pytest` reports the full suite green on the supported interpreter matrix. Absent evidence means unestablished, never done.",
   "metadata": {
     "phase": "P0",
     "focusedDaysBudget": 1.0,

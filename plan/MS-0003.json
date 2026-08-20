@@ -10,17 +10,17 @@
     "source": "control-plane"
   },
   "state": "PLANNED",
-  "targetDate": "2026-10-15",
-  "outcome": "A runner process inside customer infrastructure dials out over mutually authenticated TLS, claims jobs from the broker, materializes its own source from a pinned commit or a bundle digest rather than a host-local path, executes in an image pinned by digest, and returns a result signed with its own key and bound to the job, the runner, the image and the inputs. Secrets are carried as references and resolved just in time, never as values in a job specification.",
+  "targetDate": "2026-11-12",
+  "outcome": "A runner process inside customer infrastructure dials out over mutually authenticated TLS, claims jobs from the broker, materializes its own source from a pinned commit or a bundle digest rather than a host-local path, executes in an image pinned by digest, and returns a result signed with its own key and bound to the job, the runner, the image and the inputs. Secrets are carried as references and resolved just in time, never as values in a job specification. The runner gains an agent executor: a job class that runs a coding agent in an isolated worktree with a commit step, machine-account git identity, scoped credentials, a network policy that admits exactly the model endpoints the job declares, and timeout ceilings sized for agent runs. The four-stage pipeline the C1 bench rehearsed runs through the broker and runner, and the bench retires.",
   "notInScope": "No change to the local subprocess execution path, which stays the default so the existing suite keeps exercising it. No connector work. No mission orchestration change. Multi-tenant runner pools and regional placement are later phases; the schema must not preclude them.",
   "taskIds": [],
-  "completionEvidence": "An end-to-end test runs the daemon and two runner agent processes over loopback mutual TLS and drives a job to a signed result. A runner-death test kills agent A, waits out a short lease, and asserts agent B receives fence token plus one and that replaying agent A's old result is rejected as a stale fence. A secret test greps the captured process arguments, the store dump, the logs and the artifacts for a sentinel value and finds none. A binding test tampers with the reported image digest, then the input hashes, then presents an unenrolled key, and asserts each is rejected. The sandbox extraction is covered by a characterization test comparing the container arguments produced before and after the refactor.",
+  "completionEvidence": "An end-to-end test runs the daemon and two runner agent processes over loopback mutual TLS and drives a job to a signed result. A runner-death test kills agent A, waits out a short lease, and asserts agent B receives fence token plus one and that replaying agent A's old result is rejected as a stale fence. A secret test greps the captured process arguments, the store dump, the logs and the artifacts for a sentinel value and finds none. A binding test tampers with the reported image digest, then the input hashes, then presents an unenrolled key, and asserts each is rejected. The sandbox extraction is covered by a characterization test comparing the container arguments produced before and after the refactor. A granted mission runs the full four-stage pipeline through the broker and a runner agent to a merged pull request with the bench retired, and the retirement is recorded. The agent executor's environment is asserted by test: the credentials present are exactly the job's declared set, and a sentinel secret never appears in arguments, logs, store or artifacts.",
   "metadata": {
     "phase": "P2",
-    "focusedDaysBudget": 7.0,
+    "focusedDaysBudget": 10.8,
     "risk": "Extracting the container hardening logic out of the private runner binary is the riskiest pure refactor in the project: a regression there weakens an isolation boundary silently. It ships as its own pull request, gated on the argument characterization test. Reconnect behaviour on a bidirectional stream is the second risk; streams hold no durable truth, and a hello re-associates a runner after the stream dies.",
     "githubMilestone": 3,
     "targetDateResetAt": "2026-08-20",
-    "targetDateReset": "Reset from the PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
+    "targetDateReset": "Re-set at the D7 rescope; budget grows 7.0 to 10.8 for the agent executor. Dates assume pipeline-assisted throughput; re-examined at the MS-0014 boundary with the delta printed."
   }
 }
