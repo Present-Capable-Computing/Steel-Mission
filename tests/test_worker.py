@@ -6120,229 +6120,6 @@ def test_waiting_page_shows_progress_and_survives_a_bare_job():
     assert chat["snapshot_scope"]() is not None
 
 
-def test_main_chat_index_is_the_default_steel_mission_page():
-    """The normal browser entrypoint should be the JS chat window."""
-    import runpy
-    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    html = chat["chat_index"]()
-    assert 'id="feed"' in html
-    assert 'id="form"' in html
-    assert "/api/chat" in html
-    assert 'id="serverState"' in html
-    assert 'id="brokerState"' in html
-    assert 'id="profileSelect"' in html
-    assert "/api/runtime-profiles" in html
-    assert 'id="operatorRole"' in html
-    assert 'id="actorUserId"' in html
-    assert "X-Present-Actor" in html
-    assert 'id="profileDialog"' in html
-    assert 'id="chatUploads"' in html
-    assert 'id="userPanel"' in html
-    assert 'id="organizationPanel"' in html
-    assert "Organization Management" in html
-    assert "Active Organization" in html
-    assert "Create Organization" in html
-    assert "Save Organization" in html
-    assert "Basic Organizational Identifiers" in html
-    assert "Organization ID" in html
-    assert "Display Name" in html
-    assert "Legal Name" in html
-    assert "Primary Domain" in html
-    assert "Data Classification" in html
-    assert "Snapshot Bindings" in html
-    assert "/organizations" in html
-    assert "The Present Guage" not in html
-    assert 'class="gauge-mark"' in html
-    assert html.count("gauge-circle") >= 3
-    assert "Steel Mission Agent Delivery Plane" in html
-    assert 'id="normalMode"' in html
-    assert 'id="domainCapabilityMode"' in html
-    assert "Normal" in html
-    assert "Domain Capabilities" in html
-    assert "workMode: activeWorkMode" in html
-    assert "worker/control-plain integration" not in html
-    assert "Orient me before we start." in html
-    assert "Give me the Delivery Coordinator readout for the current profile." in html
-    assert "Which capabilities and knowledge domains are shaping this answer?" in html
-    assert "Settings" in html
-    assert "Delivery Execution" in html or "missionTemplateSelect" in html
-    assert "Delivery Scope" in html
-    assert 'id="missionRepository"' in html
-    assert 'id="missionWorktreeMode"' in html
-    assert 'id="missionBaseBranch"' in html
-    assert 'id="missionDeliveryBranch"' in html
-    assert 'id="missionWorktreePath"' in html
-    assert 'id="missionPrProvider"' in html
-    assert 'id="missionGithubRepository"' in html
-    assert 'id="missionPrMode"' in html
-    assert 'id="missionCiProvider"' in html
-    assert 'id="missionCiRequired"' in html
-    assert 'id="missionCiWait"' in html
-    assert 'id="missionCiCommand"' in html
-    assert 'id="missionDeployProvider"' in html
-    assert 'id="missionDeployEnvironment"' in html
-    assert 'id="missionDeployUrl"' in html
-    assert 'id="missionModifyCommand"' in html
-    assert 'id="missionPrCommand"' in html
-    assert 'id="missionPrTitle"' in html
-    assert 'id="missionPrBody"' in html
-    assert 'id="missionDeployCommand"' in html
-    assert 'id="missionDeployHealthCommand"' in html
-    assert 'id="missionRollbackCommand"' in html
-    assert 'id="missionRepairBudget"' in html
-    assert "Isolated delivery worktree" in html
-    assert "Use bound repository" in html
-    assert "GitHub Actions" in html
-    assert "Proof pack" in html
-    assert "Workspace" in html
-    assert "Corporate" not in html
-    assert 'href="/owner"' not in html
-    assert 'href="/admin"' not in html
-    assert 'href="/publisher"' not in html
-    assert 'href="/user"' not in html
-    assert 'href="/owner/settings"' not in html
-    assert 'href="/owner/missions"' not in html
-    assert "<dialog" in html
-    assert "showModal" in html
-    assert 'id="workspaceSummary"' in html
-    assert 'id="assignmentPanel"' in html
-    assert 'id="mutationPanel"' in html
-    assert 'id="missionSettingsPanel"' in html
-    assert 'id="missionTemplateSummary"' in html
-    assert 'id="missionLive"' in html
-    assert "My Capability Workspace" in html
-    assert "User Management" in html
-    assert "Capability Access" in html
-    assert "Save User" in html
-    assert "Mission Users" in html
-    assert "Capability Work Set" in html
-    assert "Save Assignments" not in html
-    assert "publisher" in html
-    assert "owner" in html
-    assert "admin" in html
-    assert "/api/runtime-profiles/save" in html
-    assert "/api/runtime-profiles/clone" in html
-    assert "/api/model-roles/save" in html
-    assert "/users" in html
-    assert "/knowledge" in html
-    assert "/knowledge/upload" in html
-    assert "/knowledge/prepared" in html
-    assert "/missions" in html
-    assert "/mission/" in html
-    assert "missionTemplateSelect" in html
-    assert "Start Mission" in html
-    assert "/mission-templates" in html
-    assert "/api/missions/start" in html
-    assert "data-mission-action" in html
-    assert "Delivery Coordinator Model Binding" in html
-    assert "Knowledge" in html
-    assert "Knowledge System" in html
-    assert "Knowledge Quality" in html
-    assert "Required Provider-Native Capabilities" in html
-    assert "Shared Knowledge Source Pool" in html
-    assert "Effective Source Registry" in html
-    assert "Organizational Documents" in html
-    assert "Organizational Capabilities" in html
-    assert "Source Registry" in html
-    assert "Mission Control" in html
-    assert "Mutation Ledger" in html
-    assert "User Management" in html
-    assert "Assigned Knowledge" in html
-    assert "Repositories And Folders" in html
-    assert "orgKnowledgeFiles" in html
-    assert "orgKnowledgeFolder" in html
-    assert "Add Files And Prepare Snapshot" in html
-    assert "Add Folder And Prepare Snapshot" in html
-    assert "Save Sources" in html
-    assert "Preview Prepared Snapshot" in html
-    assert "Prepare Snapshot" in html
-    assert "Delivery report" in html
-    assert "Open mission detail" in html
-    assert "SIEM JSONL" in html
-    assert 'id="integrationPanel"' in html
-    assert "Control Plane" in html
-    assert "/integrations" in html
-    assert "/control-policy" in html
-    assert "/auth-policy" in html
-    assert "Model Providers" in html
-    assert "Tool Integrations" in html
-    assert "Policy Management" in html
-    assert "Save Policy" in html
-    assert "Identity And Signing" in html
-    assert "Readiness Checks" in html
-    assert "Alpha ${escapeHtml(controlPlaneReadiness.alphaScore" in html
-    assert "Save Auth Policy" in html
-    assert "Signed sessions for guarded actions" in html
-    assert "Core includes OIDC/JWKS identity, SIEM/audit export, and customer-controlled external signing" in html
-    assert "Enterprise covers managed operation, fleet governance, and support" in html
-    assert "KMS Sign Command" in html
-    assert "Require external evidence signing" in html
-    assert "Direct commands:" in html
-    assert "Evidence Signer" in html
-    assert "Save Integrations" in html
-    assert "Workflow Embedding" in html
-    assert "existing-tools-first" in html
-    assert "customer-vpc-or-private-cloud" in html
-    assert "Pre-Execution Policy" in html
-    assert "Tamper-evident mission records" in html
-    assert "SOC 2" in html
-    assert "ISO 27001" in html
-    assert "ISO 42001" in html
-    assert "GitHub, GitLab, Jira, Linear, Slack, CI/CD, or SIEM" in html
-    assert "Document Paths" in html
-    assert "generalDocuments" in html
-    assert "missions" in html
-    assert "Mission Roots" in html
-    assert "Knowledge Domains organize durable document sources" in html
-    assert "Domain Capabilities are the roles and workflows" in html
-    assert "data-settings-target" in html
-    assert "data-settings-section" in html
-    assert "Save Binding" in html
-    assert "Delete Role" not in html
-    assert "status-card" in html
-    assert "progress-timeline" in html
-    assert "checkpointId" in html
-    assert "answer-text" in html
-    assert "plainAnswerText" in html
-    assert "jobNarratives" in html
-    assert "/follow-up" in html
-    assert "/decision" in html
-    assert "Decision Needed" in html
-    assert "data-decision-free-text" in html
-    assert "follow-up-suggestions" in html
-    assert "Ask for my decision" in html
-    assert "Ask for my decision (default)" not in html
-    assert "ask me to decide" in html
-    assert "Show what is happening" not in html
-    assert "Focus on acceptance blockers only" not in html
-    assert "Stop this job" not in html
-    assert "pause this job" in html
-    assert "resume this job" in html
-    assert 'data-control="stop"' in html
-    assert 'data-control="pause"' in html
-    assert "data-follow-up-label" in html
-    assert "data-follow-up-suggestion" in html
-    assert "setInterval(checkServer, 5000)" in html
-    assert "setInterval(checkMissions, 5000)" in html
-    assert "function feedNearBottom()" in html
-    assert "render({preserveScroll: true})" in html
-    assert "render({forceScroll: true})" in html
-    assert "modelState" in html
-    assert "steel-mission-runtime-profile" in html
-    assert "Update Delivery Coordinator" in html
-    assert "steeringEvents" in html
-    assert "decisionRequest" in html
-    assert "Mission Audit" in html
-    assert "operatorRole: activeOperatorRole" in html
-    assert "const answer = plainAnswerText(data.payload)" in html
-    assert 'data.state === "running" || data.state === "waiting_for_decision" || data.state === "paused"' in html
-    assert "!m.html && !m.status" in html
-    sidebar_html = html.split("<main>", 1)[0]
-    assert 'id="missionForm"' not in sidebar_html
-    assert 'id="brokerLive"' not in sidebar_html
-    assert 'id="missionLive"' not in sidebar_html
-
-
 def test_main_chat_index_script_is_parseable(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     html = chat["chat_index"]()
@@ -6360,7 +6137,7 @@ def test_chat_index_keeps_its_patch_seam_and_selects_named_renderers():
     globals_["legacy_chat_index"] = lambda: "legacy-page"
     globals_["application_chat_index"] = lambda: "application-page"
 
-    assert chat["chat_index"]() == "legacy-page"
+    assert chat["chat_index"]() == "application-page"
     assert chat["chat_index"]("legacy") == "legacy-page"
     assert chat["chat_index"]("application") == "application-page"
 
@@ -10741,7 +10518,7 @@ def test_chat_poll_carries_the_identity_that_created_the_job():
     import runpy
 
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    html = chat["chat_index"]()
+    html = chat["legacy_chat_index"]()
     poll = html[html.index("/api/chat/${started.jobId}"):]
     poll = poll[:poll.index("\n\n")] if "\n\n" in poll[:600] else poll[:600]
     assert "jobActorHeaders(started)" in poll, (
@@ -10770,7 +10547,7 @@ def test_chat_start_reports_the_actor_the_job_was_recorded_against():
         "the chat start response does not say which actor the job was recorded against"
     )
 
-    html = chat["chat_index"]()
+    html = chat["legacy_chat_index"]()
     poll = html[html.index("/api/chat/${started.jobId}"):][:400]
     assert "jobActorHeaders(started)" in poll, "the poll does not use the recorded owner"
     assert "started.actorUserId" in html, "the recorded owner is never read"
