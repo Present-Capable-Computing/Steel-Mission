@@ -1,11 +1,11 @@
 {
-  "$comment": "Manifest of the GitHub working surface for PRJ-0001. Applied by tooling/gh-plan-sync.py, which searches by title before it creates anything. Edit here, re-run the sync; do not hand-edit GitHub and expect it to survive.",
+  "$comment": "Manifest of the GitHub working surface for Steel-Mission delivery. Applied by tooling/gh-plan-sync.py, which searches by title before it creates anything. Edit here, re-run the sync; do not hand-edit GitHub and expect it to survive.",
   "repository": "Present-Capable-Computing/Steel-Mission",
   "project": {
     "recordId": "PRJ-0001",
     "recordFile": "plan/PRJ-0001.json",
     "boardTitle": "Steel-Mission — Delivery",
-    "boardDescription": "Steel-Mission delivery. PRJ-0000 usable surface and honest admin writes (complete); PRJ-0001 durable broker and remote pull-runner (active). Source of truth for the shape of this work is plan/ in the repository; this board is the working surface.",
+    "boardDescription": "Steel-Mission delivery. PRJ-0000 usable surface and honest admin writes (active); PRJ-0001 durable broker and remote pull-runner (paused). Source of truth for the shape of this work is plan/ in the repository; this board is the working surface.",
     "boardVisibility": "public",
     "$commentVisibility": "The repository is public and every item on the board is a public issue, so a private board would hide a view of public information without protecting anything.",
     "fields": [
@@ -92,7 +92,7 @@
           "Milestone",
           "Assignees"
         ],
-        "$comment": "The active project's tasks in phase order."
+        "$comment": "PRJ-0001's tasks in phase order; the project is paused while PRJ-0000 closes MS-0012."
       },
       {
         "name": "By phase",
@@ -247,12 +247,12 @@
     {
       "name": "prj:PRJ-0000",
       "color": "6a737d",
-      "description": "Usable surface and honest admin writes (complete)"
+      "description": "Usable surface and honest admin writes (active)"
     },
     {
       "name": "prj:PRJ-0001",
       "color": "0e8a16",
-      "description": "Durable broker and remote pull-runner (active)"
+      "description": "Durable broker and remote pull-runner (paused)"
     },
     {
       "name": "stage:U0",
@@ -540,9 +540,9 @@
         "stage:U5",
         "area:ci"
       ],
-      "outcome": "The three findings from the review of PRJ-0000 are closed: the published image carries no front-end toolchain, every domain capability is either assigned or recorded as deliberately unowned, and running the product no longer modifies version-controlled configuration.",
-      "notInScope": "No new product capability, no interface redesign, no change to the vocabulary or information architecture, and no change to the build toolchain itself. A finding that turns out to need design is raised rather than absorbed here.",
-      "done": "The image is rebuilt and inspected with the size difference recorded, and a test fails if a future image would carry the toolchain. Capability ownership is asserted by a test. Running the server against a clean checkout leaves the tree clean, demonstrated."
+      "outcome": "The four findings from the review of PRJ-0000 are closed: the published image carries no front-end toolchain under /workspace, every domain capability is either assigned or recorded as deliberately unowned with a reason, running the product no longer modifies version-controlled configuration, and a fresh loopback console session resolves to a real registered actor rather than a capability-less synthetic identity.",
+      "notInScope": "No new product capability, no interface redesign, no change to the vocabulary or information architecture, and no change to the build toolchain itself. No login screen or identity picker, and no change to oidc-required behaviour: the identity fix stays inside the existing development-local loopback trust boundary. A finding that turns out to need design is raised rather than absorbed here.",
+      "done": "The image is rebuilt and inspected with the size difference recorded, and a strengthened guard test fails if a future image would carry the front-end toolchain under /workspace. Capability ownership or a deliberate exception with a stated reason is asserted by a test. Running the server against a clean checkout leaves the tree clean, demonstrated. A headerless loopback call to /api/auth/whoami resolves the active organization's registered owner by role and can reach Settings -> Users, while oidc-required and non-loopback behaviour remain unchanged."
     }
   ],
   "issues": [

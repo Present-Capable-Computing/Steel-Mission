@@ -8,6 +8,7 @@ stop that happening quietly.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ REPO_DIR = Path(__file__).resolve().parent.parent
 PLAN_DIR = REPO_DIR / "plan"
 MANIFEST = REPO_DIR / "tooling" / "github-plan.json"
 WORKPLAN = REPO_DIR / "docs" / "workplan.md"
+AGENT_GUIDE = REPO_DIR / "AGENTS.md"
 
 sys.path.insert(0, str(REPO_DIR))
 from adapters import schema_check  # noqa: E402
@@ -131,6 +133,43 @@ def test_manifest_milestones_match_the_records():
         "milestones exist; the records are the source of truth and the manifest "
         "is corrected"
     )
+
+
+def test_project_state_is_consistent_on_every_working_surface():
+    projects = {_load(path)["projectId"]: _load(path) for path in _projects()}
+    active = [project_id for project_id, record in projects.items() if record["state"] == "ACTIVE"]
+    assert len(active) == 1, f"expected one active project, found {active}"
+
+    active_project = active[0]
+    agent_guide = AGENT_GUIDE.read_text()
+    workplan = WORKPLAN.read_text()
+    manifest = _load(MANIFEST)
+    labels = {item["name"]: item["description"] for item in manifest["labels"]}
+    board_description = manifest["project"]["boardDescription"]
+
+    assert f"active project is {active_project}".lower() in agent_guide.lower()
+    assert f"Active project: `{active_project}`." in workplan
+    for project_id, record in projects.items():
+        state = record["state"].lower()
+        assert labels[f"prj:{project_id}"].endswith(f"({state})")
+        assert re.search(rf"{project_id}[^.;]*\({state}\)", board_description)
+
+
+def test_ms_0012_epic_carries_all_four_review_findings():
+    manifest = _load(MANIFEST)
+    issues = [item for item in manifest["issues"] if item["milestone"] == "MS-0012"]
+    epic = next(item for item in manifest["epics"] if item["key"] == "epic-u5")
+    body_source = " ".join(epic[key] for key in ("outcome", "notInScope", "done"))
+
+    assert len(issues) == 4
+    assert epic["outcome"].startswith("The four findings")
+    for finding in (
+        "front-end toolchain",
+        "domain capability",
+        "version-controlled configuration",
+        "loopback",
+    ):
+        assert finding in body_source
 
 
 def test_every_issue_states_a_requirement_and_its_evidence():
