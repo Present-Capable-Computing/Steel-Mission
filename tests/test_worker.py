@@ -6388,6 +6388,41 @@ def test_steel_mission_corrupt_capability_registry_is_recorded_and_refused(tmp_p
     assert schema_check.validate(event, "canonical/mutation-ledger-event-v1.json") == []
 
 
+def test_steel_mission_capability_assignments_refuse_unknown_users_without_writing(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    assignment_registry = tmp_path / "domain-capabilities.json"
+    user_registry = tmp_path / "users.json"
+    shipped = json.loads((WORKER_DIR / "config" / "domain-capabilities.json").read_text())
+    submitted = json.loads(json.dumps(shipped))
+    next(item for item in submitted["assignments"] if item["roleKey"] == "DC03")["publishers"].append(
+        "unknown-publisher"
+    )
+    next(item for item in submitted["assignments"] if item["roleKey"] == "DC04")["users"].append(
+        "unknown-user"
+    )
+    assignment_registry.write_text(json.dumps(shipped, sort_keys=True))
+    user_registry.write_text((WORKER_DIR / "config" / "users.json").read_text())
+    before = assignment_registry.read_bytes()
+
+    globals_ = chat["Handler"].do_POST.__globals__
+    globals_["DOMAIN_CAPABILITIES_PATH"] = assignment_registry
+    globals_["USER_REGISTRY_PATH"] = user_registry
+    globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
+    responses = []
+    globals_["read_json"] = lambda _handler: submitted
+    globals_["json_response"] = lambda _handler, status, payload: responses.append((status, payload))
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/owner/assignments"
+    handler.authenticate = lambda _path, _method: {"actorId": "owner", "role": "owner"}
+    handler.do_POST()
+
+    assert responses[0][0] == 400
+    assert responses[0][1]["ok"] is False
+    assert "unknown-publisher" in responses[0][1]["error"]
+    assert "unknown-user" in responses[0][1]["error"]
+    assert assignment_registry.read_bytes() == before
+
+
 def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_access(tmp_path):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     role_registry = tmp_path / "role-registry.json"
