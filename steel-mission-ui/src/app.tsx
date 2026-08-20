@@ -2,26 +2,8 @@ import {render} from "preact";
 import {useState} from "preact/hooks";
 
 import "./styles.css";
+import {WORK_MODES, type WorkMode} from "./work-mode";
 
-
-type WorkMode = "normal" | "domain-capabilities";
-
-const workModes: ReadonlyArray<{
-  id: WorkMode;
-  label: string;
-  description: string;
-}> = [
-  {
-    id: "normal",
-    label: "Normal",
-    description: "Normal chat uses direct prompts and answers while keeping assigned capabilities available as context.",
-  },
-  {
-    id: "domain-capabilities",
-    label: "Domain Capabilities",
-    description: "Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens.",
-  },
-];
 
 function App() {
   const [workMode, setWorkMode] = useState<WorkMode>("normal");
@@ -58,7 +40,7 @@ function App() {
               aria-labelledby="workModeLabel"
               aria-describedby="normalModeDescription domainCapabilityModeDescription"
             >
-              {workModes.map((mode) => (
+              {WORK_MODES.map((mode) => (
                 <button
                   key={mode.id}
                   type="button"
@@ -70,8 +52,8 @@ function App() {
                 </button>
               ))}
             </div>
-            <p id="normalModeDescription" class="visually-hidden">{workModes[0].description}</p>
-            <p id="domainCapabilityModeDescription" class="visually-hidden">{workModes[1].description}</p>
+            <p id="normalModeDescription" class="visually-hidden">{WORK_MODES[0].description}</p>
+            <p id="domainCapabilityModeDescription" class="visually-hidden">{WORK_MODES[1].description}</p>
           </div>
         </header>
 

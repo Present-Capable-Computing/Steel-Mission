@@ -584,6 +584,20 @@ select {
     return "function" == typeof t3 ? t3(n2) : t3;
   }
 
+  // steel-mission-ui/src/work-mode.ts
+  var WORK_MODES = [
+    {
+      id: "normal",
+      label: "Normal",
+      description: "Normal chat uses direct prompts and answers while keeping assigned capabilities available as context."
+    },
+    {
+      id: "domain-capabilities",
+      label: "Domain Capabilities",
+      description: "Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens."
+    }
+  ];
+
   // node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
   var f3 = 0;
   function u3(e3, t3, n2, o3, i3, u4) {
@@ -596,18 +610,6 @@ select {
   }
 
   // steel-mission-ui/src/app.tsx
-  var workModes = [
-    {
-      id: "normal",
-      label: "Normal",
-      description: "Normal chat uses direct prompts and answers while keeping assigned capabilities available as context."
-    },
-    {
-      id: "domain-capabilities",
-      label: "Domain Capabilities",
-      description: "Domain Capabilities uses capability-focused prompts and answers through the assigned role and governed knowledge lens."
-    }
-  ];
   function App() {
     const [workMode, setWorkMode] = d2("normal");
     return /* @__PURE__ */ u3("main", { class: "app-shell", children: [
@@ -644,7 +646,7 @@ select {
                 role: "group",
                 "aria-labelledby": "workModeLabel",
                 "aria-describedby": "normalModeDescription domainCapabilityModeDescription",
-                children: workModes.map((mode) => /* @__PURE__ */ u3(
+                children: WORK_MODES.map((mode) => /* @__PURE__ */ u3(
                   "button",
                   {
                     type: "button",
@@ -657,8 +659,8 @@ select {
                 ))
               }
             ),
-            /* @__PURE__ */ u3("p", { id: "normalModeDescription", class: "visually-hidden", children: workModes[0].description }),
-            /* @__PURE__ */ u3("p", { id: "domainCapabilityModeDescription", class: "visually-hidden", children: workModes[1].description })
+            /* @__PURE__ */ u3("p", { id: "normalModeDescription", class: "visually-hidden", children: WORK_MODES[0].description }),
+            /* @__PURE__ */ u3("p", { id: "domainCapabilityModeDescription", class: "visually-hidden", children: WORK_MODES[1].description })
           ] })
         ] }),
         /* @__PURE__ */ u3(
