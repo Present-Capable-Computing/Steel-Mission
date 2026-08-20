@@ -9,7 +9,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "PLANNED",
+  "state": "COMPLETE",
   "targetDate": "2026-09-10",
   "outcome": "The front end builds from typed source with a pinned three-package toolchain. The built page is committed, and continuous integration proves it is byte-identical to a clean rebuild, so a hand-edited bundle cannot enter the tree. The new application is reachable behind a server flag at a non-default route. The contract test from MS-0008 passes against both pages.",
   "notInScope": "The default page does not change: the root route still serves the page that ships today, and that file is left byte-untouched so the existing implementation-pinning assertions stay green. No container change and no new runtime dependency in the image. No static-asset route in the server - the served page remains the single file the server already reads, and the closed route allow-list is preserved. No feature work in the new application beyond what the contract test requires.",

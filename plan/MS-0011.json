@@ -9,7 +9,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "PLANNED",
+  "state": "COMPLETE",
   "targetDate": "2026-10-04",
   "outcome": "The page that shipped before the rebuild is removed as its own recorded decision, and the workplan carries the standing rule for front-end dependencies so the next person does not relitigate it. PRJ-0001 returns to ACTIVE with its milestone dates re-set from the date it resumes.",
   "notInScope": "Nothing else. A removal that also changes something is a removal whose regression cannot be attributed. No new dependency, no visual change, no behaviour change.",

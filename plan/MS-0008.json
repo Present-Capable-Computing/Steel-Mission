@@ -9,7 +9,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "PLANNED",
+  "state": "COMPLETE",
   "targetDate": "2026-09-02",
   "outcome": "Profile, Role and Capability each name exactly one thing in visible text. The capability list is derived from the registry the server already publishes rather than a hardcoded array, and a label prints its key once instead of twice. The picker that chooses which model executes the Delivery Coordinator says so, rather than being labelled Profile beside a list of thirteen capabilities it has nothing to do with. The definition of a Domain Capability is visible to publishers and users, not only behind the owner gate. The work-mode switch states what it changes.",
   "notInScope": "No build step, no framework, no bundler: this milestone edits the shipped page in place, which is what makes it cheap and immediately visible. No restructuring of the eight-section settings dialog, which is MS-0010. No wire renames - the boundary stated in MS-0007 holds here unchanged, because this is a presentation vocabulary and every field, endpoint and environment variable keeps its name.",

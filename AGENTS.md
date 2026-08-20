@@ -16,9 +16,9 @@ make local
 
 Then open **http://127.0.0.1:8765/**.
 
-That is the whole loop. The server is standard-library Python, so there is nothing
-to install and nothing to compile; edit `steel-mission-chat/server.py` or
-`steel-mission-chat/index.html`, restart, reload.
+That is the whole loop. The server is standard-library Python. Edit
+`steel-mission-chat/server.py` directly; for console changes edit `steel-mission-ui/`
+and run `npm run ui:build`, then restart and reload.
 
 **Why development mode needs no token.** Development identity is accepted only from
 a loopback address. Running directly on `127.0.0.1` *is* loopback, so the console's
@@ -50,33 +50,26 @@ The three rules that matter most here:
   module-level names. A renamed function does not fail loudly — it silently stops
   being patched, and the suite stays green while testing nothing.
 
-## The active project is PRJ-0000
+## The active project is PRJ-0001
 
 | | |
 |---|---|
-| Project record | [`plan/PRJ-0000.json`](plan/PRJ-0000.json) |
-| Design | [`docs/ui-plan.md`](docs/ui-plan.md) |
-| Milestones | [`plan/MS-0007.json`](plan/MS-0007.json) … [`plan/MS-0011.json`](plan/MS-0011.json) |
-| Issues | label `prj:PRJ-0000` |
+| Project record | [`plan/PRJ-0001.json`](plan/PRJ-0001.json) |
+| Design | [`docs/durable-core-plan.md`](docs/durable-core-plan.md) |
+| Milestones | [`plan/MS-0001.json`](plan/MS-0001.json) … [`plan/MS-0006.json`](plan/MS-0006.json) |
+| Issues | label `prj:PRJ-0001` |
 | Board | https://github.com/orgs/Present-Capable-Computing/projects/1 |
 
-**Start at the top of MS-0007 and work down.** Its order is not stylistic. The
-capability registry has a one-way door: the writer emits a shape the loader then
-prefers, after which the shipped arrays are never read again. It is unreachable
-today only because no interface calls that endpoint — so building the assignment
-editor before fixing the loader *arms* it. The issues carry `blocked by` links that
-encode this; respect them.
-
-`PRJ-0001` is **paused**. Do not pick up work labelled `prj:PRJ-0001`, and do not
-follow `docs/durable-core-plan.md` — it describes a design that is not being built
-right now.
+`PRJ-0000` completed on 2026-08-20. **Start at the top of MS-0001 and work down.**
+The ordering and the `blocked by` links are part of the plan; respect them. Do not
+reopen PRJ-0000 work inside a PRJ-0001 task without a new issue that states why.
 
 ### Picking up an issue
 
 ```sh
-gh issue list --label prj:PRJ-0000 --state open
+gh issue list --label prj:PRJ-0001 --state open
 gh issue view <n>
-git checkout -b <milestone>/<short-slug>      # e.g. ms-0007/loader-both-shapes
+git checkout -b <milestone>/<short-slug>      # e.g. ms-0001/toolchain-baseline
 ```
 
 Each issue states a **requirement** as an outcome and the **acceptance evidence**
@@ -126,7 +119,7 @@ resolved.
 | | |
 |---|---|
 | `steel-mission-chat/server.py` | the server: routing, auth, config registries, missions |
-| `steel-mission-chat/index.html` | the console — 2,580 lines of JS, 1,217 of CSS, 117 of markup |
+| `steel-mission-ui/`, `steel-mission-chat/app.html` | typed console source and its committed self-contained build |
 | `config/` | product configuration: organisations, users, capabilities, policy |
 | `starter-company/` | the shipped synthetic organisation, Northstar Forge |
 | `adapters/`, `bin/` | provider adapters and the command-line tools |

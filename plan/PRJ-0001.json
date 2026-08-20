@@ -8,7 +8,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "PAUSED",
+  "state": "ACTIVE",
   "summary": "Replace the Steel-Mission execution core with a durable, transactional job service and a pull-based runner that executes in customer infrastructure. Today state is one unlocked JSON document with last-writer-wins semantics, execution is a synchronous subprocess call with a fixed cap and silent output truncation, job requests carry host-local paths, and two disjoint orchestration paths exist that never write to each other. Connector delivery has no retry, no backoff and no dead-letter path. The project ends when one storage interface with a SQLite default and a PostgreSQL option backs a single orchestration path, a remote runner claims work over gRPC and returns signed attested results, and connector ingress and egress are transactional.",
   "milestoneIds": [
     "MS-0001",
@@ -26,9 +26,13 @@
     "estimate": {
       "rule": "Effort estimated per category and divided by an expected acceleration factor, with security-sensitive and novel-integration work held at the cautious end and irreducible empirical time counted at no acceleration.",
       "conventionalPersonDays": 140,
+      "baselineFocusedDays": 16.1,
       "focusedDays": 16.1,
+      "deltaFocusedDays": 0.0,
       "contingencyPercent": 25,
       "focusedDaysWithContingency": 20.0,
+      "redefendedAt": "2026-08-20",
+      "redefense": "Scope, risk categories and irreducible empirical work are unchanged at the resume boundary, so the focused estimate remains 16.1 days and the delta is +0.0 focused days.",
       "note": "A focused-day figure is a planning estimate, never a commitment and never evidence that work is on schedule. Re-defend at every milestone boundary and print the delta."
     },
     "decisions": [
@@ -60,6 +64,8 @@
       }
     ],
     "pausedAt": "2026-08-19",
-    "pauseReason": "Paused for PRJ-0000, which runs first. Shipping durable execution infrastructure underneath a surface that is unusable in a browser and reports success for writes it did not perform is the wrong order. Milestone identifiers and scope are unchanged; the target dates were cleared rather than left to rot, and are re-set from the date this resumes. Resumes at the close of MS-0011, where the estimate is re-defended at the boundary and the delta printed."
+    "pauseReason": "Paused for PRJ-0000, which runs first. Shipping durable execution infrastructure underneath a surface that is unusable in a browser and reports success for writes it did not perform is the wrong order. Milestone identifiers and scope are unchanged; the target dates were cleared rather than left to rot.",
+    "resumedAt": "2026-08-20",
+    "resumeReason": "PRJ-0000 completed at the close of MS-0011. The original PRJ-0001 scope and cadence remain, with every target reset from this resume date."
   }
 }

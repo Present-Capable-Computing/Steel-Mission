@@ -8,7 +8,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "ACTIVE",
+  "state": "COMPLETE",
   "summary": "Make the Steel Mission surface teach the right model, and stop several admin writes doing something other than what was asked. The product ships a single-file console of 2,580 lines of JavaScript in which the word Profile names three different things in visible text, Role four, and Capability three; the only definition of a Domain Capability sits behind an owner and admin gate, so the people who are assigned capabilities are never told what they have. Underneath, an organisation saved with zero capabilities is granted all thirteen, a user registry posted empty is silently repopulated with four accounts, suspending a user re-enables them, and the only writer of the capability registry is unreachable from the product and untested. The project ends when configuration writers refuse what they cannot represent, capability assignment has one mechanism and a surface that shows it, every concept has exactly one name, and the console is rebuilt from typed source with the vocabulary enforced by a test rather than by discipline.",
   "milestoneIds": [
     "MS-0007",
@@ -23,6 +23,7 @@
     "technicalPlan": "docs/ui-plan.md",
     "githubProject": "https://github.com/orgs/Present-Capable-Computing/projects/1",
     "startDate": "2026-08-19",
+    "completedAt": "2026-08-20",
     "estimate": {
       "rule": "Effort estimated per category and divided by an expected acceleration factor, with security-sensitive and novel-integration work held at the cautious end and irreducible empirical time counted at no acceleration.",
       "focusedDays": 11.0,

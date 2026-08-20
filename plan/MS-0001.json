@@ -10,6 +10,7 @@
     "source": "control-plane"
   },
   "state": "ACTIVE",
+  "targetDate": "2026-08-27",
   "outcome": "Every dependency and runtime jump currently open is landed or explicitly rejected with the full test suite green on each, the continuous integration job compiles every entrypoint rather than four of them, and the test harness has the markers and fixtures the later phases need before any of them start writing tests.",
   "notInScope": "No durable store, no runner protocol, no orchestration change. This milestone touches build, test and dependency surfaces only. It does not rename anything; naming is MS-0006.",
   "taskIds": [],
@@ -19,6 +20,7 @@
     "focusedDaysBudget": 1.0,
     "risk": "The private-runner base image and the continuous integration interpreter matrix are different runtimes. They fail independently and must be gated independently: a green matrix says nothing about the container, and a built container says nothing about the matrix.",
     "githubMilestone": 1,
-    "targetDateCleared": "Cleared 2026-08-19 when PRJ-0001 paused for PRJ-0000. A date that is known to be wrong is worse than no date. Re-set when the project resumes."
+    "targetDateResetAt": "2026-08-20",
+    "targetDateReset": "Reset from the PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
   }
 }

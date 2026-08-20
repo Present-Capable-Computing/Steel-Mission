@@ -16,6 +16,7 @@ import pytest
 REPO_DIR = Path(__file__).resolve().parent.parent
 PLAN_DIR = REPO_DIR / "plan"
 MANIFEST = REPO_DIR / "tooling" / "github-plan.json"
+WORKPLAN = REPO_DIR / "docs" / "workplan.md"
 
 sys.path.insert(0, str(REPO_DIR))
 from adapters import schema_check  # noqa: E402
@@ -154,3 +155,35 @@ def test_dependencies_do_not_run_backwards_across_milestones():
             assert order[by_key[dependency]["milestone"]] <= order[issue["milestone"]], (
                 f"{issue['key']} depends on {dependency}, which is scheduled later"
             )
+
+
+def test_workplan_records_the_frontend_dependency_budget_and_audit_threshold():
+    workplan = WORKPLAN.read_text()
+
+    assert "exactly three direct front-end packages" in workplan
+    assert "exact version" in workplan
+    assert "npm audit --audit-level=high" in workplan
+
+
+def test_prj_0001_resume_is_dated_and_its_estimate_delta_is_explicit():
+    project = _load(PLAN_DIR / "PRJ-0001.json")
+    estimate = project["metadata"]["estimate"]
+    expected_targets = {
+        "MS-0001": "2026-08-27",
+        "MS-0002": "2026-09-17",
+        "MS-0003": "2026-10-15",
+        "MS-0004": "2026-10-29",
+        "MS-0005": "2026-11-19",
+        "MS-0006": "2026-12-03",
+    }
+
+    assert project["state"] == "ACTIVE"
+    assert project["metadata"]["resumedAt"] == "2026-08-20"
+    assert estimate["redefendedAt"] == "2026-08-20"
+    assert estimate["baselineFocusedDays"] == 16.1
+    assert estimate["focusedDays"] == 16.1
+    assert estimate["deltaFocusedDays"] == 0.0
+    for milestone_id, target_date in expected_targets.items():
+        milestone = _load(PLAN_DIR / f"{milestone_id}.json")
+        assert milestone["targetDate"] == target_date
+        assert milestone["metadata"]["targetDateResetAt"] == "2026-08-20"
