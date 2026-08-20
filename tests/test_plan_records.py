@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 import sys
 from pathlib import Path
 
@@ -133,6 +134,53 @@ def test_manifest_milestones_match_the_records():
         "milestones exist; the records are the source of truth and the manifest "
         "is corrected"
     )
+
+
+def test_manifest_milestone_states_match_the_records():
+    manifest = _load(MANIFEST)
+    manifest_states = {
+        item["recordId"]: item.get("state", "open")
+        for item in manifest["milestones"]
+    }
+    for path in _milestones():
+        record = _load(path)
+        expected = "closed" if record["state"] in {"COMPLETE", "ABANDONED"} else "open"
+        assert manifest_states[record["milestoneId"]] == expected, (
+            f"{record['milestoneId']} is {record['state']} in its record but "
+            f"{manifest_states[record['milestoneId']]} in the GitHub projection"
+        )
+
+
+def test_plan_sync_repairs_milestone_state_only_drift():
+    sync = runpy.run_path(str(REPO_DIR / "tooling" / "gh-plan-sync.py"))
+    calls = []
+
+    def fake_api(path, *, method="GET", fields=None, typed_fields=None):
+        if method == "GET":
+            return [{
+                "number": 12,
+                "title": "U5 — Review findings",
+                "description": "same description",
+                "due_on": "2026-08-22T23:59:59Z",
+                "state": "open",
+            }]
+        calls.append((path, method, fields, typed_fields))
+        return {}
+
+    globals_ = sync["sync_milestones"].__globals__
+    globals_["api"] = fake_api
+    sync["sync_milestones"]("owner/repository", [{
+        "recordId": "MS-0012",
+        "title": "U5 — Review findings",
+        "description": "same description",
+        "due_on": "2026-08-22T23:59:59Z",
+        "state": "closed",
+    }])
+
+    assert len(calls) == 1
+    assert calls[0][0] == "repos/owner/repository/milestones/12"
+    assert calls[0][1] == "PATCH"
+    assert calls[0][2]["state"] == "closed"
 
 
 def test_project_state_is_consistent_on_every_working_surface():

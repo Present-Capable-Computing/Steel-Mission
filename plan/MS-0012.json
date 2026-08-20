@@ -9,7 +9,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "ACTIVE",
+  "state": "COMPLETE",
   "targetDate": "2026-08-22",
   "outcome": "The four findings from the review of PRJ-0000 are closed. The published image carries no front-end toolchain under /workspace, so the reversibility condition that the image gains no node dependency for the product is true rather than intended. The provider command-line tools under /usr/local/lib legitimately ship node and their own modules, and are untouched. Every one of the thirteen domain capabilities is either assigned or recorded as deliberately unowned with a reason, so a gap is a decision rather than an oversight. Running the product does not modify configuration files that are under version control, so development and testing stop dirtying the tree. A loopback console session with no locally stored identity resolves to a real registered actor rather than an anonymous one that matches nobody and holds no capabilities, so opening the console for the first time is never a dead end with no way to reach Settings.",
   "notInScope": "No new product capability, no interface redesign, no change to the vocabulary or the information architecture settled in MS-0008 and MS-0010. No change to the build toolchain itself: the three pinned packages, the committed page and the drift gate all stand. This milestone closes findings, and a finding that turns out to need design is raised rather than absorbed here. No login screen or identity-picker UI, and no change to oidc-required behaviour: the fix stays inside the development-local loopback trust boundary that already exists.",
