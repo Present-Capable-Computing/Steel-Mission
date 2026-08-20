@@ -1,8 +1,7 @@
 """Behavioral contract for the shipped Steel Mission page.
 
-The legacy page and its later replacement must both satisfy these outcomes. Keep
-this file independent of JavaScript function names and internal DOM layout so the
-contract survives the interface flip.
+Keep this file independent of JavaScript function names and internal DOM layout so
+the contract survives changes to the application implementation.
 """
 from __future__ import annotations
 
@@ -179,34 +178,28 @@ def test_shipped_page_satisfies_the_ui_behavior_contract():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     vocabulary_status, vocabulary = route_response(chat, "/api/vocabulary")
 
-    for selector in ("legacy", "application"):
-        errors = ui_contract_errors(
-            200,
-            chat["chat_index"](selector),
-            vocabulary_status,
-            vocabulary,
-            chat["knowledge_registry"](),
-        )
+    errors = ui_contract_errors(
+        200,
+        chat["chat_index"](),
+        vocabulary_status,
+        vocabulary,
+        chat["knowledge_registry"](),
+    )
 
-        assert errors == [], f"{selector}: {errors}"
+    assert errors == []
 
 
-def test_application_default_and_one_line_legacy_rollback_are_both_reachable(monkeypatch):
+def test_application_is_the_only_page_renderer_for_public_page_routes():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
 
-    default_status, default_html = route_response(chat, "/")
-    assert default_status == 200
-    assert default_html == chat["application_chat_index"]()
-
-    monkeypatch.setenv("STEEL_MISSION_UI", "legacy")
-    rollback_status, rollback_html = route_response(chat, "/")
-    assert rollback_status == 200
-    assert rollback_html == chat["legacy_chat_index"]()
+    for path in ("/", "/index.html", "/app"):
+        status, html = route_response(chat, path)
+        assert status == 200
+        assert html == chat["application_chat_index"]()
 
 
-def test_head_length_matches_the_selected_page_body(monkeypatch):
+def test_head_length_matches_the_application_page_body():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
-    monkeypatch.delenv("STEEL_MISSION_UI", raising=False)
     handler = object.__new__(chat["Handler"])
     response: dict[str, Any] = {"headers": {}}
     handler.path = "/"
@@ -216,7 +209,7 @@ def test_head_length_matches_the_selected_page_body(monkeypatch):
 
     handler.do_HEAD()
 
-    body = chat["chat_index"]("application").encode("utf-8")
+    body = chat["chat_index"]().encode("utf-8")
     assert response["status"] == 200
     assert int(response["headers"]["Content-Length"]) == len(body)
 
