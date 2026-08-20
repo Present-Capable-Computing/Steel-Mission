@@ -279,9 +279,12 @@ def test_prj_0001_rescope_is_dated_and_its_estimate_delta_is_explicit():
     assert project["metadata"]["rescopedAt"] == "2026-08-20"
     assert estimate["redefendedAt"] == "2026-08-20"
     assert estimate["baselineFocusedDays"] == 16.1
-    assert estimate["focusedDays"] == 31.5
-    assert estimate["deltaFocusedDays"] == 15.4
-    assert "15.4" in estimate["redefense"], "the delta is printed, never absorbed"
+    assert estimate["focusedDays"] == 33.3
+    assert estimate["deltaFocusedDays"] == 17.2
+    assert "17.2" in estimate["redefense"], "the delta is printed, never absorbed"
+    assert "+1.8" in estimate["redefense"], (
+        "the founder-identity correction is printed as its own delta, not absorbed"
+    )
     for milestone_id, target_date in expected_targets.items():
         milestone = _load(PLAN_DIR / f"{milestone_id}.json")
         assert milestone["targetDate"] == target_date

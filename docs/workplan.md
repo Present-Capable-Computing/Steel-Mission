@@ -75,7 +75,7 @@ other phase.
 | Milestone | Phase | Outcome in one line | Budget (focused days) | Target |
 |---|---|---|---|---|
 | [MS-0001](../plan/MS-0001.json) | P0 | Dependency and runtime jumps resolved; CI compiles every entrypoint; test harness ready | 1.0 | 2026-08-27 |
-| [MS-0013](../plan/MS-0013.json) | C0 | The Founder lands as the registered owner and sees true capability, server, authority and provider state | 2.0 | 2026-09-03 |
+| [MS-0013](../plan/MS-0013.json) | C0 | The Founder lands as Andrew Hermann, owner, seeded install-side, and sees true capability, server, authority and provider state | 3.8 | 2026-09-03 |
 | [MS-0014](../plan/MS-0014.json) | C1 | Chat on the landing screen; granted missions run the four-stage pipeline on a disposable bench; progress is visible | 4.3 | 2026-09-17 |
 | [MS-0015](../plan/MS-0015.json) | C2 | Codex is a coordinator provider and the registry's model choices govern the actual calls | 4.0 | 2026-09-24 |
 | [MS-0002](../plan/MS-0002.json) | P1 | Durable transactional broker with fencing, sweeping, a daemon — and the session status feed persisted | 7.0 | 2026-10-15 |
@@ -84,7 +84,7 @@ other phase.
 | [MS-0005](../plan/MS-0005.json) | P4 | One orchestration path; missions resume after restart | 3.0 | 2026-12-10 |
 | [MS-0006](../plan/MS-0006.json) | P5 | The repository names one product | 2.0 | 2026-12-23 |
 
-Total estimated effort is 31.5 days before contingency and approximately 39.4 days
+Total estimated effort is 33.3 days before contingency and approximately 41.6 days
 with the declared 25 percent. It is estimated per category and divided by an
 expected acceleration factor, with security-sensitive and novel integration work
 held at the cautious end of its range and irreducible empirical time — kill tests,
@@ -95,8 +95,8 @@ milestone boundary and print the delta rather than absorbing it.
 
 Re-defended at the D7 rescope on 2026-08-20: the console, chat, provider and
 pipeline work folds in, the status feed persists at P1 and the agent executor
-lands at P2. Conventional effort grows 140 to 223 person-days and the focused
-estimate 16.1 to 31.5 days — a printed delta of **+15.4 focused days**, with the
+lands at P2. Conventional effort grows 140 to 228 person-days and the focused
+estimate 16.1 to 33.3 days — a printed delta of **+17.2 focused days**, with the
 per-category derivation on the project record. Target dates from MS-0014 onward
 assume pipeline-assisted throughput; that assumption is a hypothesis, and it is
 re-examined at the MS-0014 boundary with the delta printed.

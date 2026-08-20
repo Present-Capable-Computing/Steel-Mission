@@ -19,6 +19,7 @@
     "phase": "C1",
     "focusedDaysBudget": 4.3,
     "origin": "Folded in at the D7 rescope of 2026-08-20; the pipeline shape follows D8, the machine accounts D9.",
-    "risk": "The bench executes model-driven subprocesses that commit and push under repository credentials - the riskiest surface in the milestone and the reason it carries a security review. The second risk is quiet scope growth: a bench that starts hosting features becomes the second dispatch path D7 forbids; the feed format is the only durable artifact."
+    "risk": "The bench executes model-driven subprocesses that commit and push under repository credentials - the riskiest surface in the milestone and the reason it carries a security review. The second risk is quiet scope growth: a bench that starts hosting features becomes the second dispatch path D7 forbids; the feed format is the only durable artifact.",
+    "githubMilestone": 14
   }
 }

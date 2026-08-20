@@ -28,14 +28,14 @@
     "githubProject": "https://github.com/orgs/Present-Capable-Computing/projects/1",
     "estimate": {
       "rule": "Effort estimated per category and divided by an expected acceleration factor, with security-sensitive and novel-integration work held at the cautious end and irreducible empirical time counted at no acceleration.",
-      "conventionalPersonDays": 223,
+      "conventionalPersonDays": 228,
       "baselineFocusedDays": 16.1,
-      "focusedDays": 31.5,
-      "deltaFocusedDays": 15.4,
+      "focusedDays": 33.3,
+      "deltaFocusedDays": 17.2,
       "contingencyPercent": 25,
-      "focusedDaysWithContingency": 39.4,
+      "focusedDaysWithContingency": 41.6,
       "redefendedAt": "2026-08-20",
-      "redefense": "Re-defended at the D7 rescope on 2026-08-20, high-end stance: security-sensitive and novel-integration work at the cautious end of its range, irreducible empirical time at no acceleration. Additions: C0 console truth — identity-surface fixes 4 conventional days at 3x plus interface work 6 at 15x plus 0.3 empirical = 2.0 focused. C1 chat and pipeline — chat surface 12 at 15x, bench mechanics 5 at 15x, pipeline orchestration 3 at 2x novel, progress panel and snapshot 7 at 15x, 1.2 empirical rehearsal = 4.3. C2 codex coordinator and maximum models — codex integration 4 at 2x novel, enum and plumbing and re-warm and token work 15 at 15x, 2 at 5x debugging, 0.6 empirical = 4.0. P1 gains status-feed persistence 12 at 15x plus 0.2 empirical = 1.0. P2 gains the agent executor 5 at 2x novel, 4 at 15x, 1.0 empirical = 3.8. Records and sync 0.3, spent at rescope. Delta +15.4 focused days, printed, never absorbed: conventional 140 to 223 person-days, focused 16.1 to 31.5, approximately 39.4 with the declared 25 percent. Target dates re-set on the assumption that the pipeline raises landing throughput from MS-0014 onward; that assumption is a hypothesis and is re-examined, with the delta printed, at the MS-0014 boundary.",
+      "redefense": "Re-defended at the D7 rescope on 2026-08-20, high-end stance: security-sensitive and novel-integration work at the cautious end of its range, irreducible empirical time at no acceleration. Additions: C0 console truth — founder-identity seeding 5 conventional days at 3x, identity-surface fixes 4 at 3x, interface work 6 at 15x, 0.4 empirical = 3.8 focused (the identity item was trimmed on a misread instruction and restored the same day by the Founder's decision; the correction is +1.8, printed here). C1 chat and pipeline — chat surface 12 at 15x, bench mechanics 5 at 15x, pipeline orchestration 3 at 2x novel, progress panel and snapshot 7 at 15x, 1.2 empirical rehearsal = 4.3. C2 codex coordinator and maximum models — codex integration 4 at 2x novel, enum and plumbing and re-warm and token work 15 at 15x, 2 at 5x debugging, 0.6 empirical = 4.0. P1 gains status-feed persistence 12 at 15x plus 0.2 empirical = 1.0. P2 gains the agent executor 5 at 2x novel, 4 at 15x, 1.0 empirical = 3.8. Records and sync 0.3, spent at rescope. Delta +17.2 focused days, printed, never absorbed: conventional 140 to 228 person-days, focused 16.1 to 33.3, approximately 41.6 with the declared 25 percent. Target dates re-set on the assumption that the pipeline raises landing throughput from MS-0014 onward; that assumption is a hypothesis and is re-examined, with the delta printed, at the MS-0014 boundary.",
       "note": "A focused-day figure is a planning estimate, never a commitment and never evidence that work is on schedule. Re-defend at every milestone boundary and print the delta."
     },
     "decisions": [
