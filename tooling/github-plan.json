@@ -2355,12 +2355,13 @@
         "task",
         "C1",
         "area:orchestration",
-        "prj:PRJ-0001"
+        "prj:PRJ-0001",
+        "security-review"
       ],
       "epic": "epic-c1",
       "requirement": "One schema describes the state of an agent session - claimed issue, stage, worker, machine account, started, last event, budget spent, outcome - written as append-only JSONL. This is the durable artifact of the bench under D7: MS-0002 persists it in the store and MS-0003's job protocol carries it, so it is designed as a contract, not a log format.",
       "acceptance": "The schema exists under schemas/ with valid and invalid fixtures, and a validator test covers both. The bench writes it and the progress panel reads it with no intermediate translation. A schema-authority review confirms the shape before P1 consumes it.",
-      "surface": "control plane"
+      "surface": "authority-owned schemas"
     },
     {
       "key": "c1-mission-pipeline-bench",
@@ -2513,7 +2514,8 @@
       "surface": "subprocess or container execution",
       "dependsOn": [
         "c1-mission-pipeline-bench",
-        "p1-status-feed-persistence"
+        "p1-status-feed-persistence",
+        "p2-transport-branch"
       ]
     }
   ]
