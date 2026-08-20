@@ -1528,7 +1528,7 @@ select {
         /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
           /* @__PURE__ */ u3("label", { children: [
             "Mission Template",
-            /* @__PURE__ */ u3("select", { value: templateId, onChange: (event) => setTemplateId(event.currentTarget.value), children: panel.templates.map((template3) => /* @__PURE__ */ u3("option", { value: template3.templateId, children: template3.title || template3.templateId }, template3.templateId)) })
+            /* @__PURE__ */ u3("select", { value: templateId, onChange: (event) => setTemplateId(event.currentTarget.value), children: panel.templates.map((template4) => /* @__PURE__ */ u3("option", { value: template4.templateId, children: template4.title || template4.templateId }, template4.templateId)) })
           ] }),
           /* @__PURE__ */ u3("label", { children: [
             "Mission Users",
@@ -1589,10 +1589,10 @@ select {
       ] }),
       /* @__PURE__ */ u3("section", { "aria-label": "Mission templates", children: [
         /* @__PURE__ */ u3("h3", { children: "Mission Templates" }),
-        /* @__PURE__ */ u3("div", { class: "record-list", children: panel.templates.map((template3) => /* @__PURE__ */ u3("article", { children: [
-          /* @__PURE__ */ u3("strong", { children: template3.title || template3.templateId }),
-          /* @__PURE__ */ u3("p", { children: template3.description || template3.templateId })
-        ] }, template3.templateId)) })
+        /* @__PURE__ */ u3("div", { class: "record-list", children: panel.templates.map((template4) => /* @__PURE__ */ u3("article", { children: [
+          /* @__PURE__ */ u3("strong", { children: template4.title || template4.templateId }),
+          /* @__PURE__ */ u3("p", { children: template4.description || template4.templateId })
+        ] }, template4.templateId)) })
       ] }),
       /* @__PURE__ */ u3("section", { "aria-label": "Active Missions", children: [
         /* @__PURE__ */ u3("h3", { children: "Active Missions" }),
@@ -1854,6 +1854,243 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/runtime-profiles.ts
+  function runtimeProfileManagementAvailable(accessLevel2) {
+    return accessLevel2 === "owner" || accessLevel2 === "admin";
+  }
+  function assertManager4(accessLevel2) {
+    if (!runtimeProfileManagementAvailable(accessLevel2)) throw new Error("owner or admin access is required to manage runtime profiles");
+  }
+  async function checked2(response, fallback) {
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(String(result.error || fallback));
+    return result;
+  }
+  async function loadRuntimeProfiles(request) {
+    const response = await request("/api/runtime-profiles", { cache: "no-store" });
+    const result = await checked2(response, "Runtime profiles are unavailable");
+    const registry = result.registry && typeof result.registry === "object" ? result.registry : { profiles: [] };
+    if (!Array.isArray(registry.profiles)) throw new Error("Runtime profile registry is unavailable");
+    return {
+      activeProfile: String(result.activeProfile || ""),
+      registry,
+      modelRoles: result.modelRoles && typeof result.modelRoles === "object" ? result.modelRoles : { roles: [] }
+    };
+  }
+  async function managerPost(request, accessLevel2, path, body) {
+    assertManager4(accessLevel2);
+    const response = await request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return checked2(response, "Runtime profile request failed");
+  }
+  function validateRuntimeProfile(request, accessLevel2, profile) {
+    return managerPost(request, accessLevel2, "/api/runtime-profiles/validate", { profile });
+  }
+  function saveRuntimeProfile(request, accessLevel2, profile) {
+    return managerPost(request, accessLevel2, "/api/runtime-profiles/save", { profile });
+  }
+  function cloneRuntimeProfile(request, accessLevel2, sourceId, newId, label) {
+    return managerPost(request, accessLevel2, "/api/runtime-profiles/clone", { sourceId, newId, label });
+  }
+
+  // steel-mission-ui/src/runtime-profiles-panel.tsx
+  var EMPTY = { activeProfile: "", registry: { profiles: [] }, modelRoles: { roles: [] } };
+  function textList(value) {
+    return [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
+  }
+  function template3(source) {
+    return {
+      ...source || {
+        status: "active",
+        modelRole: "dc13.coordination-report",
+        modelProvider: "auto",
+        requiredProviderCapabilities: [],
+        snapshotProfile: "worker-local-default",
+        defaultFor: [],
+        editableBy: ["owner", "admin"],
+        visibilityRoleKeys: ["DC13"],
+        includeCollections: ["missions"],
+        limits: {},
+        taskSelector: { mode: "latest" },
+        sources: {}
+      },
+      id: "",
+      label: ""
+    };
+  }
+  function RuntimeProfilesPanel({ accessLevel: accessLevel2, request }) {
+    const [payload, setPayload] = d2(EMPTY);
+    const [selectedId, setSelectedId] = d2("");
+    const [profile, setProfile] = d2(template3());
+    const [profileJson, setProfileJson] = d2(JSON.stringify(template3(), null, 2));
+    const [cloneId, setCloneId] = d2("");
+    const [cloneLabel, setCloneLabel] = d2("");
+    const [status, setStatus] = d2("Loading runtime profiles\u2026");
+    const select = (next) => {
+      setSelectedId(next.id);
+      setProfile(next);
+      setProfileJson(JSON.stringify(next, null, 2));
+      setCloneId(`${next.id}.copy`);
+      setCloneLabel(`${String(next.label || next.id)} Copy`);
+      setStatus("");
+    };
+    const reload = async (preferredId) => {
+      const loaded = await loadRuntimeProfiles(request);
+      setPayload(loaded);
+      const next = loaded.registry.profiles.find((item) => item.id === preferredId) || loaded.registry.profiles[0] || template3();
+      select(next);
+    };
+    h2(() => {
+      let current = true;
+      loadRuntimeProfiles(request).then((loaded) => {
+        if (!current) return;
+        setPayload(loaded);
+        const next = loaded.registry.profiles[0] || template3();
+        select(next);
+      }).catch((error) => current && setStatus(error instanceof Error ? error.message : "Runtime profiles are unavailable"));
+      return () => {
+        current = false;
+      };
+    }, [request]);
+    const update = (key, value) => {
+      const next = { ...profile, [key]: value };
+      setProfile(next);
+      setProfileJson(JSON.stringify(next, null, 2));
+    };
+    const parsedProfile = () => {
+      const value = JSON.parse(profileJson);
+      if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.id !== "string") {
+        throw new Error("Runtime Profile JSON must be an object with an id");
+      }
+      return value;
+    };
+    const act = async (kind) => {
+      setStatus(`${kind === "save" ? "Saving" : "Validating"} profile\u2026`);
+      try {
+        const current = parsedProfile();
+        if (kind === "validate") await validateRuntimeProfile(request, accessLevel2, current);
+        else await saveRuntimeProfile(request, accessLevel2, current);
+        if (kind === "save") await reload(current.id);
+        setStatus(kind === "save" ? "Profile saved and reloaded." : "Profile is valid.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Runtime profile request failed");
+      }
+    };
+    const clone = async () => {
+      setStatus("Cloning profile\u2026");
+      try {
+        await cloneRuntimeProfile(request, accessLevel2, profile.id, cloneId.trim(), cloneLabel.trim());
+        await reload(cloneId.trim());
+        setStatus("Profile cloned and reloaded.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Profile could not be cloned");
+      }
+    };
+    const canManage = runtimeProfileManagementAvailable(accessLevel2);
+    const roles = Array.isArray(payload.modelRoles.roles) ? payload.modelRoles.roles : [];
+    return /* @__PURE__ */ u3("div", { id: "runtimeProfilesPanel", class: "parity-panel", children: [
+      /* @__PURE__ */ u3("p", { children: [
+        "Active Coordinator model: ",
+        /* @__PURE__ */ u3("strong", { children: payload.activeProfile || "not selected" })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "panel-actions", children: [
+        /* @__PURE__ */ u3("label", { children: [
+          "Runtime Profile",
+          /* @__PURE__ */ u3("select", { value: selectedId, onChange: (event) => {
+            const next = payload.registry.profiles.find((item) => item.id === event.currentTarget.value);
+            if (next) select(next);
+          }, children: payload.registry.profiles.map((item) => /* @__PURE__ */ u3("option", { value: item.id, children: String(item.label || item.id) }, item.id)) })
+        ] }),
+        canManage && /* @__PURE__ */ u3("button", { type: "button", onClick: () => select(template3(payload.registry.profiles[0])), children: "New Runtime Profile" })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "panel-form", children: [
+        /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "Profile ID",
+            /* @__PURE__ */ u3("input", { value: profile.id, readOnly: Boolean(selectedId), onInput: (event) => update("id", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Label",
+            /* @__PURE__ */ u3("input", { value: String(profile.label || ""), onInput: (event) => update("label", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Status",
+            /* @__PURE__ */ u3("select", { value: String(profile.status || "active"), onChange: (event) => update("status", event.currentTarget.value), children: [
+              /* @__PURE__ */ u3("option", { value: "active", children: "active" }),
+              /* @__PURE__ */ u3("option", { value: "disabled", children: "disabled" })
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Coordinator Role",
+            /* @__PURE__ */ u3("select", { value: String(profile.modelRole || ""), onChange: (event) => update("modelRole", event.currentTarget.value), children: roles.map((role) => /* @__PURE__ */ u3("option", { value: String(role.id), children: String(role.title || role.id) }, String(role.id))) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Model Binding",
+            /* @__PURE__ */ u3("select", { value: String(profile.modelProvider || "auto"), onChange: (event) => update("modelProvider", event.currentTarget.value), children: [
+              /* @__PURE__ */ u3("option", { value: "auto", children: "auto" }),
+              /* @__PURE__ */ u3("option", { value: "claude", children: "claude" }),
+              /* @__PURE__ */ u3("option", { value: "glimmer", children: "glimmer" })
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Snapshot policy",
+            /* @__PURE__ */ u3("input", { value: String(profile.snapshotProfile || ""), onInput: (event) => update("snapshotProfile", event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Required Provider-Native Capabilities",
+            /* @__PURE__ */ u3("input", { value: Array.isArray(profile.requiredProviderCapabilities) ? profile.requiredProviderCapabilities.join(", ") : "", onInput: (event) => update("requiredProviderCapabilities", textList(event.currentTarget.value)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Default For",
+            /* @__PURE__ */ u3("input", { value: Array.isArray(profile.defaultFor) ? profile.defaultFor.join(", ") : "", onInput: (event) => update("defaultFor", textList(event.currentTarget.value)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Editable By",
+            /* @__PURE__ */ u3("input", { value: Array.isArray(profile.editableBy) ? profile.editableBy.join(", ") : "", onInput: (event) => update("editableBy", textList(event.currentTarget.value)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Visible Domain Capabilities",
+            /* @__PURE__ */ u3("input", { value: Array.isArray(profile.visibilityRoleKeys) ? profile.visibilityRoleKeys.join(", ") : "", onInput: (event) => update("visibilityRoleKeys", textList(event.currentTarget.value)) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Collections",
+            /* @__PURE__ */ u3("input", { value: Array.isArray(profile.includeCollections) ? profile.includeCollections.join(", ") : "", onInput: (event) => update("includeCollections", textList(event.currentTarget.value)) })
+          ] })
+        ] }),
+        /* @__PURE__ */ u3("label", { children: [
+          "Runtime Profile JSON",
+          /* @__PURE__ */ u3("textarea", { rows: 18, value: profileJson, readOnly: !canManage, onInput: (event) => {
+            setProfileJson(event.currentTarget.value);
+            try {
+              const next = JSON.parse(event.currentTarget.value);
+              if (next && typeof next === "object") setProfile(next);
+            } catch {
+            }
+          } })
+        ] }),
+        canManage && /* @__PURE__ */ u3("div", { class: "panel-actions", children: [
+          /* @__PURE__ */ u3("button", { type: "button", onClick: () => act("validate"), children: "Validate Profile" }),
+          /* @__PURE__ */ u3("button", { type: "button", onClick: () => act("save"), children: "Save Profile" })
+        ] }),
+        canManage && selectedId && /* @__PURE__ */ u3("div", { class: "panel-grid", children: [
+          /* @__PURE__ */ u3("label", { children: [
+            "Clone Profile ID",
+            /* @__PURE__ */ u3("input", { value: cloneId, onInput: (event) => setCloneId(event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("label", { children: [
+            "Clone Label",
+            /* @__PURE__ */ u3("input", { value: cloneLabel, onInput: (event) => setCloneLabel(event.currentTarget.value) })
+          ] }),
+          /* @__PURE__ */ u3("button", { type: "button", disabled: !cloneId.trim(), onClick: clone, children: "Clone Profile" })
+        ] }),
+        status && /* @__PURE__ */ u3("p", { role: "status", children: status })
+      ] })
+    ] });
+  }
+
   // steel-mission-ui/src/work-mode.ts
   var WORK_MODES = [
     {
@@ -2081,6 +2318,7 @@ select {
                 section.id === "people" && activeSettingsSection === "people" && capabilityState.view && /* @__PURE__ */ u3(UsersPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "missions" && activeSettingsSection === "missions" && capabilityState.view && /* @__PURE__ */ u3(MissionsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "knowledge" && activeSettingsSection === "knowledge" && capabilityState.view && /* @__PURE__ */ u3(KnowledgePanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
+                section.id === "profiles" && activeSettingsSection === "profiles" && capabilityState.view && /* @__PURE__ */ u3(RuntimeProfilesPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }),
                 section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && /* @__PURE__ */ u3("form", { id: "capabilityAssignmentForm", class: "assignment-form", onSubmit: saveAssignments, children: [
                   /* @__PURE__ */ u3("label", { children: [
                     "User",

@@ -318,6 +318,17 @@ def test_application_knowledge_panel_uses_existing_registry_and_snapshot_contrac
         assert field in html
 
 
+def test_application_runtime_profiles_panel_uses_existing_management_contracts():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "runtimeProfilesPanel" in html
+    for path in ("/api/runtime-profiles", "/runtime-profiles/validate", "/runtime-profiles/save", "/runtime-profiles/clone"):
+        assert path in html
+    for field in ("New Runtime Profile", "Coordinator Role", "Model Binding", "Snapshot policy", "Validate Profile", "Save Profile", "Clone Profile"):
+        assert field in html
+
+
 def test_ui_behavior_contract_rejects_each_required_regression():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     page_status, html = route_response(chat, "/")

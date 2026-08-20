@@ -19,6 +19,7 @@ import {OrganizationsPanel} from "./organizations-panel";
 import {UsersPanel} from "./users-panel";
 import {MissionsPanel} from "./missions-panel";
 import {KnowledgePanel} from "./knowledge-panel";
+import {RuntimeProfilesPanel} from "./runtime-profiles-panel";
 import {WORK_MODES, type WorkMode} from "./work-mode";
 
 
@@ -273,6 +274,9 @@ function App() {
                   )}
                   {section.id === "knowledge" && activeSettingsSection === "knowledge" && capabilityState.view && (
                     <KnowledgePanel accessLevel={capabilityState.view.accessLevel} request={apiRequest} />
+                  )}
+                  {section.id === "profiles" && activeSettingsSection === "profiles" && capabilityState.view && (
+                    <RuntimeProfilesPanel accessLevel={capabilityState.view.accessLevel} request={apiRequest} />
                   )}
                   {section.id === "people" && assignmentControlsAvailable(capabilityState.view?.accessLevel) && (
                     <form id="capabilityAssignmentForm" class="assignment-form" onSubmit={saveAssignments}>
