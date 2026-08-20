@@ -1352,15 +1352,19 @@ def save_user_registry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
 
 
 def default_domain_capabilities() -> dict[str, Any]:
-    return {
-        "schemaVersion": 1,
-        "producedAt": utc_now(),
-        "producer": "steel-mission-chat",
+    users = user_registry()
+    return normalize_assignment_registry({
+        "producedAt": users.get("producedAt") or utc_now(),
         "userAssignments": [
-            {"userId": "publisher", "role": "publisher", "assignedCapabilities": ["DC13"]},
-            {"userId": "user", "role": "user", "assignedCapabilities": ["DC13"]},
+            {
+                "userId": item.get("id"),
+                "role": item.get("role"),
+                "assignedCapabilities": item.get("assignedCapabilities", []),
+            }
+            for item in users.get("users", [])
+            if isinstance(item, dict) and item.get("id")
         ],
-    }
+    })
 
 
 def normalize_assignment_registry(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1433,18 +1437,7 @@ def normalize_assignment_registry(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def domain_capability_registry() -> dict[str, Any]:
-    try:
-        payload = json.loads(DOMAIN_CAPABILITIES_PATH.read_text())
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        record_mutation(
-            "domain-capability-registry-read",
-            "user",
-            DOMAIN_CAPABILITIES_PATH,
-            status="failed",
-            details={"error": str(exc)[:500], "errorType": type(exc).__name__},
-        )
-        raise RuntimeError(f"domain capability registry could not be read: {exc}") from exc
-    return normalize_assignment_registry(payload if isinstance(payload, dict) else {})
+    return default_domain_capabilities()
 
 
 def capability_assignment_user_ids(payload: dict[str, Any]) -> set[str]:
@@ -1488,35 +1481,23 @@ def save_domain_capability_registry(payload: dict[str, Any], actor: str) -> dict
     unknown_ids = sorted(capability_assignment_user_ids(payload) - registered_ids)
     if unknown_ids:
         raise ValueError("capability assignments name unknown users: " + ", ".join(unknown_ids))
-    before = read_json_file(DOMAIN_CAPABILITIES_PATH)
-    registry = normalize_assignment_registry({**payload, "producedAt": utc_now()})
-    validate_configuration_write(
-        "domain-capabilities-saved",
-        role,
-        DOMAIN_CAPABILITIES_PATH,
-        before,
-        registry,
-        "domain-capability-registry-v1.json",
-    )
-    tmp = DOMAIN_CAPABILITIES_PATH.with_name(f".{DOMAIN_CAPABILITIES_PATH.name}.{os.getpid()}.tmp")
-    DOMAIN_CAPABILITIES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        tmp.write_text(json.dumps(registry, indent=2, sort_keys=True) + "\n")
-        os.replace(tmp, DOMAIN_CAPABILITIES_PATH)
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
-    record_mutation(
-        "domain-capabilities-saved",
-        role,
-        DOMAIN_CAPABILITIES_PATH,
-        before=before,
-        after=registry,
-        details={"assignments": len(registry.get("assignments", []))},
-    )
-    return registry
+    requested = normalize_assignment_registry({**payload, "producedAt": utc_now()})
+    requested_by_user = {
+        str(item.get("userId")): clean_string_list(item.get("assignedCapabilities"), limit=100)
+        for item in requested.get("userAssignments", [])
+        if isinstance(item, dict) and item.get("userId")
+    }
+    users = user_registry()
+    updated_users = []
+    for item in users.get("users", []):
+        if not isinstance(item, dict):
+            continue
+        user = dict(item)
+        if corporate_role(str(user.get("role") or "user")) in {"publisher", "user"}:
+            user["assignedCapabilities"] = requested_by_user.get(str(user.get("id") or ""), [])
+        updated_users.append(user)
+    save_user_registry({**users, "users": updated_users}, role)
+    return domain_capability_registry()
 
 
 def corporate_workspace(role: str) -> dict[str, Any]:
@@ -1538,12 +1519,6 @@ def corporate_workspace(role: str) -> dict[str, Any]:
         for key in user.get("assignedCapabilities", [])
         if str(key) in by_key
     }
-    if not user_assigned_keys and selected not in {"owner", "admin"}:
-        for assignment in assignments.get("assignments", []):
-            if selected == "publisher" and assignment.get("publishers"):
-                user_assigned_keys.add(str(assignment.get("roleKey")))
-            if selected == "user" and assignment.get("users"):
-                user_assigned_keys.add(str(assignment.get("roleKey")))
     visible = []
     for role_key, role_payload in by_key.items():
         allowed = selected in {"owner", "admin"} or role_key in user_assigned_keys
