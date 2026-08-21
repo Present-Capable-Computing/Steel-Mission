@@ -9,6 +9,7 @@ an explicitly supplied state directory outside the product repository.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -68,6 +69,36 @@ COMPLETE_STDOUT_BYTES = 1_000_000
 
 class BenchError(RuntimeError):
     """The mission stopped without redefining its grant or definition of done."""
+
+
+def codeowners_pattern_matches(pattern: str, path: str) -> bool:
+    """Return whether a supported CODEOWNERS pattern applies to a repository path."""
+    normalized = pattern.removeprefix("/")
+    candidate = path.removeprefix("/")
+    if not normalized or pattern.startswith("!") or "[" in pattern:
+        raise BenchError(f"unsupported CODEOWNERS pattern in repository wall: {pattern}")
+    if normalized == "*":
+        return True
+    if normalized.endswith("/"):
+        return candidate.startswith(normalized)
+    if "/" not in normalized:
+        return any(fnmatch.fnmatchcase(part, normalized) for part in candidate.split("/"))
+    return fnmatch.fnmatchcase(candidate, normalized)
+
+
+def codeowners_patterns_overlap(authority_pattern: str, candidate_pattern: str) -> bool:
+    """Conservatively detect whether a later rule can override an authority rule."""
+    authority = authority_pattern.removeprefix("/")
+    candidate = candidate_pattern.removeprefix("/")
+    if candidate == "*":
+        return True
+    if authority.endswith("/"):
+        if candidate.endswith("/"):
+            return authority.startswith(candidate) or candidate.startswith(authority)
+        return candidate.startswith(authority) or codeowners_pattern_matches(
+            candidate_pattern, authority + "__steel_mission_wall_probe__"
+        )
+    return codeowners_pattern_matches(candidate_pattern, authority)
 
 
 @dataclass(frozen=True)
@@ -656,9 +687,6 @@ class GitHubPlatform:
         if not isinstance(checks, dict) or checks.get("strict") is not True:
             raise BenchError("required checks must cover the current base branch")
         acceptance_login = grant["machineAccounts"]["claude"]["login"]
-        machine_logins = {
-            account["login"].lower() for account in grant["machineAccounts"].values()
-        }
         codeowners = codeowners_result.stdout.splitlines()
         if live_base_oid() != base_oid:
             raise BenchError("base branch changed during repository-wall validation")
@@ -684,6 +712,7 @@ class GitHubPlatform:
             "/bin/",
             "/steel-mission-chat/",
             "/adapters/",
+            "/.github/CODEOWNERS",
             "/.github/workflows/",
             "/Dockerfile.private-runner",
             "/requirements-dev.txt",
@@ -692,21 +721,44 @@ class GitHubPlatform:
             "/plan/",
             "/docs/workplan.md",
         )
+        authority_witnesses = {
+            pattern: pattern.removeprefix("/") + "__steel_mission_wall_probe__"
+            if pattern.endswith("/")
+            else pattern.removeprefix("/")
+            for pattern in person_only_patterns
+        }
         person_login = grant["grantedBy"].lower()
         for pattern in person_only_patterns:
-            matching = [
-                rule for rule in rules
-                if rule[0] == pattern or rule[0].startswith(pattern)
-            ]
-            exact_rule = next((rule for rule in reversed(matching) if rule[0] == pattern), [])
+            exact_index = next((
+                index for index in range(len(rules) - 1, -1, -1)
+                if rules[index][0] == pattern
+            ), -1)
+            exact_rule = rules[exact_index] if exact_index >= 0 else []
             exact_owners = {token.lstrip("@").lower() for token in exact_rule[1:]}
             if exact_owners != {person_login}:
                 raise BenchError(f"{pattern} must remain Founder-owned in CODEOWNERS")
-            if any(
-                {token.lstrip("@").lower() for token in rule[1:]} & machine_logins
-                for rule in matching
-            ):
-                raise BenchError("machine accounts cannot own authority paths in CODEOWNERS")
+            effective_rule = next((
+                rule for rule in reversed(rules)
+                if codeowners_pattern_matches(rule[0], authority_witnesses[pattern])
+            ), [])
+            effective_owners = {
+                token.lstrip("@").lower() for token in effective_rule[1:]
+            }
+            if effective_owners != {person_login}:
+                raise BenchError(
+                    f"{pattern} effective CODEOWNERS rule must remain Founder-only"
+                )
+            for later_rule in rules[exact_index + 1:]:
+                later_owners = {
+                    token.lstrip("@").lower() for token in later_rule[1:]
+                }
+                if (
+                    codeowners_patterns_overlap(pattern, later_rule[0])
+                    and later_owners != {person_login}
+                ):
+                    raise BenchError(
+                        f"{pattern} effective CODEOWNERS rule must remain Founder-only"
+                    )
         return {
             "credentialBoundary": "operator-ambient",
             "baseCommit": base_oid,
@@ -1262,7 +1314,7 @@ class AgentDriver:
         timeout = budget.use_turn()
         result = self.runner.run([
             "codex", "exec", "--oss", "--local-provider", "ollama",
-            "-m", LOCAL_DEVELOPER_MODEL, "--ephemeral", "-s", "danger-full-access",
+            "-m", LOCAL_DEVELOPER_MODEL, "--ephemeral", "-s", "workspace-write",
             "-C", str(worktree), "-",
         ], worktree, timeout, input_text=prompt, extra_env=self._agent_env(_session_dir, "local"), inherit_env=False)
         if result.returncode != 0:
@@ -1975,7 +2027,10 @@ class PipelineBench:
             "securityFindings and reject when that array is non-empty. Return an empty array only after finding "
             "the labelled and declared surfaces clean."
             if security_review_requested
-            else "No security review is required for this mission; return securityFindings as an empty array."
+            else (
+                "No dedicated security review is required for this mission; report any actionable security "
+                "finding you nonetheless observe in securityFindings."
+            )
         )
         acceptance_prompt = (
             "Perform the final read-only acceptance review. Approve only if the committed diff, failing-test evidence, "
@@ -1998,7 +2053,11 @@ class PipelineBench:
             raise BenchError("Claude acceptance returned invalid security findings")
         security_review = {
             "required": security_review_requested,
-            "status": "clean" if not security_findings else "escalated",
+            "status": (
+                "escalated" if security_findings
+                else "clean" if security_review_requested
+                else "not-performed"
+            ),
             "findings": security_findings,
         }
         self.evidence["stages"]["acceptance"] = {

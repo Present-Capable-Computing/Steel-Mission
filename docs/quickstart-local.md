@@ -43,14 +43,14 @@ docker compose ps
 ```
 
 This starts the packaged Steel Mission company and binds Claude to planning
-and acceptance assessment, the local `qwen3-coder:30b` model to coding, and
+and acceptance assessment, the local `qwen2.5-coder:14b` model to coding, and
 Codex to read-only review. Deterministic verification remains the only phase
 that can issue PASS.
 
 ## Optional Local Model
 
 ```bash
-ollama pull qwen3-coder:30b
+ollama pull qwen2.5-coder:14b
 bin/present-worker glimmer start
 bin/present-worker glimmer status
 STEEL_MISSION_RUNTIME_PROFILE=dc13.local bin/steel-mission serve

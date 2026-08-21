@@ -425,6 +425,7 @@ def protected_codeowners() -> str:
         "/bin/ @andrewHermann\n"
         "/steel-mission-chat/ @andrewHermann\n"
         "/adapters/ @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
         "/.github/workflows/ @andrewHermann\n"
         "/Dockerfile.private-runner @andrewHermann\n"
         "/requirements-dev.txt @andrewHermann\n"
@@ -455,6 +456,14 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
 
     assert result["state"] == "queued"
     assert result["reviewCorrectionRounds"] == 1
+    acceptance_prompt = next(prompt for kind, prompt in agents.prompts if kind == "acceptance")
+    assert "report any actionable security finding you nonetheless observe" in acceptance_prompt
+    evidence = json.loads(Path(result["evidencePath"]).read_text())
+    assert evidence["stages"]["acceptance"]["securityReview"] == {
+        "required": False,
+        "status": "not-performed",
+        "findings": [],
+    }
     first_push = platform.calls.index("push")
     assert any(call.startswith("command:make test") for call in platform.calls[:first_push])
     assert any(call.startswith("command:make release-check") for call in platform.calls[:first_push])
@@ -1414,7 +1423,7 @@ def test_local_developer_parks_the_platform_sandbox_inside_the_isolated_worktree
     }), tmp_path)
 
     assert runner.argv[runner.argv.index("-m") + 1] == "qwen3-coder:30b"
-    assert runner.argv[runner.argv.index("-s") + 1] == "danger-full-access"
+    assert runner.argv[runner.argv.index("-s") + 1] == "workspace-write"
 
 
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
@@ -1504,7 +1513,46 @@ def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_p
         ProtectionRunner(protected_repository(), codeowners=remote_codeowners),
     )
 
-    with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
+    with pytest.raises(BenchError, match="Founder"):
+        platform.validate_repository_wall(grant())
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: "\n".join(
+            [line for line in value.splitlines() if not line.startswith("*")]
+            + ["* @andrewHermann @sm-agent-claude"]
+        ) + "\n",
+        lambda value: value + "/docs/ @sm-agent-claude\n",
+        lambda value: value + "* @sm-agent-claude @andrewHermann\n",
+    ],
+)
+def test_repository_wall_rejects_later_broader_authority_overrides(
+    tmp_path, monkeypatch, mutate
+):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(mutate(protected_codeowners()))
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="effective CODEOWNERS rule must remain Founder-only"):
+        platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_requires_codeowners_itself_to_remain_founder_owned(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        protected_codeowners().replace("/.github/CODEOWNERS @andrewHermann\n", "")
+    )
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="CODEOWNERS must remain Founder-owned"):
         platform.validate_repository_wall(grant())
 
 
@@ -1570,7 +1618,7 @@ def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(t
     )
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
-    with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
+    with pytest.raises(BenchError, match="effective CODEOWNERS rule must remain Founder-only"):
         platform.validate_repository_wall(grant())
 
 
@@ -1589,7 +1637,7 @@ def test_repository_wall_rejects_every_machine_account_as_authority_owner(
     )
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
-    with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
+    with pytest.raises(BenchError, match="Founder"):
         platform.validate_repository_wall(grant())
 
 
