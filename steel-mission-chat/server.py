@@ -69,6 +69,28 @@ ROLE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-registry.j
 ROLE_KNOWLEDGE_REGISTRY_PATH = CANON_DIR / "Workspace Packs" / "_build" / "role-knowledge-registry.json"
 
 
+def installation_config_seed_source(source: Path, state_root: Path) -> Path:
+    """Prefer an install-side first-start seed for a known config entry.
+
+    The shipped config remains the allow-list: an installation can replace a
+    file or directory the product already knows, but cannot make startup copy
+    unrelated state into the runtime config directory. Symlinks are refused so
+    a seed never turns a local path into an implicit secret-copying mechanism.
+    """
+    configured = os.environ.get("STEEL_MISSION_CONFIG_SEED_DIR")
+    seed_root = Path(configured) if configured else state_root / "config-seed"
+    candidate = seed_root / source.name
+    if not candidate.exists() and not candidate.is_symlink():
+        return source
+    if candidate.is_symlink():
+        raise ValueError(f"installation config seed must not be a symlink: {candidate}")
+    if source.is_dir() != candidate.is_dir():
+        raise ValueError(
+            f"installation config seed type does not match shipped config: {candidate}"
+        )
+    return candidate
+
+
 def executable_config_dir() -> Path:
     """Return writable configuration for a running product process.
 
@@ -100,8 +122,9 @@ def executable_config_dir() -> Path:
     runtime = state_root / "config"
     runtime.mkdir(parents=True, exist_ok=True, mode=0o700)
     runtime.chmod(0o700)
-    for source in sorted(shipped.iterdir()):
-        destination = runtime / source.name
+    for shipped_source in sorted(shipped.iterdir()):
+        source = installation_config_seed_source(shipped_source, state_root)
+        destination = runtime / shipped_source.name
         if destination.exists() or destination.is_symlink():
             continue
         if source.is_dir():

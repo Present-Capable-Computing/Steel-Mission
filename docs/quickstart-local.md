@@ -21,6 +21,17 @@ or set `STEEL_MISSION_CONFIG_DIR` when an installation provides a complete
 configuration directory. Delete the runtime `config` directory to reseed the
 starter configuration on the next launch.
 
+An installation can supply first-start versions of known configuration files
+without changing the checkout. Put schema-valid files such as `users.json` and
+`organizations.json` in
+`${XDG_STATE_HOME:-$HOME/.local/state}/steel-mission/config-seed`, or point
+`STEEL_MISSION_CONFIG_SEED_DIR` at another installation-owned directory. The
+server prefers those files while creating the runtime `config` directory and
+never copies names that are not already present in the shipped `config`
+directory. Existing runtime files always win, so a restart does not reorder or
+replace configuration; delete the runtime `config` directory when you
+deliberately want to reseed it.
+
 ## Docker Starter Company
 
 With host Ollama running and the Claude/Codex CLIs already authenticated:
