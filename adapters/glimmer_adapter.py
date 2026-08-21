@@ -119,7 +119,19 @@ def _generate_streaming_json(payload: dict[str, Any], timeout: float,
                     last_progress = now
                 if event.get("done"):
                     if progress is not None:
-                        progress({"type": "result", "subtype": "success"})
+                        usage = {}
+                        for source, target in (
+                            ("prompt_eval_count", "input_tokens"),
+                            ("eval_count", "output_tokens"),
+                        ):
+                            count = event.get(source)
+                            if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+                                usage[target] = count
+                        progress({
+                            "type": "result",
+                            "subtype": "success",
+                            **({"usage": usage} if usage else {}),
+                        })
                     break
     except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
         return None, f"glimmer generation failed: {exc.__class__.__name__}"

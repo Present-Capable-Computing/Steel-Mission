@@ -4,6 +4,7 @@ import {
   answerDecision,
   chatAnswerText,
   chatIsActive,
+  chatTokenUsageLabel,
   pollChatJob,
   sendFollowUp,
   startChat,
@@ -45,7 +46,9 @@ export function ChatPanel({request, workMode, profile}: ChatPanelProps) {
       content: chatAnswerText(completed),
       error: failed,
     }]);
-    setJob(null);
+    // Retain the terminal progress record as the status strip for the last
+    // invocation. A new question replaces it with the next running job.
+    setJob(completed);
   };
 
   const watchJob = async (jobId: string) => {
@@ -132,7 +135,7 @@ export function ChatPanel({request, workMode, profile}: ChatPanelProps) {
   };
 
   const active = chatIsActive(job);
-  const decision = job?.progress?.decisionRequest;
+  const decision = active ? job?.progress?.decisionRequest : undefined;
   const progressLabel = job?.progress?.phase || (job?.state === "paused"
     ? "Delivery Coordinator is paused."
     : "Delivery Coordinator is checking the worker-visible state.");
@@ -158,9 +161,7 @@ export function ChatPanel({request, workMode, profile}: ChatPanelProps) {
           <article class="chat-message assistant chat-progress" data-job-state={job.state}>
             <strong>Delivery Coordinator</strong>
             <p>{progressLabel}</p>
-            {job.progress?.thinkingTokens !== undefined && (
-              <small>{job.progress.thinkingTokens.toLocaleString()} thinking tokens reported</small>
-            )}
+            <small>{chatTokenUsageLabel(job.progress)}</small>
             {decision && (
               <form class="decision-request" onSubmit={submitDecision}>
                 <fieldset>

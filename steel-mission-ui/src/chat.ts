@@ -30,6 +30,15 @@ export interface ChatProgress {
   providerLabel?: string;
   model?: string;
   thinkingTokens?: number;
+  tokenUsage?: {
+    status: "reported" | "unknown";
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
+    totalTokens?: number;
+  };
   decisionRequest?: DecisionRequest;
 }
 
@@ -59,6 +68,16 @@ async function responsePayload(response: Response, fallback: string): Promise<Ch
 
 export function chatIsActive(job: ChatJob | null): boolean {
   return Boolean(job && ["running", "waiting_for_decision", "paused"].includes(job.state));
+}
+
+export function chatTokenUsageLabel(progress: ChatProgress | undefined): string {
+  const provider = progress?.providerLabel
+    || (progress?.provider ? progress.provider.charAt(0).toUpperCase() + progress.provider.slice(1) : "");
+  const usage = progress?.tokenUsage;
+  if (usage?.status === "reported" && typeof usage.totalTokens === "number") {
+    return `${usage.totalTokens.toLocaleString()} tokens reported${provider ? ` by ${provider}` : ""}`;
+  }
+  return `Token usage unknown${provider ? ` for ${provider}` : ""}`;
 }
 
 export async function startChat(request: ChatRequester, input: StartChatInput): Promise<ChatJob> {

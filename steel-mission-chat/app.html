@@ -2846,6 +2846,14 @@ select {
   function chatIsActive(job) {
     return Boolean(job && ["running", "waiting_for_decision", "paused"].includes(job.state));
   }
+  function chatTokenUsageLabel(progress) {
+    const provider = progress?.providerLabel || (progress?.provider ? progress.provider.charAt(0).toUpperCase() + progress.provider.slice(1) : "");
+    const usage = progress?.tokenUsage;
+    if (usage?.status === "reported" && typeof usage.totalTokens === "number") {
+      return `${usage.totalTokens.toLocaleString()} tokens reported${provider ? ` by ${provider}` : ""}`;
+    }
+    return `Token usage unknown${provider ? ` for ${provider}` : ""}`;
+  }
   async function startChat(request, input) {
     const response = await request("/api/chat", {
       method: "POST",
@@ -2909,7 +2917,7 @@ select {
         content: chatAnswerText(completed),
         error: failed
       }]);
-      setJob(null);
+      setJob(completed);
     };
     const watchJob = async (jobId) => {
       try {
@@ -2992,7 +3000,7 @@ select {
       }
     };
     const active = chatIsActive(job);
-    const decision = job?.progress?.decisionRequest;
+    const decision = active ? job?.progress?.decisionRequest : void 0;
     const progressLabel = job?.progress?.phase || (job?.state === "paused" ? "Delivery Coordinator is paused." : "Delivery Coordinator is checking the worker-visible state.");
     return /* @__PURE__ */ u3("section", { class: "chat-panel", "aria-labelledby": "chatTitle", children: [
       /* @__PURE__ */ u3("header", { children: [
@@ -3009,10 +3017,7 @@ select {
         job && /* @__PURE__ */ u3("article", { class: "chat-message assistant chat-progress", "data-job-state": job.state, children: [
           /* @__PURE__ */ u3("strong", { children: "Delivery Coordinator" }),
           /* @__PURE__ */ u3("p", { children: progressLabel }),
-          job.progress?.thinkingTokens !== void 0 && /* @__PURE__ */ u3("small", { children: [
-            job.progress.thinkingTokens.toLocaleString(),
-            " thinking tokens reported"
-          ] }),
+          /* @__PURE__ */ u3("small", { children: chatTokenUsageLabel(job.progress) }),
           decision && /* @__PURE__ */ u3("form", { class: "decision-request", onSubmit: submitDecision, children: [
             /* @__PURE__ */ u3("fieldset", { children: [
               /* @__PURE__ */ u3("legend", { children: decision.question || "Choose how the Delivery Coordinator should continue." }),
