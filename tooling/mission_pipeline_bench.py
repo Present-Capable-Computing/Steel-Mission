@@ -262,6 +262,8 @@ def isolated_command_env(
         "GITHUB_TOKEN": "",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_SSH_COMMAND": "false",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_COUNT": "6",
         "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
         "GIT_CONFIG_VALUE_0": "disabled://mission-bench-command-cannot-push",
@@ -353,6 +355,10 @@ class SubprocessRunner:
                             if len(buffer) > DIAGNOSTIC_TAIL_BYTES:
                                 del buffer[:-DIAGNOSTIC_TAIL_BYTES]
                 process.wait(timeout=max(0.001, deadline - time.monotonic()))
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             except subprocess.TimeoutExpired as exc:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)

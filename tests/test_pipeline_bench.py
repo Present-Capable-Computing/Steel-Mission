@@ -306,6 +306,8 @@ class PushRunner:
         assert inherit_env is False
         assert all(extra_env[name] == "" for name in self.expected_blank)
         assert extra_env["SM_BENCH_PUSH_TOKEN"] == "local-token"
+        assert extra_env["GIT_CONFIG_GLOBAL"] == os.devnull
+        assert extra_env["GIT_CONFIG_NOSYSTEM"] == "1"
         assert extra_env["GIT_CONFIG_KEY_3"] == "core.hooksPath"
         assert Path(extra_env["GIT_CONFIG_VALUE_3"]).is_dir()
         return CommandResult(argv, 0, "pushed", "", 0.1)
@@ -745,6 +747,26 @@ def test_timeout_terminates_background_descendants_before_they_can_keep_working(
         SubprocessRunner().run([sys.executable, "-c", parent_code], tmp_path, 1)
 
     time.sleep(0.5)
+    assert not marker.exists()
+
+
+def test_successful_command_reaps_background_descendants_before_returning(tmp_path):
+    marker = tmp_path / "successful-descendant-survived"
+    child_code = (
+        "import time; from pathlib import Path; time.sleep(1); "
+        f"Path({str(marker)!r}).write_text('survived')"
+    )
+    parent_code = (
+        "import os, subprocess, sys; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}], "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "print('done')"
+    )
+
+    result = SubprocessRunner().run([sys.executable, "-c", parent_code], tmp_path, 5)
+
+    assert result.returncode == 0
+    time.sleep(1.2)
     assert not marker.exists()
 
 
