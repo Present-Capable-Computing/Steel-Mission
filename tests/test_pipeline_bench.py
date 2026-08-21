@@ -1217,19 +1217,17 @@ def test_repository_authored_gates_request_an_isolated_network(tmp_path):
     assert runner.network_access is False
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux network namespaces")
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux Landlock TCP isolation")
 def test_network_isolated_gate_cannot_reach_host_loopback(tmp_path):
     with socket.socket() as host_listener:
-        host_listener.bind(("127.0.0.1", 0))
+        host_listener.bind(("127.0.0.2", 8765))
         host_listener.listen()
-        host_port = host_listener.getsockname()[1]
         script = (
             "import socket\n"
-            f"host_port = {host_port}\n"
             "probe = socket.socket()\n"
             "probe.settimeout(0.5)\n"
             "try:\n"
-            "    probe.connect(('127.0.0.1', host_port))\n"
+            "    probe.connect(('127.0.0.2', 8765))\n"
             "except OSError:\n"
             "    pass\n"
             "else:\n"

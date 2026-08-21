@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import fcntl
 import json
 import os
 import re
@@ -18,9 +17,7 @@ import secrets
 import selectors
 import shutil
 import signal
-import socket
 import stat
-import struct
 import subprocess
 import sys
 import tempfile
@@ -301,13 +298,23 @@ def protect_parent_credentials() -> None:
 
 
 class _LandlockRulesetAttr(ctypes.Structure):
-    _fields_ = [("handled_access_fs", ctypes.c_uint64)]
+    _fields_ = [
+        ("handled_access_fs", ctypes.c_uint64),
+        ("handled_access_net", ctypes.c_uint64),
+    ]
 
 
 class _LandlockPathBeneathAttr(ctypes.Structure):
     _fields_ = [
         ("allowed_access", ctypes.c_uint64),
         ("parent_fd", ctypes.c_int32),
+    ]
+
+
+class _LandlockNetPortAttr(ctypes.Structure):
+    _fields_ = [
+        ("allowed_access", ctypes.c_uint64),
+        ("port", ctypes.c_uint64),
     ]
 
 
@@ -341,10 +348,24 @@ def _landlock_abi() -> int:
     return int(result)
 
 
+def _gate_tcp_ports() -> tuple[int, ...]:
+    """Allow test-owned ephemeral TCP only, never the product control plane."""
+    try:
+        values = Path("/proc/sys/net/ipv4/ip_local_port_range").read_text().split()
+        lower, upper = (int(value) for value in values)
+    except (OSError, TypeError, ValueError) as exc:
+        raise BenchError("cannot read the Linux ephemeral TCP port range") from exc
+    if len(values) != 2 or not 1024 <= lower <= upper <= 65535:
+        raise BenchError("Linux ephemeral TCP port range is invalid")
+    control_plane_port = 8765
+    return (0, *(port for port in range(lower, upper + 1) if port != control_plane_port))
+
+
 def _restrict_filesystem_with_landlock(
     abi: int,
     read_roots: tuple[str, ...],
     write_roots: tuple[str, ...],
+    allowed_tcp_ports: tuple[int, ...] | None = None,
 ) -> None:
     execute = 1 << 0
     read_file = 1 << 2
@@ -356,9 +377,20 @@ def _restrict_filesystem_with_landlock(
         handled |= 1 << 14
     read_access = execute | read_file | read_dir
     write_access = handled
+    network_access = 0
+    if allowed_tcp_ports is not None:
+        if abi < 4:
+            raise OSError(95, "Landlock TCP isolation requires ABI 4 or newer")
+        network_access = (1 << 0) | (1 << 1)
     libc = ctypes.CDLL(None, use_errno=True)
-    ruleset = _LandlockRulesetAttr(handled_access_fs=handled)
-    ruleset_fd = libc.syscall(444, ctypes.byref(ruleset), ctypes.sizeof(ruleset), 0)
+    ruleset = _LandlockRulesetAttr(
+        handled_access_fs=handled,
+        handled_access_net=network_access,
+    )
+    ruleset_size = ctypes.sizeof(ctypes.c_uint64)
+    if network_access:
+        ruleset_size = ctypes.sizeof(ruleset)
+    ruleset_fd = libc.syscall(444, ctypes.byref(ruleset), ruleset_size, 0)
     if ruleset_fd < 0:
         raise OSError(ctypes.get_errno(), "cannot create Landlock ruleset")
     opened: list[int] = []
@@ -377,6 +409,13 @@ def _restrict_filesystem_with_landlock(
             )
             if libc.syscall(445, ruleset_fd, 1, ctypes.byref(rule), 0) != 0:
                 raise OSError(ctypes.get_errno(), f"cannot add Landlock rule for {path}")
+        for port in allowed_tcp_ports or ():
+            rule = _LandlockNetPortAttr(
+                allowed_access=network_access,
+                port=port,
+            )
+            if libc.syscall(445, ruleset_fd, 2, ctypes.byref(rule), 0) != 0:
+                raise OSError(ctypes.get_errno(), f"cannot add Landlock TCP rule for port {port}")
         if libc.prctl(38, 1, 0, 0, 0) != 0:
             raise OSError(ctypes.get_errno(), "cannot enable no-new-privileges")
         if libc.syscall(446, ruleset_fd, 0) != 0:
@@ -417,42 +456,6 @@ def _deny_descendant_process_group_escape() -> None:
         raise OSError(ctypes.get_errno(), "cannot enable no-new-privileges")
     if libc.prctl(22, 2, ctypes.byref(program)) != 0:
         raise OSError(ctypes.get_errno(), "cannot install process-containment filter")
-
-
-def _bring_up_private_loopback() -> None:
-    """Enable loopback after the trusted namespace launcher has isolated it."""
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
-        request = struct.pack("16sh", b"lo", 0)
-        flags = struct.unpack(
-            "16sh",
-            fcntl.ioctl(control.fileno(), 0x8913, request),
-        )[1]
-        fcntl.ioctl(
-            control.fileno(),
-            0x8914,
-            struct.pack("16sh", b"lo", flags | 0x1),
-        )
-
-
-def _network_sandbox_exec(configuration_text: str, argv: list[str]) -> int:
-    """Trusted inner launcher: constrain the new namespace, then exec the gate."""
-    try:
-        configuration = json.loads(configuration_text)
-        landlock = configuration["landlock"]
-        abi = int(landlock["abi"])
-        read_roots = tuple(str(path) for path in landlock["readRoots"])
-        write_roots = tuple(str(path) for path in landlock["writeRoots"])
-        deny_process_escape = configuration["denyProcessGroupEscape"] is True
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise BenchError("network sandbox received invalid trusted configuration") from exc
-    if not argv or not all(isinstance(item, str) and item for item in argv):
-        raise BenchError("network sandbox received an invalid command")
-    _bring_up_private_loopback()
-    _restrict_filesystem_with_landlock(abi, read_roots, write_roots)
-    if deny_process_escape:
-        _deny_descendant_process_group_escape()
-    os.execv(argv[0], argv)
-    return 127
 
 
 def isolated_command_env(
@@ -601,7 +604,12 @@ class SubprocessRunner:
         if not network_access and not sys.platform.startswith("linux"):
             raise BenchError("network-isolated repository commands require Linux")
         execution_argv = list(argv)
-        landlock_setup: tuple[int, tuple[str, ...], tuple[str, ...]] | None = None
+        landlock_setup: tuple[
+            int,
+            tuple[str, ...],
+            tuple[str, ...],
+            tuple[int, ...] | None,
+        ] | None = None
         if not inherit_env and sys.platform.startswith("linux"):
             located = execution_argv[0] if os.path.isabs(execution_argv[0]) else shutil.which(
                 execution_argv[0],
@@ -632,53 +640,11 @@ class SubprocessRunner:
                 abi,
                 tuple(dict.fromkeys(read_roots)),
                 tuple(dict.fromkeys(write_roots)),
+                None if network_access else _gate_tcp_ports(),
             )
-        network_wrapped = False
-        if not network_access:
-            if landlock_setup is None:
-                raise BenchError("network isolation requires the untrusted Linux filesystem sandbox")
-            unshare_location = shutil.which("unshare", path=os.defpath)
-            if not unshare_location:
-                raise BenchError("trusted Linux network-namespace launcher is unavailable")
-            unshare = Path(unshare_location).resolve()
-            try:
-                metadata = unshare.stat()
-            except OSError as exc:
-                raise BenchError("trusted Linux network-namespace launcher is unreadable") from exc
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_uid != 0
-                or metadata.st_mode & 0o022
-                or not os.access(unshare, os.X_OK)
-            ):
-                raise BenchError("Linux network-namespace launcher is not a trusted system executable")
-            abi, read_roots, write_roots = landlock_setup
-            configuration = json.dumps({
-                "landlock": {
-                    "abi": abi,
-                    "readRoots": read_roots,
-                    "writeRoots": write_roots,
-                },
-                "denyProcessGroupEscape": PARENT_CONTAINMENT_READY,
-            }, separators=(",", ":"))
-            execution_argv = [
-                str(unshare),
-                "--user",
-                "--map-root-user",
-                "--net",
-                "--",
-                str(Path(sys.executable).resolve()),
-                str(Path(__file__).resolve()),
-                "--network-sandbox-exec",
-                configuration,
-                "--",
-                *execution_argv,
-            ]
-            landlock_setup = None
-            network_wrapped = True
         preexec_fn = None
         if landlock_setup is not None or (
-            sys.platform.startswith("linux") and PARENT_CONTAINMENT_READY and not network_wrapped
+            sys.platform.startswith("linux") and PARENT_CONTAINMENT_READY
         ):
             def child_setup() -> None:
                 if landlock_setup is not None:
@@ -2510,16 +2476,11 @@ class PipelineBench:
 
 
 def main(argv: list[str] | None = None) -> int:
-    arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments and arguments[0] == "--network-sandbox-exec":
-        if len(arguments) < 4 or arguments[2] != "--":
-            raise BenchError("network sandbox launcher arguments are invalid")
-        return _network_sandbox_exec(arguments[1], arguments[3:])
     parser = argparse.ArgumentParser(description="Run a granted mission through the disposable C1 pipeline bench")
     parser.add_argument("--grant", required=True, type=Path, help="Path to the immutable JSON grant")
     parser.add_argument("--state-dir", required=True, type=Path, help="Runtime state directory outside the product tree")
     parser.add_argument("--repository", type=Path, default=REPO_ROOT, help="Main repository checkout")
-    args = parser.parse_args(arguments)
+    args = parser.parse_args(argv)
     try:
         result = PipelineBench(
             args.grant,
