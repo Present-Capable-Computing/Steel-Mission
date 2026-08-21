@@ -5038,6 +5038,33 @@ def test_model_role_resolution_refuses_a_model_unknown_to_its_provider(tmp_path,
         cli._resolve_model_policy("dc13.coordination-report", require_ready=False)
 
 
+def test_previous_v1_registry_migrates_the_legacy_codex_binding(tmp_path, monkeypatch):
+    cli = _load_cli_module()
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    codex = next(model for model in registry["models"] if model["provider"] == "codex")
+    current_id = codex["id"]
+    codex["id"] = "codex-cli-default"
+    codex["nativeCapabilities"] = [
+        capability for capability in codex["nativeCapabilities"]
+        if not capability.startswith("reasoning-effort:")
+    ]
+    for role in registry["roles"]:
+        if role["primaryModel"] == current_id:
+            role["primaryModel"] = codex["id"]
+        role["fallbackModels"] = [
+            codex["id"] if model == current_id else model for model in role["fallbackModels"]
+        ]
+    path = tmp_path / "model-role-registry.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setenv(cli.MODEL_ROLE_REGISTRY_ENV, str(path))
+
+    policy = cli._resolve_model_policy("dc13.coordination-report", require_ready=False)
+
+    assert policy["selectedModel"] == "gpt-5.6-sol"
+    assert "reasoning-effort:xhigh" in policy["nativeCapabilities"]
+    assert cli._validated_model_invocation(policy) == ("gpt-5.6-sol", "xhigh")
+
+
 def test_model_role_refuses_provider_that_lacks_required_native_capability():
     cli = _load_cli_module()
 

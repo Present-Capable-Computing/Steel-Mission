@@ -44,6 +44,9 @@ MISSIONS_DIR_DEFAULT = WORKER_DIR / "missions"
 DEFAULT_COORDINATOR_ROLE = "dc13.coordination-report"
 DEFAULT_RUNTIME_PROFILE = "dc13.auto"
 REASONING_EFFORT_CAPABILITY_PREFIX = "reasoning-effort:"
+LEGACY_MODEL_BINDINGS = {
+    ("codex", "codex-cli-default"): ("gpt-5.6-sol", "xhigh"),
+}
 DOMAIN_CAPABILITY_ROLE_KEYS = {
     "DC13",
     "DC01",
@@ -201,6 +204,52 @@ def _reasoning_effort(capabilities: Any) -> tuple[str | None, str | None]:
     return (values[0], None) if values else (None, None)
 
 
+def _migrate_legacy_model_role_registry(registry: dict) -> dict:
+    """Normalize known v1 logical ids before provider validation and dispatch."""
+    if registry.get("schemaVersion") != 1:
+        return registry
+    migrations: dict[str, str] = {}
+    models = []
+    for model in registry.get("models", []):
+        if not isinstance(model, dict):
+            models.append(model)
+            continue
+        legacy_id = model.get("id")
+        binding = LEGACY_MODEL_BINDINGS.get((model.get("provider"), legacy_id))
+        if binding is None:
+            models.append(model)
+            continue
+        model_id, default_effort = binding
+        configured_capabilities = model.get("nativeCapabilities")
+        capabilities = (
+            list(configured_capabilities)
+            if isinstance(configured_capabilities, list)
+            else configured_capabilities
+        )
+        effort, effort_error = _reasoning_effort(capabilities)
+        if isinstance(capabilities, list) and effort is None and effort_error is None:
+            capabilities.append(f"{REASONING_EFFORT_CAPABILITY_PREFIX}{default_effort}")
+        migrations[str(legacy_id)] = model_id
+        models.append({**model, "id": model_id, "nativeCapabilities": capabilities})
+    if not migrations:
+        return registry
+    roles = []
+    for role in registry.get("roles", []):
+        if not isinstance(role, dict):
+            roles.append(role)
+            continue
+        fallback_models = role.get("fallbackModels")
+        roles.append({
+            **role,
+            "primaryModel": migrations.get(role.get("primaryModel"), role.get("primaryModel")),
+            "fallbackModels": [
+                migrations.get(model_id, model_id)
+                for model_id in fallback_models
+            ] if isinstance(fallback_models, list) else fallback_models,
+        })
+    return {**registry, "models": models, "roles": roles}
+
+
 def _model_binding_error(provider: str, model: str, effort: str | None) -> str | None:
     validators = {
         "claude": claude_adapter.model_binding_error,
@@ -289,6 +338,7 @@ def _load_model_role_registry() -> dict:
         ) from exc
     if not isinstance(registry, dict):
         raise common.TaskBundleError("model role registry must be an object")
+    registry = _migrate_legacy_model_role_registry(registry)
     errors = _model_role_registry_errors(registry)
     if errors:
         raise common.TaskBundleError(f"model role registry is invalid: {errors[0]}")
