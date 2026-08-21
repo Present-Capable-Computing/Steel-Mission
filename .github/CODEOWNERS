@@ -1,22 +1,29 @@
 # Review ownership. A path listed here requires its owner's review before merge
 # once branch protection is enforcing reviews.
 #
+# @sm-agent-claude is the acceptance account (PRJ-0001-D9): a machine account
+# whose approval is what lands a mission pull request. It co-owns non-authority
+# paths only. Every authority-owned or trust-boundary path below names the
+# maintainer alone, so a mission touching one escalates instead of merging.
+# These entries are inert until the account exists and holds write access.
+#
 # Default owner for anything not matched below.
-*                               @andrewHermann
+*                               @andrewHermann @sm-agent-claude
 
 # Authority-owned contracts. These are the schema surface; changing one can
 # require ratification independently of the pull request that carries it.
+# Human-owned: the acceptance account never approves here.
 /schemas/                       @andrewHermann
 /schemas/canonical/             @andrewHermann
 /schemas/schema-registry.json   @andrewHermann
 
 # Trust boundaries: the SSH forced-command guard, the control plane, and any
-# network-listening service.
+# network-listening service. Human-owned.
 /bin/                           @andrewHermann
 /steel-mission-chat/            @andrewHermann
 /adapters/                      @andrewHermann
 
-# Supply chain and release surface.
+# Supply chain and release surface. Human-owned.
 /.github/workflows/             @andrewHermann
 /Dockerfile.private-runner      @andrewHermann
 /requirements-dev.txt           @andrewHermann
@@ -24,12 +31,14 @@
 /package-lock.json              @andrewHermann
 
 # The durable core. Every transaction boundary, lease, fence token and state
-# transition in the project lives here once P1 starts.
-/steel_core/                    @andrewHermann
+# transition in the project lives here once P1 starts. Mission work lands here,
+# so the acceptance account co-owns it.
+/steel_core/                    @andrewHermann @sm-agent-claude
 
 # The plan layer. These records are the source of truth for the shape of the
 # delivery work, and docs/workplan.md is what other people are relying on: a rule
-# changed without review is a rule that was never agreed.
+# changed without review is a rule that was never agreed. Human-owned, except
+# tooling/, where the bench and mission tooling live.
 /plan/                          @andrewHermann
 /docs/workplan.md               @andrewHermann
-/tooling/                       @andrewHermann
+/tooling/                       @andrewHermann @sm-agent-claude
