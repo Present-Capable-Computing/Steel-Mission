@@ -348,7 +348,11 @@ def test_session_guardrails_are_recorded_on_every_surface():
         "the bench must be blocked on the Founder's machine-account act, "
         "or a session starts work whose acceptance is unreachable"
     )
-    assert "700" in bench["acceptance"], "the bench's line ceiling is printed"
+    assert "2200" in bench["acceptance"], "the bench's line ceiling is printed"
+    assert "700" in bench["acceptance"], (
+        "the original ceiling stays printed; a threshold history that vanishes "
+        "is a threshold that was never really revised"
+    )
     assert set(bench["allowedPaths"]) == {"tooling/", "tests/"}, (
         "the bench never enters product code; that is the D7 boundary"
     )
