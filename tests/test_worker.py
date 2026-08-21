@@ -6071,6 +6071,20 @@ def test_model_env_is_independent_of_the_invoking_session():
 SCHEMA_AUTHORITY_DIVERGENCES: dict[str, str] = {}
 
 
+def test_agent_session_status_feed_contract_accepts_and_rejects_authority_fixtures():
+    fixtures = WORKER_DIR / "schemas" / "fixtures"
+    valid = json.loads((fixtures / "valid" / "agent-session-status-v1.working.json").read_text())
+    invalid = json.loads(
+        (fixtures / "invalid" / "agent-session-status-v1.waiting-without-decision.json").read_text()
+    )
+
+    schema_name = "canonical/agent-session-status-v1.json"
+    assert schema_check.validate(valid, schema_name) == []
+    assert schema_check.validate(invalid, schema_name)
+    assert valid["lastEvent"]["sequence"] == valid["sequence"]
+    assert valid["budgetSpent"].keys() == {"elapsedSeconds", "turns"}
+
+
 def test_schema_registry_admission_rejects_malformed_registry(tmp_path, monkeypatch):
     bad_registry = json.loads(common.SCHEMA_REGISTRY_PATH.read_text())
     del bad_registry["producer"]

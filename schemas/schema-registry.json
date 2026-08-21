@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "producedAt": "2026-08-18T00:00:00Z",
+  "producedAt": "2026-08-21T00:00:00Z",
   "producer": "present-schema-registry",
   "schemas": [
     {
@@ -63,6 +63,23 @@
       "lifecycle": "active",
       "compatibility": "initial",
       "introducedAt": "2026-08-18"
+    },
+    {
+      "id": "agent-session-status-v1",
+      "version": 1,
+      "schemaFile": "agent-session-status-v1.json",
+      "owner": "schema-authority",
+      "artifactKind": "agent-session-status",
+      "producer": "steel-mission-bench",
+      "validationPoints": [
+        "bench-feed-write",
+        "progress-feed-read",
+        "store-status-write",
+        "runner-status-transport"
+      ],
+      "lifecycle": "active",
+      "compatibility": "initial",
+      "introducedAt": "2026-08-21"
     },
     {
       "id": "artifact-integrity-ledger-v1",
