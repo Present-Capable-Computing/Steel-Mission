@@ -254,6 +254,158 @@ def test_running_server_persists_configuration_outside_the_product_tree(tmp_path
         stop_server(process)
 
 
+def test_running_server_seeds_installation_identity_without_touching_the_product(
+    tmp_path, daemon_process_manager
+):
+    product = tmp_path / "product"
+    product.mkdir()
+    (product / "bin").mkdir()
+    shutil.copy2(STEEL_MISSION, product / "bin" / "steel-mission")
+    for directory in ("adapters", "config", "schemas", "starter-company", "steel-mission-chat"):
+        shutil.copytree(WORKER_DIR / directory, product / directory)
+
+    shipped_before = {
+        path.relative_to(product): path.read_bytes()
+        for directory in ("config", "starter-company")
+        for path in (product / directory).rglob("*")
+        if path.is_file()
+    }
+    seed_dir = tmp_path / "installation-config-seed"
+    seed_dir.mkdir()
+    organization_registry = json.loads(
+        (product / "config" / "organizations.json").read_text()
+    )
+    organization = organization_registry["organizations"][0]
+    organization.update({
+        "id": "steel-mission",
+        "name": "Steel Mission",
+        "slug": "steel-mission",
+        "identifiers": {
+            "legalName": "Steel Mission",
+            "domain": "",
+            "country": "CH",
+            "environment": "local",
+            "dataClassification": "installation-private",
+        },
+        "knowledgeSources": {"repositories": [], "documents": []},
+        "notes": "Installation-owned configuration used only by this test.",
+    })
+    organization_registry["activeOrganizationId"] = "steel-mission"
+    (seed_dir / "organizations.json").write_text(
+        json.dumps(organization_registry, indent=2) + "\n"
+    )
+    (seed_dir / "users.json").write_text(json.dumps({
+        "schemaVersion": 1,
+        "producedAt": "2026-08-21T00:00:00Z",
+        "producer": "installation-config-seed",
+        "users": [{
+            "id": "andrew-hermann",
+            "name": "Andrew Hermann",
+            "email": "",
+            "role": "owner",
+            "status": "active",
+            "assignedCapabilities": [],
+            "organizationIds": ["steel-mission"],
+            "identitySubjects": [],
+            "externalIdentities": {"github": [], "slack": [], "jira": []},
+        }],
+    }, indent=2) + "\n")
+
+    state_home = tmp_path / "state"
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    environment = {
+        "XDG_STATE_HOME": str(state_home),
+        "STEEL_MISSION_CONFIG_SEED_DIR": str(seed_dir),
+        "STEEL_MISSION_HOST": "127.0.0.1",
+        "STEEL_MISSION_PORT": str(port),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    base_url = f"http://127.0.0.1:{port}"
+
+    def request_json(path: str) -> dict:
+        with urlopen(base_url + path, timeout=2) as response:
+            return json.loads(response.read())
+
+    def start_server():
+        process = daemon_process_manager.start(
+            [str(product / "bin" / "steel-mission"), "serve"],
+            name="installation-seed-server",
+            cwd=product,
+            env=environment,
+        )
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if process.process.poll() is not None:
+                raise AssertionError(
+                    f"server exited during startup: {process.stdout()}\n{process.stderr()}"
+                )
+            try:
+                request_json("/api/health")
+                return process
+            except OSError:
+                time.sleep(0.05)
+        raise AssertionError(
+            f"server did not become healthy: {process.stdout()}\n{process.stderr()}"
+        )
+
+    process = start_server()
+    whoami = request_json("/api/auth/whoami")["actor"]
+    assert whoami["actorId"] == "andrew-hermann"
+    assert whoami["role"] == "owner"
+    assert whoami["organizationId"] == "steel-mission"
+    users = request_json("/api/owner/users")["users"]
+    assert [(user["name"], user["role"]) for user in users] == [
+        ("Andrew Hermann", "owner")
+    ]
+    organizations = request_json("/api/owner/organizations")
+    assert organizations["payload"]["activeOrganizationId"] == "steel-mission"
+    assert [item["name"] for item in organizations["payload"]["organizations"]] == [
+        "Steel Mission"
+    ]
+
+    runtime_config = state_home / "steel-mission" / "config"
+    first_seed = {
+        name: (runtime_config / name).read_bytes()
+        for name in ("organizations.json", "users.json")
+    }
+    process.stop()
+
+    restarted = start_server()
+    assert request_json("/api/auth/whoami")["actor"]["actorId"] == "andrew-hermann"
+    assert {
+        name: (runtime_config / name).read_bytes()
+        for name in ("organizations.json", "users.json")
+    } == first_seed
+    restarted.stop()
+
+    assert {
+        path.relative_to(product): path.read_bytes()
+        for directory in ("config", "starter-company")
+        for path in (product / directory).rglob("*")
+        if path.is_file()
+    } == shipped_before
+
+
+def test_installation_config_seed_refuses_symlinks(tmp_path, monkeypatch):
+    import runpy
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    shipped = tmp_path / "shipped" / "users.json"
+    shipped.parent.mkdir()
+    shipped.write_text("{}\n")
+    seed_dir = tmp_path / "config-seed"
+    seed_dir.mkdir()
+    target = tmp_path / "outside.json"
+    target.write_text("{}\n")
+    (seed_dir / "users.json").symlink_to(target)
+    monkeypatch.setenv("STEEL_MISSION_CONFIG_SEED_DIR", str(seed_dir))
+
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        chat["installation_config_seed_source"](shipped, tmp_path / "state")
+
+
 def test_status_schema_valid():
     code, payload = run_worker("status")
     assert code == 0
