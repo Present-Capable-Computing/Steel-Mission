@@ -8906,6 +8906,44 @@ def test_steel_mission_registered_user_role_outranks_loopback_header_claim(monke
         chat["require_actor_role"](actor, {"owner"})
 
 
+def test_steel_mission_stale_loopback_identity_falls_back_to_the_registered_owner(
+    tmp_path, monkeypatch
+):
+    import runpy
+    from types import SimpleNamespace
+
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["authenticate_http_request"].__globals__
+    user_registry = json.loads((WORKER_DIR / "config" / "users.json").read_text())
+    owner = next(user for user in user_registry["users"] if user["role"] == "owner")
+    owner["id"] = "installation-owner"
+    (tmp_path / "users.json").write_text(json.dumps(user_registry))
+    globals_["AUTH_POLICY_PATH"] = WORKER_DIR / "config" / "auth-policy.json"
+    globals_["USER_REGISTRY_PATH"] = tmp_path / "users.json"
+    globals_["ORGANIZATION_REGISTRY_PATH"] = WORKER_DIR / "config" / "organizations.json"
+    globals_["AUTH_AUDIT_LEDGER_PATH"] = tmp_path / "auth-audit.jsonl"
+    monkeypatch.delenv("PRESENT_IDENTITY_MODE", raising=False)
+    request = SimpleNamespace(
+        headers={"X-Present-Role": "owner", "X-Present-Actor": "removed-owner"},
+        client_address=("127.0.0.1", 51000),
+    )
+
+    actor = chat["authenticate_http_request"](request, "/api/owner/users", "GET")
+
+    assert actor["actorId"] == "installation-owner"
+    assert actor["role"] == "owner"
+    assert actor["identitySource"] == "user-registry"
+    audit = [json.loads(line) for line in (tmp_path / "auth-audit.jsonl").read_text().splitlines()]
+    assert audit[-1]["action"] == "stale-development-identity-discarded"
+    assert audit[-1]["actorId"] == "removed-owner"
+    assert audit[-1]["details"] == {
+        "path": "/api/owner/users",
+        "declaredRole": "owner",
+        "reason": "declared actor is not an active registered user",
+        "resolvedActorId": "installation-owner",
+    }
+
+
 def test_steel_mission_external_kms_signer_is_used_for_mission_integrity(tmp_path, monkeypatch):
     import runpy
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
