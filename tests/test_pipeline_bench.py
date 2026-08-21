@@ -263,6 +263,7 @@ class ProtectionRunner:
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
         assert argv[:2] == ["gh", "api"]
+        assert extra_env == {"GH_TOKEN": "local-token"}
         assert complete_stdout is True
         return CommandResult(argv, 0, json.dumps(self.protection), "", 0.1)
 
@@ -331,7 +332,10 @@ def protected_repository():
             "dismiss_stale_reviews": True,
         },
         "required_conversation_resolution": {"enabled": True},
-        "required_status_checks": {"checks": [{"context": "interpreter-checks"}]},
+        "required_status_checks": {
+            "strict": True,
+            "checks": [{"context": "interpreter-checks"}],
+        },
     }
 
 
@@ -413,6 +417,30 @@ def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
         bench.run()
 
     assert platform.calls == ["issue"]
+
+
+def test_security_review_label_added_during_execution_stops_before_push(tmp_path):
+    changed_issue = issue(labels=["task", "security-review"])
+
+    class RelabelledPlatform(FakePlatform):
+        def issue(self, grant_value, timeout=None):
+            if self.calls.count("issue"):
+                self.issue_payload = changed_issue
+            return super().issue(grant_value, timeout)
+
+    platform = RelabelledPlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="security-review"):
+        bench.run()
+
+    assert "push" not in platform.calls
 
 
 def test_unclean_plan_waits_on_existing_decision_flow_then_replans_inside_grant(tmp_path):
@@ -848,7 +876,8 @@ def test_grant_rejects_free_form_abort_conditions():
         mission_bench.validate_grant(value)
 
 
-def test_repository_wall_requires_claude_acceptance_without_authority_ownership(tmp_path):
+def test_repository_wall_requires_claude_acceptance_without_authority_ownership(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_text(
@@ -863,7 +892,8 @@ def test_repository_wall_requires_claude_acceptance_without_authority_ownership(
     platform.validate_repository_wall(grant())
 
 
-def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path):
+def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_text("* @sm-agent-claude\n")
@@ -875,7 +905,8 @@ def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path
         platform.validate_repository_wall(grant())
 
 
-def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(tmp_path):
+def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_text(
@@ -893,7 +924,10 @@ def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(t
 
 
 @pytest.mark.parametrize("machine_login", ["sm-agent-codex", "SM-AGENT-QWEN"])
-def test_repository_wall_rejects_every_machine_account_as_authority_owner(tmp_path, machine_login):
+def test_repository_wall_rejects_every_machine_account_as_authority_owner(
+    tmp_path, monkeypatch, machine_login
+):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_text(
@@ -906,6 +940,25 @@ def test_repository_wall_rejects_every_machine_account_as_authority_owner(tmp_pa
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
+        platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_requires_checks_against_the_current_base(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+    protection = protected_repository()
+    protection["required_status_checks"]["strict"] = False
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
+
+    with pytest.raises(BenchError, match="current base branch"):
         platform.validate_repository_wall(grant())
 
 

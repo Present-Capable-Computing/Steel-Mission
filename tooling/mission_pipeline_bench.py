@@ -522,7 +522,8 @@ class GitHubPlatform:
         result = self._run([
             "gh", "api",
             f"repos/{grant['repository']}/branches/{grant['baseBranch']}/protection",
-        ], complete_stdout=True, label="branch protection read")
+        ], extra_env=self._account_env(grant, "local"), complete_stdout=True,
+            label="branch protection read")
         try:
             protection = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
@@ -542,6 +543,8 @@ class GitHubPlatform:
             raise BenchError("branch protection must require review conversation resolution")
         if not isinstance(required_checks, list) or not required_checks:
             raise BenchError("branch protection must require continuous-integration checks")
+        if not isinstance(checks, dict) or checks.get("strict") is not True:
+            raise BenchError("required checks must cover the current base branch")
         acceptance_login = grant["machineAccounts"]["claude"]["login"]
         machine_logins = {
             account["login"].lower() for account in grant["machineAccounts"].values()
@@ -1334,13 +1337,19 @@ class PipelineBench:
                     f"abort condition matched changed repository paths: {matched}"
                 )
 
-    def _enforce_contract_abort_condition(self, budget: StageBudget) -> None:
+    def _enforce_live_issue_guards(self, budget: StageBudget) -> None:
+        issue = self.platform.issue(self.grant, budget.remaining())
+        labels = {
+            str(item.get("name")) for item in issue.get("labels", [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        if "security-review" in labels:
+            raise BenchError("mission bench refuses issues labelled security-review")
         if not any(
             condition["kind"] == "grant-drift"
             for condition in self.grant["abortConditions"]
         ):
             return
-        issue = self.platform.issue(self.grant, budget.remaining())
         requirement = issue_section(str(issue.get("body") or ""), "Requirement")
         acceptance = issue_section(str(issue.get("body") or ""), "Acceptance evidence")
         if (
@@ -1355,7 +1364,6 @@ class PipelineBench:
         budget: StageBudget,
         contract: str,
     ) -> None:
-        self._enforce_contract_abort_condition(budget)
         self._enforce_path_abort_conditions(paths)
         self._stop_for_authority_paths(paths, budget, contract)
 
@@ -1506,6 +1514,7 @@ class PipelineBench:
         self._save_evidence()
         self._emit("develop", "idle", "Local developer commit and all pre-push gates are green.", develop_budget, event_kind="stage-completed")
 
+        self._enforce_live_issue_guards(develop_budget)
         self.platform.push(self.grant, worktree)
         body_path = self.session_dir / "pull-request.md"
         body_path.write_text(self._pr_body())
@@ -1563,6 +1572,7 @@ class PipelineBench:
             })
             self.evidence["reviewCorrectionRounds"] = corrections
             self._save_evidence()
+            self._enforce_live_issue_guards(develop_budget)
             self.platform.push(self.grant, worktree)
         if clean_review is None:
             raise BenchError("Codex review loop exhausted its bounded correction rounds")
@@ -1574,7 +1584,7 @@ class PipelineBench:
         )
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
-        self._enforce_contract_abort_condition(acceptance_budget)
+        self._enforce_live_issue_guards(acceptance_budget)
         self.platform.assert_pr_head(
             self.grant,
             int(pull_request["number"]),
@@ -1610,7 +1620,7 @@ class PipelineBench:
         if acceptance.get("verdict") != "approve":
             raise BenchError(f"Claude acceptance rejected the mission: {acceptance.get('summary')}")
         summary = require_text(acceptance.get("summary"), "acceptance summary")
-        self._enforce_contract_abort_condition(acceptance_budget)
+        self._enforce_live_issue_guards(acceptance_budget)
         self.platform.assert_pr_head(
             self.grant,
             int(pull_request["number"]),
