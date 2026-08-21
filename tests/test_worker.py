@@ -537,6 +537,62 @@ def test_codex_live_fix_uses_supported_noninteractive_approval_config(tmp_path):
         codex_adapter.common.run = original_run
 
 
+def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical():
+    captured = {}
+    original_auth = codex_adapter.authenticated
+    original_run = codex_adapter.common.run
+    try:
+        codex_adapter.authenticated = lambda: (True, {})
+
+        def fake_run(command, *args, **kwargs):
+            captured["command"] = command
+            captured["input"] = kwargs.get("input")
+            schema_path = Path(command[command.index("--output-schema") + 1])
+            captured["schema"] = json.loads(schema_path.read_text())
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(json.dumps({
+                "summary": "One live record needs attention.",
+                "items": [{
+                    "subject": "DEV-900188",
+                    "status": "ACTIVE",
+                    "stateClass": "canonical",
+                    "source": "worker snapshot",
+                    "freshness": "current",
+                    "note": None,
+                }],
+                "notChecked": [],
+                "contradictions": [],
+                "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE,
+            }))
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        codex_adapter.common.run = fake_run
+        payload = codex_adapter.coordinator_report(
+            "DEV-900188",
+            "live",
+            "What needs attention?",
+            {"tasks": [{"taskId": "DEV-900188", "state": "active"}]},
+            {"probe": "ok", "packageId": "DC13", "corpusGeneration": 1, "currentThrough": "today"},
+        )
+
+        command = captured["command"]
+        assert command[:4] == ["codex", "--ask-for-approval", "never", "exec"]
+        assert command[command.index("--sandbox") + 1] == "read-only"
+        assert "--output-schema" in command
+        item_schema = captured["schema"]["properties"]["items"]["items"]
+        assert item_schema["required"] == ["subject", "status", "stateClass", "source", "freshness", "note"]
+        assert item_schema["properties"]["note"]["type"] == ["string", "null"]
+        assert "STATE" in captured["input"]
+        assert payload["producer"] == "steel-mission coordination-report (codex)"
+        assert payload["mock"] is False
+        assert payload["packIdentity"]["probe"] == "ok"
+        assert "note" not in payload["items"][0]
+        assert schema_check.validate(payload, "canonical/coordination-report-v1.json") == []
+    finally:
+        codex_adapter.authenticated = original_auth
+        codex_adapter.common.run = original_run
+
+
 def test_codex_diff_stat_counts_untracked_files(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
@@ -4908,6 +4964,34 @@ def test_model_role_auto_falls_back_to_ready_glimmer():
     assert policy["fallbackReason"] == "primary-unavailable"
 
 
+def test_coordinator_role_prefers_codex_and_names_registry_fallback_when_unavailable():
+    cli = _load_cli_module()
+
+    preferred = cli._resolve_model_policy(
+        "dc13.coordination-report",
+        provider_capabilities={
+            "codex": {"ready": True},
+            "claude": {"ready": True},
+            "glimmer": {"ready": True},
+        },
+    )
+    fallback = cli._resolve_model_policy(
+        "dc13.coordination-report",
+        provider_capabilities={
+            "codex": {"ready": False},
+            "claude": {"ready": True},
+            "glimmer": {"ready": True},
+        },
+    )
+
+    assert preferred["provider"] == "codex"
+    assert preferred["selectedModel"] == "codex-cli-default"
+    assert "fallbackReason" not in preferred
+    assert fallback["provider"] == "claude"
+    assert fallback["selectedModel"] == "claude-sonnet-5"
+    assert fallback["fallbackReason"] == "primary-unavailable"
+
+
 def test_model_role_refuses_provider_that_lacks_required_native_capability():
     cli = _load_cli_module()
 
@@ -4924,7 +5008,9 @@ def test_runtime_profile_registry_validates_and_resolves_local_profile():
     code, registry = run_worker("runtime-profiles")
     assert code == 0
     assert schema_check.validate(registry, "canonical/runtime-profile-registry-v1.json") == []
-    assert {profile["id"] for profile in registry["profiles"]} >= {"dc13.auto", "dc13.local", "dc13.claude"}
+    assert {profile["id"] for profile in registry["profiles"]} >= {
+        "dc13.auto", "dc13.codex", "dc13.local", "dc13.claude",
+    }
 
     code, resolution = run_worker("runtime-profile-resolve", "dc13.local", "--ignore-readiness")
 
@@ -4955,6 +5041,30 @@ def test_runtime_profile_registry_validates_and_resolves_local_profile():
     }
     assert resolution["snapshotPolicy"]["sourceProfile"] == "worker-local-glimmer-fallback"
     assert "${" not in json.dumps(resolution["snapshotPolicy"])
+
+
+def test_codex_runtime_profile_is_selectable_and_contract_valid():
+    code, resolution = run_worker("runtime-profile-resolve", "dc13.codex", "--ignore-readiness")
+
+    assert code == 0
+    assert schema_check.validate(resolution, "canonical/runtime-profile-resolution-v1.json") == []
+    assert resolution["runtimeProfile"]["modelProvider"] == "codex"
+    assert resolution["modelPolicy"]["provider"] == "codex"
+    assert resolution["modelPolicy"]["transport"] == "codex-cli"
+
+
+def test_mock_coordinator_report_routes_through_codex():
+    task_id = "DEV-900188"
+    purge_task(task_id)
+    try:
+        code, payload = run_worker("coordination-report", task_id, "--mock", "--provider", "codex")
+
+        assert code == 0
+        assert payload["producer"] == "steel-mission coordination-report (codex)"
+        assert payload["mock"] is True
+        assert schema_check.validate(payload, "canonical/coordination-report-v1.json") == []
+    finally:
+        purge_task(task_id)
 
 
 def test_steel_mission_refuses_unknown_runtime_profile_before_starting_mission(tmp_path):
@@ -4994,7 +5104,8 @@ def test_steel_mission_known_runtime_profile_keeps_offline_fallback(monkeypatch)
 
     assert resolution["runtimeProfile"]["id"] == "dc13.local"
     assert resolution["runtimeProfile"]["status"] == "active"
-    assert resolution["modelPolicy"]["provider"] in {"claude", "glimmer"}
+    assert resolution["runtimeProfile"]["modelProvider"] == "glimmer"
+    assert resolution["modelPolicy"]["provider"] == "glimmer"
 
 
 def test_runtime_profile_manager_publisher_can_save_and_clone(tmp_path, monkeypatch):
@@ -5325,7 +5436,7 @@ def test_mock_coordinator_report_is_canonical_advisory_and_claims_no_authority()
         assert code == 0
         assert payload["mock"] is True
         assert payload["taskId"] == task_id
-        assert payload["producer"] == "steel-mission coordination-report (claude)"
+        assert payload["producer"] == "steel-mission coordination-report (codex)"
         # The invariant is worker-authored, never model prose: no authority,
         # no PASS, advisory only.
         assert "no authority" in payload["advisoryNote"]
@@ -5925,6 +6036,30 @@ def test_coordinator_progress_messages_show_glimmer_provider_and_model():
             f"{event.get('label', '')} {event.get('detail', '')}" for event in retrying["timeline"]
         ]
         assert "Claude" not in json.dumps(worded), worded
+    finally:
+        purge_task(task_id)
+
+
+def test_coordinator_progress_messages_show_codex_provider_and_model():
+    cli = _load_cli_module()
+    task_id = "DEV-900188"
+    progress_dir = common.TASKS_DIR / task_id
+    purge_task(task_id)
+    try:
+        progress_dir.mkdir(parents=True)
+        cli._coordinator_progress_writer(
+            task_id,
+            "status",
+            {"snapshotCollections": [{"name": "tasks", "returned": 1, "totalAvailable": 1}]},
+            provider="codex",
+            model="codex-cli-default",
+        )
+
+        initial = json.loads((progress_dir / "progress.json").read_text())
+        assert initial["provider"] == "codex"
+        assert initial["providerLabel"] == "Codex"
+        assert initial["model"] == "codex-cli-default"
+        assert initial["phase"].startswith("Starting Codex")
     finally:
         purge_task(task_id)
 

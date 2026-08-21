@@ -15,7 +15,7 @@ test("console status is derived from health and authority readiness", async () =
           ok: true,
           providers: [
             {id: "claude", label: "Claude", connection: "connected", activity: "working", jobCount: 1, tokenUsage: {thinkingTokens: 234}},
-            {id: "codex", label: "Codex", connection: "connected", activity: "idle", jobCount: 0},
+            {id: "codex", label: "Codex", connection: "connected", activity: "working", jobCount: 1, model: "codex-cli-default"},
             {id: "glimmer", label: "Glimmer", connection: "online", activity: "idle", jobCount: 0},
           ],
         }),
@@ -31,5 +31,6 @@ test("console status is derived from health and authority readiness", async () =
   assert.equal(status.authority, "Alpha ready");
   assert.equal(status.providers[0].activity, "working");
   assert.equal(status.providers[0].thinkingTokens, 234);
+  assert.equal(status.providers[1].model, "codex-cli-default");
   assert.equal(status.providers[2].connection, "online");
 });

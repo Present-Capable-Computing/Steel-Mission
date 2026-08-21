@@ -67,14 +67,18 @@ export async function loadCoordinatorModels(request: ChatRequester): Promise<Coo
     : [];
   const resolved = (await Promise.all(profiles.map((profile) => resolveProfile(request, profile))))
     .filter((model): model is CoordinatorModel => Boolean(model));
+  const activeProfile = typeof payload.activeProfile === "string" ? payload.activeProfile : "";
   const byProvider = new Map<string, {model: CoordinatorModel; explicit: boolean}>();
   for (const model of resolved) {
     const profile = profiles.find((item) => item.id === model.profileId);
     const explicit = profile?.modelProvider === model.provider;
     const current = byProvider.get(model.provider);
-    if (!current || (explicit && !current.explicit)) byProvider.set(model.provider, {model, explicit});
+    const active = model.profileId === activeProfile;
+    const currentIsActive = current?.model.profileId === activeProfile;
+    if (!current || active || (!currentIsActive && explicit && !current.explicit)) {
+      byProvider.set(model.provider, {model, explicit});
+    }
   }
-  const activeProfile = typeof payload.activeProfile === "string" ? payload.activeProfile : "";
   const models = [...byProvider.values()].map((item) => item.model).sort((left, right) => {
     if (left.profileId === activeProfile) return -1;
     if (right.profileId === activeProfile) return 1;

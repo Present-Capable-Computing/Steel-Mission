@@ -132,6 +132,117 @@
       }
     },
     {
+      "id": "dc13.codex",
+      "label": "Delivery Coordinator Codex",
+      "status": "active",
+      "modelRole": "dc13.coordination-report",
+      "modelProvider": "codex",
+      "requiredProviderCapabilities": [
+        "provider-native-cli",
+        "structured-output",
+        "non-interactive-execution"
+      ],
+      "snapshotProfile": "worker-local-default",
+      "defaultFor": [],
+      "editableBy": [
+        "owner",
+        "admin",
+        "publisher"
+      ],
+      "visibilityRoleKeys": [
+        "DC13",
+        "DC01",
+        "DC02",
+        "DC03",
+        "DC04",
+        "DC05",
+        "DC06",
+        "DC07",
+        "DC08",
+        "DC09",
+        "DC10",
+        "DC11",
+        "DC12"
+      ],
+      "includeCollections": [
+        "tasks",
+        "advisoryTasks",
+        "buildJobs",
+        "verifyResults",
+        "distributedWorkflows",
+        "generalDocuments",
+        "missions"
+      ],
+      "limits": {
+        "tasks": 30,
+        "advisoryTasks": 5,
+        "buildJobs": 25,
+        "verifyResults": 30,
+        "distributedWorkflows": 12,
+        "brokerStateSources": 8,
+        "brokerArtifacts": 10,
+        "operatorAudit": 8,
+        "generalDocuments": 12,
+        "missions": 25
+      },
+      "taskSelector": {
+        "mode": "latest"
+      },
+      "sources": {
+        "taskRoots": [
+          "${PRESENT_TASKS_DIR}"
+        ],
+        "logRoots": [
+          "${PRESENT_LOGS_DIR}"
+        ],
+        "buildJobRoots": [
+          "${PRESENT_JOBS_DIR}"
+        ],
+        "missionRoots": [
+          "${PRESENT_MISSIONS_DIR}"
+        ],
+        "verifyResultRoots": [
+          "${PRESENT_TEST_RESULTS_DIR}"
+        ],
+        "brokerStatePaths": [
+          "${WORKER_DIR}/broker-state.json",
+          "${WORKER_DIR}/state.json",
+          "${PRESENT_DEV}/broker-state.json",
+          "${PRESENT_DEV}/state.json",
+          "${PRESENT_TASKS_DIR}/../broker-state.json",
+          "${PRESENT_TASKS_DIR}/../state.json"
+        ],
+        "repositoryRoots": [
+          {
+            "name": "worker",
+            "path": "${WORKER_DIR}"
+          },
+          {
+            "name": "starter-company",
+            "path": "${ORG_DIR}"
+          }
+        ],
+        "documentPaths": [
+          {
+            "title": "Starter Organization Operating Context",
+            "path": "${ORG_DIR}/canon/KD01 Operating Context.md"
+          },
+          {
+            "title": "Starter Organization Team Doctrine",
+            "path": "${ORG_DIR}/canon/KD02 Team Doctrine.md"
+          },
+          {
+            "title": "Starter Organization Team Roster and Workflow",
+            "path": "${ORG_DIR}/canon/KD03 Team Roster and Workflow.md"
+          },
+          {
+            "title": "Starter Organization Capability Map",
+            "path": "${ORG_DIR}/canon/Domain Capabilities.md"
+          }
+        ]
+      }
+    },
+    {
       "id": "dc13.claude",
       "label": "Delivery Coordinator Claude",
       "status": "active",
