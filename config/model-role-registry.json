@@ -7,8 +7,17 @@
       "id": "claude-sonnet-5",
       "provider": "claude",
       "transport": "claude-code",
-      "roles": ["dc13.coordination-report", "delivery.planner", "delivery.acceptance"],
-      "nativeCapabilities": ["provider-native-cli", "structured-output", "streaming-progress", "model-effort-controls"],
+      "roles": ["dc13.coordination-report"],
+      "nativeCapabilities": ["provider-native-cli", "structured-output", "streaming-progress", "model-effort-controls", "reasoning-effort:medium"],
+      "requiresNetwork": true,
+      "local": false
+    },
+    {
+      "id": "claude-opus-5",
+      "provider": "claude",
+      "transport": "claude-code",
+      "roles": ["delivery.planner", "delivery.acceptance"],
+      "nativeCapabilities": ["provider-native-cli", "structured-output", "streaming-progress", "model-effort-controls", "reasoning-effort:high"],
       "requiresNetwork": true,
       "local": false
     },
@@ -22,11 +31,11 @@
       "local": true
     },
     {
-      "id": "codex-cli-default",
+      "id": "gpt-5.6-sol",
       "provider": "codex",
       "transport": "codex-cli",
       "roles": ["dc13.coordination-report", "delivery.reviewer"],
-      "nativeCapabilities": ["provider-native-cli", "structured-output", "read-only-review", "non-interactive-execution"],
+      "nativeCapabilities": ["provider-native-cli", "structured-output", "read-only-review", "non-interactive-execution", "reasoning-effort:xhigh"],
       "requiresNetwork": true,
       "local": false
     }
@@ -35,7 +44,7 @@
     {
       "id": "dc13.coordination-report",
       "title": "Delivery Coordinator",
-      "primaryModel": "codex-cli-default",
+      "primaryModel": "gpt-5.6-sol",
       "fallbackModels": ["claude-sonnet-5", "qwen2.5-coder:14b"],
       "governanceCapabilities": ["role-binding", "bounded-snapshot", "guarded-execution", "audit-evidence"],
       "snapshotProfile": "steel-mission-starter"
@@ -43,7 +52,7 @@
     {
       "id": "delivery.planner",
       "title": "Delivery Planner",
-      "primaryModel": "claude-sonnet-5",
+      "primaryModel": "claude-opus-5",
       "fallbackModels": [],
       "governanceCapabilities": ["advisory-planning", "structured-output", "audit-evidence"],
       "snapshotProfile": "steel-mission-delivery"
@@ -59,7 +68,7 @@
     {
       "id": "delivery.reviewer",
       "title": "Code Reviewer",
-      "primaryModel": "codex-cli-default",
+      "primaryModel": "gpt-5.6-sol",
       "fallbackModels": [],
       "governanceCapabilities": ["read-only-review", "structured-output", "audit-evidence"],
       "snapshotProfile": "steel-mission-delivery"
@@ -67,7 +76,7 @@
     {
       "id": "delivery.acceptance",
       "title": "Acceptance Assessor",
-      "primaryModel": "claude-sonnet-5",
+      "primaryModel": "claude-opus-5",
       "fallbackModels": [],
       "governanceCapabilities": ["adversarial-acceptance-assessment", "structured-output", "deterministic-gate-separation", "audit-evidence"],
       "snapshotProfile": "steel-mission-delivery"

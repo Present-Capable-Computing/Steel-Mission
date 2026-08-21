@@ -43,6 +43,10 @@ LEGACY_MISSIONS_DIR_ENV = "PRESENT_MISSIONS_DIR"
 MISSIONS_DIR_DEFAULT = WORKER_DIR / "missions"
 DEFAULT_COORDINATOR_ROLE = "dc13.coordination-report"
 DEFAULT_RUNTIME_PROFILE = "dc13.auto"
+REASONING_EFFORT_CAPABILITY_PREFIX = "reasoning-effort:"
+LEGACY_MODEL_BINDINGS = {
+    ("codex", "codex-cli-default"): ("gpt-5.6-sol", "xhigh"),
+}
 DOMAIN_CAPABILITY_ROLE_KEYS = {
     "DC13",
     "DC01",
@@ -190,6 +194,84 @@ def _model_role_registry_path() -> Path:
     return Path(configured).expanduser() if configured else MODEL_ROLE_REGISTRY_DEFAULT
 
 
+def _reasoning_effort(capabilities: Any) -> tuple[str | None, str | None]:
+    values = [
+        item.removeprefix(REASONING_EFFORT_CAPABILITY_PREFIX)
+        for item in capabilities if isinstance(item, str) and item.startswith(REASONING_EFFORT_CAPABILITY_PREFIX)
+    ] if isinstance(capabilities, list) else []
+    if len(values) > 1:
+        return None, "more than one reasoning effort is configured"
+    return (values[0], None) if values else (None, None)
+
+
+def _migrate_legacy_model_role_registry(registry: dict) -> dict:
+    """Normalize known v1 logical ids before provider validation and dispatch."""
+    if registry.get("schemaVersion") != 1:
+        return registry
+    migrations: dict[str, str] = {}
+    models = []
+    for model in registry.get("models", []):
+        if not isinstance(model, dict):
+            models.append(model)
+            continue
+        legacy_id = model.get("id")
+        binding = LEGACY_MODEL_BINDINGS.get((model.get("provider"), legacy_id))
+        if binding is None:
+            models.append(model)
+            continue
+        model_id, default_effort = binding
+        configured_capabilities = model.get("nativeCapabilities")
+        capabilities = (
+            list(configured_capabilities)
+            if isinstance(configured_capabilities, list)
+            else configured_capabilities
+        )
+        effort, effort_error = _reasoning_effort(capabilities)
+        if isinstance(capabilities, list) and effort is None and effort_error is None:
+            capabilities.append(f"{REASONING_EFFORT_CAPABILITY_PREFIX}{default_effort}")
+        migrations[str(legacy_id)] = model_id
+        models.append({**model, "id": model_id, "nativeCapabilities": capabilities})
+    if not migrations:
+        return registry
+    roles = []
+    for role in registry.get("roles", []):
+        if not isinstance(role, dict):
+            roles.append(role)
+            continue
+        fallback_models = role.get("fallbackModels")
+        roles.append({
+            **role,
+            "primaryModel": migrations.get(role.get("primaryModel"), role.get("primaryModel")),
+            "fallbackModels": [
+                migrations.get(model_id, model_id)
+                for model_id in fallback_models
+            ] if isinstance(fallback_models, list) else fallback_models,
+        })
+    return {**registry, "models": models, "roles": roles}
+
+
+def _model_binding_error(provider: str, model: str, effort: str | None) -> str | None:
+    validators = {
+        "claude": claude_adapter.model_binding_error,
+        "codex": codex_adapter.model_binding_error,
+        "glimmer": glimmer_adapter.model_binding_error,
+    }
+    validator = validators.get(provider)
+    return validator(model, effort) if validator is not None else None
+
+
+def _validated_model_invocation(policy: dict) -> tuple[str, str | None]:
+    provider = str(policy.get("provider") or "")
+    model = str(policy.get("selectedModel") or "")
+    effort, effort_error = _reasoning_effort(policy.get("nativeCapabilities"))
+    if effort_error:
+        raise common.TaskBundleError(f"model {model!r}: {effort_error}")
+    binding_error = _model_binding_error(provider, model, effort)
+    if binding_error:
+        raise common.TaskBundleError(binding_error)
+    return model, effort
+
+
 def _model_role_registry_errors(registry: dict) -> list[str]:
     errors = schema_check.validate(registry, "canonical/model-role-registry-v1.json")
     models = registry.get("models", [])
@@ -203,6 +285,20 @@ def _model_role_registry_errors(registry: dict) -> list[str]:
         errors.append("$.models: duplicate model id")
     if len(role_ids) != len(set(role_ids)):
         errors.append("$.roles: duplicate role id")
+    for model in models:
+        if not isinstance(model, dict):
+            continue
+        model_id = model.get("id")
+        provider = model.get("provider")
+        if not isinstance(model_id, str) or not isinstance(provider, str):
+            continue
+        effort, effort_error = _reasoning_effort(model.get("nativeCapabilities"))
+        if effort_error:
+            errors.append(f"$.models[{model_id}].nativeCapabilities: {effort_error}")
+            continue
+        binding_error = _model_binding_error(provider, model_id, effort)
+        if binding_error:
+            errors.append(f"$.models[{model_id}]: {binding_error}")
     model_id_set = {model_id for model_id in model_ids if isinstance(model_id, str)}
     role_id_set = {role_id for role_id in role_ids if isinstance(role_id, str)}
     model_roles = {
@@ -242,6 +338,7 @@ def _load_model_role_registry() -> dict:
         ) from exc
     if not isinstance(registry, dict):
         raise common.TaskBundleError("model role registry must be an object")
+    registry = _migrate_legacy_model_role_registry(registry)
     errors = _model_role_registry_errors(registry)
     if errors:
         raise common.TaskBundleError(f"model role registry is invalid: {errors[0]}")
@@ -1594,6 +1691,15 @@ def _requirement_gate(task_id: str, stage: str, role: str, mocked: bool) -> dict
     return result
 
 
+def _stage_model_invocation(role: str, provider: str, mocked: bool) -> tuple[str, str | None]:
+    policy = _resolve_model_policy(
+        role,
+        provider_override=provider,
+        require_ready=not mocked,
+    )
+    return _validated_model_invocation(policy)
+
+
 def cmd_plan(args) -> int:
     mocked = args.mock
     contract = _load_or_synthesize_contract(args.task_id, mocked)
@@ -1602,11 +1708,19 @@ def cmd_plan(args) -> int:
     refusal = _requirement_gate(args.task_id, "plan", "claude", mocked)
     if refusal:
         return emit(refusal)
+    try:
+        model, effort = _stage_model_invocation("delivery.planner", "claude", mocked)
+    except common.TaskBundleError as exc:
+        return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     requirement = common.load_requirement(args.task_id) or f"synthetic requirement for {args.task_id}"
-    result = claude_adapter.plan(args.task_id, "mock" if mocked else "live", requirement)
+    result = claude_adapter.plan(
+        args.task_id, "mock" if mocked else "live", requirement,
+        model=model, effort=effort,
+    )
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "plan", result)
-    common.record_stage(args.task_id, "plan", result, role="claude")
+    invocation = {"model": model, **({"effort": effort} if effort else {})}
+    common.record_stage(args.task_id, "plan", result, role="claude", provider="claude", **invocation)
     return emit(result)
 
 
@@ -1766,6 +1880,10 @@ def cmd_review(args) -> int:
     refusal = _requirement_gate(args.task_id, "review", "codex", args.mock)
     if refusal:
         return emit(refusal)
+    try:
+        model, effort = _stage_model_invocation("delivery.reviewer", "codex", args.mock)
+    except common.TaskBundleError as exc:
+        return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     commit = _latest_stage_output_commit(args.task_id, "build") or common.git_rev_parse(common.DEFAULT_REPO) or ""
     worktree = _worktree_path(args.task_id, "build")
     diff = ""
@@ -1775,10 +1893,15 @@ def cmd_review(args) -> int:
     result = codex_adapter.review(
         args.task_id, "mock" if args.mock else "live", common.load_requirement(args.task_id),
         _artifact_plan_text(args.task_id), commit, diff, "", input_context=input_context,
+        model=model, effort=effort or codex_adapter.COORDINATOR_EFFORT,
     )
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "review", result)
-    common.record_stage(args.task_id, "review", result, role="codex", reviewed_commit=commit)
+    invocation = {"model": model, **({"effort": effort} if effort else {})}
+    common.record_stage(
+        args.task_id, "review", result, role="codex", provider="codex",
+        reviewed_commit=commit, **invocation,
+    )
     return emit(result)
 
 
@@ -1845,6 +1968,10 @@ def cmd_adversarial(args) -> int:
     refusal = _requirement_gate(args.task_id, "adversarial", "claude", args.mock)
     if refusal:
         return emit(refusal)
+    try:
+        model, effort = _stage_model_invocation("delivery.acceptance", "claude", args.mock)
+    except common.TaskBundleError as exc:
+        return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     commit = (_latest_stage_output_commit(args.task_id, "fix") or
               _latest_stage_output_commit(args.task_id, "build") or common.git_rev_parse(common.DEFAULT_REPO) or "")
     worktree = _worktree_path(args.task_id, "codex")
@@ -1855,10 +1982,15 @@ def cmd_adversarial(args) -> int:
     result = claude_adapter.adversarial(
         args.task_id, "mock" if args.mock else "live", common.load_requirement(args.task_id),
         _artifact_plan_text(args.task_id), commit, diff, input_context=input_context,
+        model=model, effort=effort,
     )
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "adversarial", result)
-    common.record_stage(args.task_id, "adversarial", result, role="claude", reviewed_commit=commit)
+    invocation = {"model": model, **({"effort": effort} if effort else {})}
+    common.record_stage(
+        args.task_id, "adversarial", result, role="claude", provider="claude",
+        reviewed_commit=commit, **invocation,
+    )
     return emit(result)
 
 
@@ -3021,7 +3153,8 @@ def _coordinator_progress_scope(snapshot: dict) -> str:
 
 
 def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: dict | None = None, *,
-                         provider: str = "claude", model: str | None = None):
+                         provider: str = "claude", model: str | None = None,
+                         effort: str | None = None):
     """Publish live progress so a caller can tell working from hung.
 
     The model reports nothing until it finishes, so a waiting caller used to
@@ -3037,7 +3170,7 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
     provider_label = {"claude": "Claude", "codex": "Codex", "glimmer": "Glimmer"}.get(provider, provider.title())
     default_model = {
         "claude": claude_adapter.COORDINATOR_MODEL,
-        "codex": "codex-cli-default",
+        "codex": codex_adapter.COORDINATOR_MODEL,
         "glimmer": glimmer_adapter.DEFAULT_MODEL,
     }.get(provider)
     active_model = model or default_model
@@ -3063,6 +3196,7 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
         "provider": provider,
         "providerLabel": provider_label,
         "model": active_model,
+        **({"effort": effort} if effort else {}),
         "thinkingTokens": 0,
         "events": 0,
         "startedAt": common.utc_now(),
@@ -3196,6 +3330,7 @@ def cmd_coordinator_report(args) -> int:
     try:
         runtime_profile = _effective_coordinator_runtime_profile(args, contract)
         model_policy = _effective_coordinator_model_policy(args, contract)
+        model, effort = _validated_model_invocation(model_policy)
     except common.TaskBundleError as exc:
         return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     if runtime_profile and runtime_profile.get("modelRole") != model_policy.get("role"):
@@ -3211,9 +3346,8 @@ def cmd_coordinator_report(args) -> int:
     snapshot = {} if args.mock else _coordinator_state_snapshot(_effective_coordinator_snapshot_policy(args.task_id, contract))
     requirement = common.load_requirement(args.task_id)
     timeout = getattr(args, "timeout_seconds", None) or claude_adapter.COORDINATOR_TIMEOUT_SECONDS
-    progress_model = model_policy["selectedModel"]
     progress = None if args.mock else _coordinator_progress_writer(
-        args.task_id, requirement, snapshot, provider=provider, model=progress_model
+        args.task_id, requirement, snapshot, provider=provider, model=model, effort=effort
     )
     if provider == "codex":
         result = codex_adapter.coordinator_report(
@@ -3221,6 +3355,8 @@ def cmd_coordinator_report(args) -> int:
             requirement, snapshot, pack_identity,
             timeout=timeout,
             progress=progress,
+            model=model,
+            effort=effort or codex_adapter.COORDINATOR_EFFORT,
         )
         role = "codex"
     elif provider == "glimmer":
@@ -3229,6 +3365,7 @@ def cmd_coordinator_report(args) -> int:
             requirement, snapshot, pack_identity,
             timeout=timeout,
             progress=progress,
+            model=model,
         )
         role = "glimmer"
     else:
@@ -3237,11 +3374,14 @@ def cmd_coordinator_report(args) -> int:
             requirement, snapshot, pack_identity,
             timeout=timeout,
             progress=progress,
+            model=model,
+            effort=effort or claude_adapter.COORDINATOR_EFFORT,
         )
         role = "claude"
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "coordination-report", result)
-    common.record_stage(args.task_id, "coordination-report", result, role=role)
+    invocation = {"provider": provider, "model": model, **({"effort": effort} if effort else {})}
+    common.record_stage(args.task_id, "coordination-report", result, role=role, **invocation)
     return emit(result)
 
 

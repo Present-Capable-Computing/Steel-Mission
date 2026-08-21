@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import json
 import tempfile
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from . import common
 
 BINARY = "codex"
 LIVE_IMPLEMENTED = True
+COORDINATOR_MODEL = "gpt-5.6-sol"
+COORDINATOR_EFFORT = "xhigh"
+SUPPORTED_MODELS = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
+SUPPORTED_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
 REVIEW_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -53,6 +57,15 @@ def _coordinator_output_schema() -> dict[str, Any]:
     item["required"] = [*item["required"], "note"]
     item["properties"]["note"]["type"] = ["string", "null"]
     return schema
+
+
+def model_binding_error(model: str, effort: str | None = None) -> str | None:
+    """Return a named configuration error before an unsupported call is attempted."""
+    if model not in SUPPORTED_MODELS:
+        return f"provider 'codex' does not recognize model {model!r}"
+    if effort is not None and effort not in SUPPORTED_EFFORTS:
+        return f"provider 'codex' does not recognize reasoning effort {effort!r}"
+    return None
 
 
 def installed() -> bool:
@@ -135,6 +148,8 @@ def review(
     test_output: str,
     *,
     input_context: str = "",
+    model: str = COORDINATOR_MODEL,
+    effort: str = COORDINATOR_EFFORT,
 ) -> dict[str, Any]:
     """Review a candidate through Codex without granting write authority."""
     mocked = mode == "mock"
@@ -168,6 +183,8 @@ def review(
             "--ask-for-approval", "never",
             "exec",
             "--ephemeral",
+            "--model", model,
+            "--config", f'model_reasoning_effort="{effort}"',
             "--sandbox", "read-only",
             "--ignore-user-config",
             "--ignore-rules",
@@ -206,6 +223,8 @@ def coordinator_report(
     pack_identity: dict[str, Any],
     timeout: int = 450,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    model: str = COORDINATOR_MODEL,
+    effort: str = COORDINATOR_EFFORT,
 ) -> dict[str, Any]:
     """Produce a schema-constrained, read-only DC13 state report through Codex."""
     from . import claude_adapter  # Reuse the canonical DC13 vocabulary/schema.
@@ -267,6 +286,8 @@ def coordinator_report(
             "--ask-for-approval", "never",
             "exec",
             "--ephemeral",
+            "--model", model,
+            "--config", f'model_reasoning_effort="{effort}"',
             "--sandbox", "read-only",
             "--ignore-user-config",
             "--ignore-rules",
