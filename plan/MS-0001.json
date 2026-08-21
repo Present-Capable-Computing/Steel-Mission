@@ -9,7 +9,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "ACTIVE",
+  "state": "COMPLETE",
   "targetDate": "2026-08-27",
   "outcome": "Every dependency and runtime jump currently open is landed or explicitly rejected with the full test suite green on each, the continuous integration job compiles every entrypoint rather than four of them, and the test harness has the markers and fixtures the later phases need before any of them start writing tests.",
   "notInScope": "No durable store, no runner protocol, no orchestration change. This milestone touches build, test and dependency surfaces only. It does not rename anything; naming is MS-0006.",

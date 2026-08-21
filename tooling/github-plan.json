@@ -365,6 +365,7 @@
       "recordId": "MS-0001",
       "title": "P0 — Toolchain and CI baseline",
       "due_on": "2026-08-27T23:59:59Z",
+      "state": "closed",
       "description": "MS-0001 · record: plan/MS-0001.json.\n\nOutcome: every dependency and runtime jump currently open is landed or explicitly rejected with the full suite green on each, CI compiles every entrypoint rather than four of them, and the test harness has the markers and fixtures the later phases need.\n\nNot in scope: no durable store, no runner protocol, no orchestration change, no renaming.\n\nThe five-state milestone model (PLANNED, ACTIVE, AT_RISK, COMPLETE, ABANDONED) lives in the record. This GitHub milestone is a projection of it. Closing it means the tasks are closed or explicitly dropped — never that anything passed verification.\n\nTarget reset to 2026-08-27 from the 2026-08-20 PRJ-0001 resume date, preserving the original milestone cadence; schedule delta +1 calendar day."
     },
     {
@@ -429,7 +430,7 @@
       ],
       "outcome": "Every dependency and runtime jump currently open is landed or explicitly rejected with the full suite green on each. Continuous integration compiles every entrypoint rather than four of them. The test harness has the markers, the requirements split and the fixtures that P1 through P4 need before any of them start writing tests.",
       "notInScope": "No durable store, no runner protocol, no orchestration change, no renaming. This milestone touches build, test and dependency surfaces only.",
-      "done": "The four open dependency pull requests are each merged or closed with a written reason. `make release-check` and the CI compile step cover the same six entrypoints. `python -m pytest` reports the full suite green on the supported interpreter matrix."
+      "done": "The six dependency pull requests open at the 2026-08-20 rescope (#6, #7, #8, #9, #147 and #148) are each merged or closed with a written reason. `make release-check` and the CI compile step cover the same six entrypoints. `python -m pytest` reports the full suite green on the supported interpreter matrix."
     },
     {
       "key": "epic-p1",
