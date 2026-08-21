@@ -2913,13 +2913,25 @@ def authenticate_http_request(handler: BaseHTTPRequestHandler, path: str, method
         if user and user.get("status") == "active":
             actor = actor_from_registered_user(user, policy)
         else:
-            active_id = str(organization_registry().get("activeOrganizationId") or "")
-            actor.update({
-                "organizationIds": [active_id],
-                "organizationId": active_id,
-                "capabilities": [],
-                "identitySource": "loopback-development",
-            })
+            declared_actor_id = str(actor.get("actorId") or "")
+            declared_role = str(actor.get("role") or "")
+            fallback_user = active_organization_owner()
+            if fallback_user is None:
+                raise PermissionError(
+                    "development identity requires an active registered owner for "
+                    "the active organization"
+                )
+            append_auth_audit(
+                "stale-development-identity-discarded",
+                declared_actor_id,
+                details={
+                    "path": path,
+                    "declaredRole": declared_role,
+                    "reason": "declared actor is not an active registered user",
+                    "resolvedActorId": str(fallback_user.get("id") or ""),
+                },
+            )
+            actor = actor_from_registered_user(fallback_user, policy)
     actor.update({
         "sessionVerified": False,
         "authPolicyHash": canonical_json_hash(policy),
