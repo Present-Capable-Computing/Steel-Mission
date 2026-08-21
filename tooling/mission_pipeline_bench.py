@@ -646,13 +646,13 @@ class StageBudget:
     def elapsed(self) -> int:
         return max(0, int(time.monotonic() - self.started))
 
-    def remaining(self) -> int:
-        remaining = self.limit_seconds - self.elapsed()
-        if remaining < 1:
+    def remaining(self) -> float:
+        remaining = self.limit_seconds - max(0.0, time.monotonic() - self.started)
+        if remaining <= 0:
             raise BenchError("session elapsed-time budget is exhausted")
         return remaining
 
-    def use_turn(self) -> int:
+    def use_turn(self) -> float:
         if self.turns >= self.limit_turns:
             raise BenchError("session turn budget is exhausted")
         self.turns += 1
@@ -671,10 +671,10 @@ class CoupledStageBudget:
     def __init__(self, *budgets: StageBudget):
         self.budgets = budgets
 
-    def remaining(self) -> int:
+    def remaining(self) -> float:
         return min(budget.remaining() for budget in self.budgets)
 
-    def use_turn(self) -> int:
+    def use_turn(self) -> float:
         for budget in self.budgets:
             budget.use_turn()
         return self.remaining()
@@ -927,14 +927,69 @@ class GitHubPlatform:
             "/docs/workplan.md",
             "/.github/CODEOWNERS",
         )
-        if [rule[0] for rule in rules[-len(authority_patterns):]] != list(authority_patterns):
-            raise BenchError("Person-owned authority rules must be the final effective CODEOWNERS rules")
-        for pattern, rule in zip(authority_patterns, rules[-len(authority_patterns):], strict=True):
-            owners = {token.lstrip("@") for token in rule[1:]}
-            if not owners:
-                raise BenchError(f"{pattern} must remain Person-owned in CODEOWNERS")
-            if {owner.lower() for owner in owners} & machine_logins:
-                raise BenchError("machine accounts cannot own authority paths in CODEOWNERS")
+
+        def matches(pattern: str, path: str) -> bool:
+            normalized = pattern.lstrip("/")
+            candidate = path.lstrip("/")
+            directory = normalized.endswith("/")
+            if directory:
+                normalized += "**"
+            pieces: list[str] = []
+            index = 0
+            while index < len(normalized):
+                character = normalized[index]
+                if character == "*":
+                    if index + 1 < len(normalized) and normalized[index + 1] == "*":
+                        pieces.append(".*")
+                        index += 2
+                    else:
+                        pieces.append("[^/]*")
+                        index += 1
+                elif character == "?":
+                    pieces.append("[^/]")
+                    index += 1
+                else:
+                    pieces.append(re.escape(character))
+                    index += 1
+            prefix = "" if "/" in normalized else "(?:.*/)?"
+            return re.fullmatch(prefix + "".join(pieces), candidate) is not None
+
+        for authority_pattern in authority_patterns:
+            probe = (
+                authority_pattern + ".mission-bench-codeowners-probe"
+                if authority_pattern.endswith("/")
+                else authority_pattern
+            )
+            matching_rules = [
+                (index, rule)
+                for index, rule in enumerate(rules)
+                if matches(rule[0], probe)
+            ]
+            if not matching_rules:
+                raise BenchError(f"{authority_pattern} must remain Person-owned in CODEOWNERS")
+            effective_index, effective_rule = matching_rules[-1]
+            effective_owners = {token.lstrip("@").lower() for token in effective_rule[1:]}
+            if not effective_owners:
+                raise BenchError(f"{authority_pattern} must remain Person-owned in CODEOWNERS")
+            if effective_owners & machine_logins:
+                raise BenchError(
+                    "machine accounts cannot own authority paths in final effective CODEOWNERS rules"
+                )
+            if not authority_pattern.endswith("/"):
+                continue
+            authority_prefix = authority_pattern.lstrip("/")
+            for rule in rules[effective_index + 1:]:
+                rule_owners = {token.lstrip("@").lower() for token in rule[1:]}
+                if not rule_owners & machine_logins:
+                    continue
+                static_prefix = re.split(r"[*?[]", rule[0].lstrip("/"), maxsplit=1)[0]
+                if (
+                    static_prefix.startswith(authority_prefix)
+                    or authority_prefix.startswith(static_prefix)
+                ):
+                    raise BenchError(
+                        "machine accounts cannot own authority paths in final effective CODEOWNERS rules"
+                    )
 
     def claim_issue(self, grant: dict[str, Any], session_id: str) -> None:
         account = grant["machineAccounts"]["local"]
@@ -1098,50 +1153,58 @@ class GitHubPlatform:
         token = os.environ.get(token_env)
         if not token:
             raise BenchError(f"machine-account credential {token_env} is not available")
-        askpass = worktree.parent / "git-askpass.sh"
-        askpass.write_text(
-            "#!/bin/sh\n"
-            "case \"$1\" in\n"
-            "  *Username*) printf '%s\\n' x-access-token ;;\n"
-            "  *) printf '%s\\n' \"$SM_BENCH_PUSH_TOKEN\" ;;\n"
-            "esac\n"
-        )
-        askpass.chmod(0o700)
         preparation_environment = isolated_command_env(
             worktree.parent,
             self._credential_envs(grant),
             scrub_all_credentials=True,
         )
-        environment = dict(preparation_environment)
-        environment.update({
-            "GIT_ASKPASS": str(askpass),
-            "GIT_TERMINAL_PROMPT": "0",
-            "SM_BENCH_PUSH_TOKEN": token,
-        })
-        with tempfile.TemporaryDirectory(prefix="clean-push-", dir=worktree.parent) as directory:
-            clean_git_dir = Path(directory)
-            self._run(
-                ["git", "init", "--bare", str(clean_git_dir)],
-                cwd=worktree.parent,
-                timeout=remaining(),
-                extra_env=preparation_environment,
-                inherit_env=False,
-                label="clean push repository creation",
-            )
-            self._run(
-                ["git", "--git-dir", str(clean_git_dir), "fetch", "--no-tags", str(worktree), "HEAD"],
-                cwd=worktree.parent,
-                timeout=remaining(),
-                extra_env=preparation_environment,
-                inherit_env=False,
-                label="reviewed commit import",
-            )
-            self._run([
-                "git", "--git-dir", str(clean_git_dir), "push",
-                f"https://github.com/{grant['repository']}.git",
-                f"FETCH_HEAD:refs/heads/{grant['branch']}",
-            ], cwd=worktree.parent, timeout=remaining(), extra_env=environment, inherit_env=False,
-                label="machine-account push")
+        with tempfile.TemporaryDirectory(prefix="steel-mission-push-auth-") as auth_directory:
+            askpass = Path(auth_directory) / "git-askpass.sh"
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            try:
+                descriptor = os.open(askpass, flags, 0o700)
+                with os.fdopen(descriptor, "w") as stream:
+                    stream.write(
+                        "#!/bin/sh\n"
+                        "case \"$1\" in\n"
+                        "  *Username*) printf '%s\\n' x-access-token ;;\n"
+                        "  *) printf '%s\\n' \"$SM_BENCH_PUSH_TOKEN\" ;;\n"
+                        "esac\n"
+                    )
+                    os.fchmod(stream.fileno(), 0o700)
+            except OSError as exc:
+                raise BenchError("cannot create a safe machine-account askpass helper") from exc
+            environment = dict(preparation_environment)
+            environment.update({
+                "GIT_ASKPASS": str(askpass),
+                "GIT_TERMINAL_PROMPT": "0",
+                "SM_BENCH_PUSH_TOKEN": token,
+            })
+            with tempfile.TemporaryDirectory(prefix="clean-push-", dir=worktree.parent) as directory:
+                clean_git_dir = Path(directory)
+                self._run(
+                    ["git", "init", "--bare", str(clean_git_dir)],
+                    cwd=worktree.parent,
+                    timeout=remaining(),
+                    extra_env=preparation_environment,
+                    inherit_env=False,
+                    label="clean push repository creation",
+                )
+                self._run(
+                    ["git", "--git-dir", str(clean_git_dir), "fetch", "--no-tags", str(worktree), "HEAD"],
+                    cwd=worktree.parent,
+                    timeout=remaining(),
+                    extra_env=preparation_environment,
+                    inherit_env=False,
+                    label="reviewed commit import",
+                )
+                self._run([
+                    "git", "--git-dir", str(clean_git_dir), "push",
+                    f"https://github.com/{grant['repository']}.git",
+                    f"FETCH_HEAD:refs/heads/{grant['branch']}",
+                ], cwd=worktree.parent, timeout=remaining(), extra_env=environment, inherit_env=False,
+                    label="machine-account push")
 
     def create_pr(
         self,

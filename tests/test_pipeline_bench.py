@@ -793,6 +793,16 @@ def test_review_posting_cannot_complete_after_the_review_budget(tmp_path, monkey
     assert not any(call.startswith("auto-merge:") for call in platform.calls)
 
 
+def test_stage_budget_preserves_fractional_remaining_time(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+    budget = mission_bench.StageBudget({"elapsedSeconds": 1, "turns": 1})
+
+    clock[0] = 100.75
+
+    assert budget.remaining() == pytest.approx(0.25)
+
+
 def test_review_budget_expiry_during_a_correction_prevents_its_push(tmp_path, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
@@ -848,7 +858,7 @@ def test_expired_acceptance_read_cannot_arm_auto_merge(tmp_path, monkeypatch):
     with pytest.raises(BenchError, match="elapsed-time budget is exhausted"):
         bench.run()
 
-    assert "pr-head:commit-2:1" in platform.calls
+    assert "pr-head:commit-2:1.0" in platform.calls
     assert not any(call.startswith("auto-merge:") for call in platform.calls)
     assert "disable-auto-merge" not in platform.calls
 
@@ -1322,6 +1332,26 @@ def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_p
         platform.validate_repository_wall(grant())
 
 
+def test_repository_wall_allows_unrelated_rules_after_authority_ownership(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/ @andrewHermann\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+        "/steel_core/ @andrewHermann\n"
+        "/plan/ @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/tooling/ @andrewHermann\n"
+    )
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    platform.validate_repository_wall(grant())
+
+
 def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path, monkeypatch):
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
@@ -1494,6 +1524,45 @@ def test_authenticated_push_disables_hooks_and_scrubs_every_unrelated_credential
     assert "--git-dir" in push_argv
     push_git_dir = Path(push_argv[push_argv.index("--git-dir") + 1])
     assert push_git_dir != worktree / ".git"
+
+
+def test_authenticated_push_ignores_an_untrusted_askpass_symlink(tmp_path, monkeypatch):
+    value = grant()
+    credential_names = {
+        account["tokenEnv"] for account in value["machineAccounts"].values()
+    }
+    for name in credential_names:
+        monkeypatch.setenv(
+            name,
+            "local-token" if name == value["machineAccounts"]["local"]["tokenEnv"] else "secret",
+        )
+    worktree = tmp_path / "session" / "worktree"
+    worktree.mkdir(parents=True)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("must remain unchanged\n")
+    (worktree.parent / "git-askpass.sh").symlink_to(victim)
+
+    class TrustedAskpassRunner(PushRunner):
+        def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
+            if "push" in argv:
+                askpass = Path(extra_env["GIT_ASKPASS"])
+                assert askpass.parent != worktree.parent
+                assert askpass.is_file()
+                assert not askpass.is_symlink()
+            return super().run(
+                argv,
+                cwd,
+                timeout,
+                input_text=input_text,
+                extra_env=extra_env,
+                inherit_env=inherit_env,
+            )
+
+    platform = GitHubPlatform(tmp_path, TrustedAskpassRunner(credential_names))
+
+    platform.push(value, worktree, 30)
+
+    assert victim.read_text() == "must remain unchanged\n"
 
 
 def test_merge_poll_and_sleep_never_exceed_the_remaining_acceptance_budget(tmp_path, monkeypatch):
