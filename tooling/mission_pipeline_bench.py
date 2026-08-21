@@ -419,24 +419,8 @@ def _deny_descendant_process_group_escape() -> None:
         raise OSError(ctypes.get_errno(), "cannot install process-containment filter")
 
 
-def _isolate_network_namespace() -> None:
-    """Give a repository-authored gate its own loopback-only network."""
-    clone_newuser = 0x10000000
-    clone_newnet = 0x40000000
-    libc = ctypes.CDLL(None, use_errno=True)
-    uid = os.getuid()
-    gid = os.getgid()
-    if libc.unshare(clone_newuser | clone_newnet) != 0:
-        raise OSError(ctypes.get_errno(), "cannot create isolated user/network namespaces")
-    try:
-        Path("/proc/self/setgroups").write_text("deny")
-    except FileNotFoundError:
-        pass
-    Path("/proc/self/uid_map").write_text(f"0 {uid} 1")
-    Path("/proc/self/gid_map").write_text(f"0 {gid} 1")
-    if libc.setresgid(0, 0, 0) != 0 or libc.setresuid(0, 0, 0) != 0:
-        raise OSError(ctypes.get_errno(), "cannot enter isolated namespace identity")
-
+def _bring_up_private_loopback() -> None:
+    """Enable loopback after the trusted namespace launcher has isolated it."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
         request = struct.pack("16sh", b"lo", 0)
         flags = struct.unpack(
@@ -448,6 +432,27 @@ def _isolate_network_namespace() -> None:
             0x8914,
             struct.pack("16sh", b"lo", flags | 0x1),
         )
+
+
+def _network_sandbox_exec(configuration_text: str, argv: list[str]) -> int:
+    """Trusted inner launcher: constrain the new namespace, then exec the gate."""
+    try:
+        configuration = json.loads(configuration_text)
+        landlock = configuration["landlock"]
+        abi = int(landlock["abi"])
+        read_roots = tuple(str(path) for path in landlock["readRoots"])
+        write_roots = tuple(str(path) for path in landlock["writeRoots"])
+        deny_process_escape = configuration["denyProcessGroupEscape"] is True
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise BenchError("network sandbox received invalid trusted configuration") from exc
+    if not argv or not all(isinstance(item, str) and item for item in argv):
+        raise BenchError("network sandbox received an invalid command")
+    _bring_up_private_loopback()
+    _restrict_filesystem_with_landlock(abi, read_roots, write_roots)
+    if deny_process_escape:
+        _deny_descendant_process_group_escape()
+    os.execv(argv[0], argv)
+    return 127
 
 
 def isolated_command_env(
@@ -628,13 +633,54 @@ class SubprocessRunner:
                 tuple(dict.fromkeys(read_roots)),
                 tuple(dict.fromkeys(write_roots)),
             )
+        network_wrapped = False
+        if not network_access:
+            if landlock_setup is None:
+                raise BenchError("network isolation requires the untrusted Linux filesystem sandbox")
+            unshare_location = shutil.which("unshare", path=os.defpath)
+            if not unshare_location:
+                raise BenchError("trusted Linux network-namespace launcher is unavailable")
+            unshare = Path(unshare_location).resolve()
+            try:
+                metadata = unshare.stat()
+            except OSError as exc:
+                raise BenchError("trusted Linux network-namespace launcher is unreadable") from exc
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != 0
+                or metadata.st_mode & 0o022
+                or not os.access(unshare, os.X_OK)
+            ):
+                raise BenchError("Linux network-namespace launcher is not a trusted system executable")
+            abi, read_roots, write_roots = landlock_setup
+            configuration = json.dumps({
+                "landlock": {
+                    "abi": abi,
+                    "readRoots": read_roots,
+                    "writeRoots": write_roots,
+                },
+                "denyProcessGroupEscape": PARENT_CONTAINMENT_READY,
+            }, separators=(",", ":"))
+            execution_argv = [
+                str(unshare),
+                "--user",
+                "--map-root-user",
+                "--net",
+                "--",
+                str(Path(sys.executable).resolve()),
+                str(Path(__file__).resolve()),
+                "--network-sandbox-exec",
+                configuration,
+                "--",
+                *execution_argv,
+            ]
+            landlock_setup = None
+            network_wrapped = True
         preexec_fn = None
-        if not network_access or landlock_setup is not None or (
-            sys.platform.startswith("linux") and PARENT_CONTAINMENT_READY
+        if landlock_setup is not None or (
+            sys.platform.startswith("linux") and PARENT_CONTAINMENT_READY and not network_wrapped
         ):
             def child_setup() -> None:
-                if not network_access:
-                    _isolate_network_namespace()
                 if landlock_setup is not None:
                     _restrict_filesystem_with_landlock(*landlock_setup)
                 if PARENT_CONTAINMENT_READY:
@@ -2464,11 +2510,16 @@ class PipelineBench:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "--network-sandbox-exec":
+        if len(arguments) < 4 or arguments[2] != "--":
+            raise BenchError("network sandbox launcher arguments are invalid")
+        return _network_sandbox_exec(arguments[1], arguments[3:])
     parser = argparse.ArgumentParser(description="Run a granted mission through the disposable C1 pipeline bench")
     parser.add_argument("--grant", required=True, type=Path, help="Path to the immutable JSON grant")
     parser.add_argument("--state-dir", required=True, type=Path, help="Runtime state directory outside the product tree")
     parser.add_argument("--repository", type=Path, default=REPO_ROOT, help="Main repository checkout")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     try:
         result = PipelineBench(
             args.grant,
