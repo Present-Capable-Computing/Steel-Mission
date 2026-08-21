@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,10 @@ from . import common
 
 BINARY = "codex"
 LIVE_IMPLEMENTED = True
+COORDINATOR_MODEL = "gpt-5.6-sol"
+COORDINATOR_EFFORT = "xhigh"
+SUPPORTED_MODELS = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
+SUPPORTED_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
 REVIEW_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -41,6 +46,39 @@ FIX_SCHEMA = {
         "addressedFindings": {"type": "array", "items": {"type": "string"}},
     },
 }
+
+
+def _coordinator_output_schema() -> dict[str, Any]:
+    """Translate the canonical report shape into Codex structured-output form."""
+    from . import claude_adapter
+
+    schema = json.loads(json.dumps(claude_adapter.COORDINATOR_REPORT_SCHEMA))
+    item = schema["properties"]["items"]["items"]
+    item["required"] = [*item["required"], "note"]
+    item["properties"]["note"]["type"] = ["string", "null"]
+    return schema
+
+
+def _jsonl_events(output: str) -> list[dict[str, Any]]:
+    """Return the structured events from Codex's ``exec --json`` stream."""
+    events = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def model_binding_error(model: str, effort: str | None = None) -> str | None:
+    """Return a named configuration error before an unsupported call is attempted."""
+    if model not in SUPPORTED_MODELS:
+        return f"provider 'codex' does not recognize model {model!r}"
+    if effort is not None and effort not in SUPPORTED_EFFORTS:
+        return f"provider 'codex' does not recognize reasoning effort {effort!r}"
+    return None
 
 
 def installed() -> bool:
@@ -123,6 +161,8 @@ def review(
     test_output: str,
     *,
     input_context: str = "",
+    model: str = COORDINATOR_MODEL,
+    effort: str = COORDINATOR_EFFORT,
 ) -> dict[str, Any]:
     """Review a candidate through Codex without granting write authority."""
     mocked = mode == "mock"
@@ -156,6 +196,8 @@ def review(
             "--ask-for-approval", "never",
             "exec",
             "--ephemeral",
+            "--model", model,
+            "--config", f'model_reasoning_effort="{effort}"',
             "--sandbox", "read-only",
             "--ignore-user-config",
             "--ignore-rules",
@@ -184,6 +226,128 @@ def review(
             for finding in findings
         ]
     return {**envelope, **model_output}
+
+
+def coordinator_report(
+    task_id: str,
+    mode: str,
+    requirement: str,
+    state_snapshot: dict[str, Any],
+    pack_identity: dict[str, Any],
+    timeout: int = 450,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+    model: str = COORDINATOR_MODEL,
+    effort: str = COORDINATOR_EFFORT,
+) -> dict[str, Any]:
+    """Produce a schema-constrained, read-only DC13 state report through Codex."""
+    from . import claude_adapter  # Reuse the canonical DC13 vocabulary/schema.
+
+    mocked = mode == "mock"
+    envelope = common.canonical_envelope(
+        task_id,
+        "steel-mission coordination-report (codex)",
+        mocked=mocked,
+    )
+    envelope["packIdentity"] = pack_identity
+    if mocked:
+        return {
+            **envelope,
+            "summary": "mock chief-of-staff report; no model was invoked and no state was retrieved",
+            "items": [],
+            "notChecked": [{"subject": "all workstreams", "reason": "mock run; nothing was retrieved"}],
+            "contradictions": [],
+            "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE,
+        }
+    if pack_identity.get("probe") != "ok":
+        return {
+            **envelope,
+            "summary": "The requested state report is unavailable because pack identity could not be established.",
+            "items": [],
+            "notChecked": [{
+                "subject": "all pack-scoped state sources",
+                "reason": "pack identity probe failed before snapshot classification",
+            }],
+            "contradictions": [],
+            "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE,
+        }
+    auth, auth_meta = authenticated()
+    if not auth:
+        return credential_refusal(auth_meta)
+
+    prompt = (
+        "Act as the DC13 Delivery Coordinator. Answer only from the supplied STATE JSON; do not inspect "
+        "the repository, use conversation memory, or infer facts outside STATE. Distinguish conversation, "
+        "work-product, canonical, and unknown state. Report stale, contradictory, omitted, or unreachable "
+        "sources explicitly in notChecked or contradictions. Group records only when coverage remains exact. "
+        "This is advisory coordination analysis: never approve, adopt, certify, gate, or claim PASS. Return "
+        "only JSON matching the supplied schema, and use this exact advisoryNote: "
+        f"{claude_adapter.COORDINATOR_ADVISORY_NOTE}\n\n"
+        f"Allowed status values: {json.dumps(claude_adapter.COORDINATOR_STATUS_TERMS)}\n"
+        f"Allowed stateClass values: {json.dumps(claude_adapter.COORDINATOR_STATE_CLASSES)}\n\n"
+        f"PACK IDENTITY\n{json.dumps(pack_identity, sort_keys=True)}\n\n"
+        f"REQUIREMENT\n{requirement}\n\n"
+        f"STATE\n{json.dumps(state_snapshot, indent=1, sort_keys=True)}"
+    )
+    tmp_root = common.WORKER_DIR / "tmp"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"{task_id}-codex-coordinator-", dir=tmp_root) as temporary:
+        schema_path = Path(temporary) / "coordination-report.schema.json"
+        output_path = Path(temporary) / "last-message.json"
+        schema_path.write_text(json.dumps(_coordinator_output_schema()))
+        command = [
+            BINARY,
+            "--ask-for-approval", "never",
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--model", model,
+            "--config", f'model_reasoning_effort="{effort}"',
+            "--sandbox", "read-only",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--skip-git-repo-check",
+            "--output-schema", str(schema_path),
+            "--output-last-message", str(output_path),
+            "--cd", str(common.WORKER_DIR),
+            "-",
+        ]
+        if progress is not None:
+            progress({"type": "system", "subtype": "process_started"})
+        try:
+            result = common.run(command, timeout=timeout, input=prompt, cwd=common.WORKER_DIR)
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": str(exc), "retryable": True}
+        if progress is not None:
+            for event in _jsonl_events(result.stdout):
+                progress(event)
+        if result.returncode != 0 or not output_path.exists():
+            reason = (result.stderr or result.stdout).strip()[-1000:] or "Codex produced no final message"
+            return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": reason, "retryable": True}
+        try:
+            model_output = json.loads(output_path.read_text())
+        except json.JSONDecodeError as exc:
+            return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": str(exc), "retryable": True}
+    if not isinstance(model_output, dict):
+        return {
+            "status": "PROVIDER_ERROR",
+            "provider": "codex",
+            "reason": "Codex coordination report was not an object",
+            "retryable": True,
+        }
+    items = model_output.get("items")
+    if isinstance(items, list):
+        model_output["items"] = [
+            {key: value for key, value in item.items() if value is not None}
+            if isinstance(item, dict) else item
+            for item in items
+        ]
+    if progress is not None:
+        progress({"type": "result", "subtype": "success"})
+    return {
+        **envelope,
+        **model_output,
+        "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE,
+    }
 
 
 def fix(

@@ -43,6 +43,10 @@ LEGACY_MISSIONS_DIR_ENV = "PRESENT_MISSIONS_DIR"
 MISSIONS_DIR_DEFAULT = WORKER_DIR / "missions"
 DEFAULT_COORDINATOR_ROLE = "dc13.coordination-report"
 DEFAULT_RUNTIME_PROFILE = "dc13.auto"
+REASONING_EFFORT_CAPABILITY_PREFIX = "reasoning-effort:"
+LEGACY_MODEL_BINDINGS = {
+    ("codex", "codex-cli-default"): ("gpt-5.6-sol", "xhigh"),
+}
 DOMAIN_CAPABILITY_ROLE_KEYS = {
     "DC13",
     "DC01",
@@ -60,6 +64,7 @@ DOMAIN_CAPABILITY_ROLE_KEYS = {
 }
 PROVIDER_RUNTIME_PROFILES = {
     "claude": "dc13.claude",
+    "codex": "dc13.codex",
     "glimmer": "dc13.local",
 }
 PROFILE_OPERATOR_ROLES = {"owner", "admin", "publisher", "user", "local-user", "org-admin"}
@@ -189,6 +194,84 @@ def _model_role_registry_path() -> Path:
     return Path(configured).expanduser() if configured else MODEL_ROLE_REGISTRY_DEFAULT
 
 
+def _reasoning_effort(capabilities: Any) -> tuple[str | None, str | None]:
+    values = [
+        item.removeprefix(REASONING_EFFORT_CAPABILITY_PREFIX)
+        for item in capabilities if isinstance(item, str) and item.startswith(REASONING_EFFORT_CAPABILITY_PREFIX)
+    ] if isinstance(capabilities, list) else []
+    if len(values) > 1:
+        return None, "more than one reasoning effort is configured"
+    return (values[0], None) if values else (None, None)
+
+
+def _migrate_legacy_model_role_registry(registry: dict) -> dict:
+    """Normalize known v1 logical ids before provider validation and dispatch."""
+    if registry.get("schemaVersion") != 1:
+        return registry
+    migrations: dict[str, str] = {}
+    models = []
+    for model in registry.get("models", []):
+        if not isinstance(model, dict):
+            models.append(model)
+            continue
+        legacy_id = model.get("id")
+        binding = LEGACY_MODEL_BINDINGS.get((model.get("provider"), legacy_id))
+        if binding is None:
+            models.append(model)
+            continue
+        model_id, default_effort = binding
+        configured_capabilities = model.get("nativeCapabilities")
+        capabilities = (
+            list(configured_capabilities)
+            if isinstance(configured_capabilities, list)
+            else configured_capabilities
+        )
+        effort, effort_error = _reasoning_effort(capabilities)
+        if isinstance(capabilities, list) and effort is None and effort_error is None:
+            capabilities.append(f"{REASONING_EFFORT_CAPABILITY_PREFIX}{default_effort}")
+        migrations[str(legacy_id)] = model_id
+        models.append({**model, "id": model_id, "nativeCapabilities": capabilities})
+    if not migrations:
+        return registry
+    roles = []
+    for role in registry.get("roles", []):
+        if not isinstance(role, dict):
+            roles.append(role)
+            continue
+        fallback_models = role.get("fallbackModels")
+        roles.append({
+            **role,
+            "primaryModel": migrations.get(role.get("primaryModel"), role.get("primaryModel")),
+            "fallbackModels": [
+                migrations.get(model_id, model_id)
+                for model_id in fallback_models
+            ] if isinstance(fallback_models, list) else fallback_models,
+        })
+    return {**registry, "models": models, "roles": roles}
+
+
+def _model_binding_error(provider: str, model: str, effort: str | None) -> str | None:
+    validators = {
+        "claude": claude_adapter.model_binding_error,
+        "codex": codex_adapter.model_binding_error,
+        "glimmer": glimmer_adapter.model_binding_error,
+    }
+    validator = validators.get(provider)
+    return validator(model, effort) if validator is not None else None
+
+
+def _validated_model_invocation(policy: dict) -> tuple[str, str | None]:
+    provider = str(policy.get("provider") or "")
+    model = str(policy.get("selectedModel") or "")
+    effort, effort_error = _reasoning_effort(policy.get("nativeCapabilities"))
+    if effort_error:
+        raise common.TaskBundleError(f"model {model!r}: {effort_error}")
+    binding_error = _model_binding_error(provider, model, effort)
+    if binding_error:
+        raise common.TaskBundleError(binding_error)
+    return model, effort
+
+
 def _model_role_registry_errors(registry: dict) -> list[str]:
     errors = schema_check.validate(registry, "canonical/model-role-registry-v1.json")
     models = registry.get("models", [])
@@ -202,6 +285,20 @@ def _model_role_registry_errors(registry: dict) -> list[str]:
         errors.append("$.models: duplicate model id")
     if len(role_ids) != len(set(role_ids)):
         errors.append("$.roles: duplicate role id")
+    for model in models:
+        if not isinstance(model, dict):
+            continue
+        model_id = model.get("id")
+        provider = model.get("provider")
+        if not isinstance(model_id, str) or not isinstance(provider, str):
+            continue
+        effort, effort_error = _reasoning_effort(model.get("nativeCapabilities"))
+        if effort_error:
+            errors.append(f"$.models[{model_id}].nativeCapabilities: {effort_error}")
+            continue
+        binding_error = _model_binding_error(provider, model_id, effort)
+        if binding_error:
+            errors.append(f"$.models[{model_id}]: {binding_error}")
     model_id_set = {model_id for model_id in model_ids if isinstance(model_id, str)}
     role_id_set = {role_id for role_id in role_ids if isinstance(role_id, str)}
     model_roles = {
@@ -241,6 +338,7 @@ def _load_model_role_registry() -> dict:
         ) from exc
     if not isinstance(registry, dict):
         raise common.TaskBundleError("model role registry must be an object")
+    registry = _migrate_legacy_model_role_registry(registry)
     errors = _model_role_registry_errors(registry)
     if errors:
         raise common.TaskBundleError(f"model role registry is invalid: {errors[0]}")
@@ -814,9 +912,9 @@ def _capability_registry(provider_capabilities: dict, *, git_ready: bool) -> dic
             output_schemas=["adversarial-result-v1"], evidence_roles=["advisory-security"],
             constraints={"requiresRequirement": True}),
         "coordination-report": _capability_entry(
-            "coordination-report", verb="coordination-report", provider="claude", authority="advisory-status",
-            available=claude_ready or glimmer_ready,
-            missing=[] if (claude_ready or glimmer_ready) else ["claude", "glimmer"],
+            "coordination-report", verb="coordination-report", provider="codex", authority="advisory-status",
+            available=codex_ready or claude_ready or glimmer_ready,
+            missing=[] if (codex_ready or claude_ready or glimmer_ready) else ["codex", "claude", "glimmer"],
             targets=["worker"],
             input_kinds=[
                 "worker-state-snapshot",
@@ -835,7 +933,11 @@ def _capability_registry(provider_capabilities: dict, *, git_ready: bool) -> dic
         "roles": [DEFAULT_COORDINATOR_ROLE],
                 "providers": {
                     "default": "role-registry",
-                    "available": [name for name, ready in (("claude", claude_ready), ("glimmer", glimmer_ready)) if ready],
+                    "available": [
+                        name for name, ready in (
+                            ("codex", codex_ready), ("claude", claude_ready), ("glimmer", glimmer_ready)
+                        ) if ready
+                    ],
                 },
             }),
         "candidate": _capability_entry(
@@ -1589,6 +1691,15 @@ def _requirement_gate(task_id: str, stage: str, role: str, mocked: bool) -> dict
     return result
 
 
+def _stage_model_invocation(role: str, provider: str, mocked: bool) -> tuple[str, str | None]:
+    policy = _resolve_model_policy(
+        role,
+        provider_override=provider,
+        require_ready=not mocked,
+    )
+    return _validated_model_invocation(policy)
+
+
 def cmd_plan(args) -> int:
     mocked = args.mock
     contract = _load_or_synthesize_contract(args.task_id, mocked)
@@ -1597,11 +1708,19 @@ def cmd_plan(args) -> int:
     refusal = _requirement_gate(args.task_id, "plan", "claude", mocked)
     if refusal:
         return emit(refusal)
+    try:
+        model, effort = _stage_model_invocation("delivery.planner", "claude", mocked)
+    except common.TaskBundleError as exc:
+        return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     requirement = common.load_requirement(args.task_id) or f"synthetic requirement for {args.task_id}"
-    result = claude_adapter.plan(args.task_id, "mock" if mocked else "live", requirement)
+    result = claude_adapter.plan(
+        args.task_id, "mock" if mocked else "live", requirement,
+        model=model, effort=effort,
+    )
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "plan", result)
-    common.record_stage(args.task_id, "plan", result, role="claude")
+    invocation = {"model": model, **({"effort": effort} if effort else {})}
+    common.record_stage(args.task_id, "plan", result, role="claude", provider="claude", **invocation)
     return emit(result)
 
 
@@ -1761,6 +1880,10 @@ def cmd_review(args) -> int:
     refusal = _requirement_gate(args.task_id, "review", "codex", args.mock)
     if refusal:
         return emit(refusal)
+    try:
+        model, effort = _stage_model_invocation("delivery.reviewer", "codex", args.mock)
+    except common.TaskBundleError as exc:
+        return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     commit = _latest_stage_output_commit(args.task_id, "build") or common.git_rev_parse(common.DEFAULT_REPO) or ""
     worktree = _worktree_path(args.task_id, "build")
     diff = ""
@@ -1770,10 +1893,15 @@ def cmd_review(args) -> int:
     result = codex_adapter.review(
         args.task_id, "mock" if args.mock else "live", common.load_requirement(args.task_id),
         _artifact_plan_text(args.task_id), commit, diff, "", input_context=input_context,
+        model=model, effort=effort or codex_adapter.COORDINATOR_EFFORT,
     )
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "review", result)
-    common.record_stage(args.task_id, "review", result, role="codex", reviewed_commit=commit)
+    invocation = {"model": model, **({"effort": effort} if effort else {})}
+    common.record_stage(
+        args.task_id, "review", result, role="codex", provider="codex",
+        reviewed_commit=commit, **invocation,
+    )
     return emit(result)
 
 
@@ -1840,6 +1968,10 @@ def cmd_adversarial(args) -> int:
     refusal = _requirement_gate(args.task_id, "adversarial", "claude", args.mock)
     if refusal:
         return emit(refusal)
+    try:
+        model, effort = _stage_model_invocation("delivery.acceptance", "claude", args.mock)
+    except common.TaskBundleError as exc:
+        return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     commit = (_latest_stage_output_commit(args.task_id, "fix") or
               _latest_stage_output_commit(args.task_id, "build") or common.git_rev_parse(common.DEFAULT_REPO) or "")
     worktree = _worktree_path(args.task_id, "codex")
@@ -1850,10 +1982,15 @@ def cmd_adversarial(args) -> int:
     result = claude_adapter.adversarial(
         args.task_id, "mock" if args.mock else "live", common.load_requirement(args.task_id),
         _artifact_plan_text(args.task_id), commit, diff, input_context=input_context,
+        model=model, effort=effort,
     )
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "adversarial", result)
-    common.record_stage(args.task_id, "adversarial", result, role="claude", reviewed_commit=commit)
+    invocation = {"model": model, **({"effort": effort} if effort else {})}
+    common.record_stage(
+        args.task_id, "adversarial", result, role="claude", provider="claude",
+        reviewed_commit=commit, **invocation,
+    )
     return emit(result)
 
 
@@ -1873,6 +2010,8 @@ COORDINATOR_SNAPSHOT_MAX_GENERAL_DOCUMENTS = 12
 COORDINATOR_SNAPSHOT_MAX_MISSIONS = 25
 COORDINATOR_SNAPSHOT_DOCUMENT_EXCERPT_CHARS = 12000
 COORDINATOR_PROGRESS_MAX_TIMELINE = 12
+AGENT_SESSION_STATUS_SCHEMA = "canonical/agent-session-status-v1.json"
+AGENT_SESSION_STATUS_FEED_NAME = "agent-session-status.jsonl"
 # Advisory chat tasks are reported so the role can see its own footprint, but
 # they are by-product, not pipeline state, so they get a small fixed budget
 # instead of competing for the task window.
@@ -2435,7 +2574,11 @@ def _read_mission_audit(path: Path, limit: int) -> list[dict]:
     return _tail(rows, limit)
 
 
-def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = None) -> tuple[list[dict], int]:
+def _mission_summaries(
+    policy: dict,
+    limit: int,
+    task_ids: set[str] | None = None,
+) -> tuple[list[dict], int, int]:
     audit_limit = policy.get("limits", {}).get("operatorAudit", COORDINATOR_SNAPSHOT_MAX_OPERATOR_AUDIT)
     paths = _mission_record_paths(policy)
     summaries: list[dict] = []
@@ -2453,6 +2596,7 @@ def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = Non
             continue
         snapshot_summary = doc.get("snapshotPolicySummary") if isinstance(doc.get("snapshotPolicySummary"), dict) else {}
         progress = doc.get("progress") if isinstance(doc.get("progress"), dict) else {}
+        decision_request = doc.get("decisionRequest") if isinstance(doc.get("decisionRequest"), dict) else None
         nodes = [
             {
                 key: node[key] for key in (
@@ -2476,6 +2620,7 @@ def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = Non
             "jobId": doc.get("jobId"),
             "taskId": task_id,
             "state": doc.get("state"),
+            "currentNodeId": doc.get("currentNodeId"),
             "operatorRole": doc.get("operatorRole"),
             "missionKind": doc.get("missionKind"),
             "templateId": doc.get("templateId"),
@@ -2499,11 +2644,176 @@ def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = Non
             "evidenceCount": len(evidence),
             "auditCount": doc.get("auditCount"),
             "recentAudit": _read_mission_audit(path, audit_limit),
+            "decisionRequest": decision_request,
             "source": str(path),
         }
         summaries.append({key: value for key, value in mission.items() if value not in (None, "", [], {})})
-    summaries.sort(key=lambda item: (str(item.get("updatedAt", "")), str(item.get("missionId", ""))))
-    return _tail(summaries, limit), len(paths)
+    summaries.sort(key=lambda item: (
+        item.get("state") in {"waiting_for_decision", "waiting_for_approval"},
+        str(item.get("updatedAt", "")),
+        str(item.get("missionId", "")),
+    ))
+    attention_total = 0
+    for item in summaries:
+        if item.get("state") == "waiting_for_decision":
+            attention_total += 1
+        elif item.get("state") == "waiting_for_approval":
+            waiting_nodes = [
+                node for node in item.get("nodes", [])
+                if isinstance(node, dict) and node.get("state") == "waiting_for_approval"
+            ]
+            attention_total += max(1, len(waiting_nodes))
+    return _tail(summaries, limit), len(paths), attention_total
+
+
+def _agent_session_status_feed_paths(policy: dict) -> list[Path]:
+    paths: list[Path] = []
+    for root in _policy_source_paths(policy, "missionRoots"):
+        if root.is_file() and root.name != "mission.json":
+            paths.append(root)
+        elif root.is_dir():
+            paths.append(root / AGENT_SESSION_STATUS_FEED_NAME)
+    return [path for path in _unique_paths(paths) if path.exists()]
+
+
+def _agent_session_status_records(policy: dict) -> tuple[list[dict], list[dict]]:
+    latest: dict[str, dict] = {}
+    issues: list[dict] = []
+    for path in _agent_session_status_feed_paths(policy):
+        try:
+            lines = path.read_text().splitlines()
+        except (OSError, UnicodeError) as exc:
+            issues.append({"source": str(path), "reason": f"status feed unreadable: {exc}"})
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                issues.append({
+                    "source": str(path),
+                    "line": line_number,
+                    "reason": f"invalid JSON: {exc.msg}",
+                })
+                continue
+            if not isinstance(record, dict):
+                issues.append({
+                    "source": str(path),
+                    "line": line_number,
+                    "reason": "status feed entry is not an object",
+                })
+                continue
+            errors = schema_check.validate(record, AGENT_SESSION_STATUS_SCHEMA)
+            if errors:
+                issues.append({
+                    "source": str(path),
+                    "line": line_number,
+                    "reason": "; ".join(errors),
+                })
+                continue
+            session_id = record["sessionId"]
+            current = latest.get(session_id)
+            if current is None or record["sequence"] > current["sequence"]:
+                latest[session_id] = {**record, "source": str(path)}
+    records = sorted(
+        latest.values(),
+        key=lambda item: (str(item.get("producedAt", "")), str(item.get("sessionId", ""))),
+    )
+    return records, issues
+
+
+def _mission_pending_decisions(missions: list[dict]) -> list[dict]:
+    pending: list[dict] = []
+    for mission in missions:
+        state = mission.get("state")
+        mission_id = str(mission.get("missionId") or "unknown mission")
+        subject = str(mission.get("objective") or mission_id)
+        if state == "waiting_for_decision":
+            request = mission.get("decisionRequest") if isinstance(mission.get("decisionRequest"), dict) else {}
+            pending.append({
+                "attentionId": str(request.get("id") or f"{mission_id}:decision"),
+                "kind": "escalated-mission",
+                "missionId": mission.get("missionId"),
+                "taskId": mission.get("taskId"),
+                "subject": subject,
+                "question": str(request.get("question") or f"A decision is required for {subject}."),
+                "requestedAt": request.get("requestedAt") or mission.get("updatedAt"),
+                "source": mission.get("source"),
+            })
+        if state == "waiting_for_approval":
+            waiting_nodes = [
+                node for node in mission.get("nodes", [])
+                if isinstance(node, dict) and node.get("state") == "waiting_for_approval"
+            ]
+            if not waiting_nodes:
+                waiting_nodes = [{"nodeId": mission.get("currentNodeId"), "title": "Mission approval"}]
+            for node in waiting_nodes:
+                title = str(node.get("title") or node.get("nodeId") or "Mission approval")
+                pending.append({
+                    "attentionId": f"{mission_id}:approval:{node.get('nodeId') or 'current'}",
+                    "kind": "mission-approval",
+                    "missionId": mission.get("missionId"),
+                    "taskId": mission.get("taskId"),
+                    "subject": subject,
+                    "question": f"Approval is required for {title}.",
+                    "requestedAt": node.get("waitingSince") or mission.get("updatedAt"),
+                    "source": mission.get("source"),
+                })
+    return pending
+
+
+def _session_pending_decisions(records: list[dict]) -> list[dict]:
+    pending: list[dict] = []
+    kind_names = {
+        "blocked": "blocked-session",
+        "plan-unclean": "escalated-session",
+        "approval": "session-approval",
+    }
+    for record in records:
+        request = record.get("pendingDecision")
+        if record.get("state") != "waiting-on-person" or not isinstance(request, dict):
+            continue
+        issue = record.get("issue") if isinstance(record.get("issue"), dict) else {}
+        subject = f"{issue.get('repository') or 'unknown repository'} #{issue.get('number') or '?'}"
+        pending.append({
+            "attentionId": str(request.get("decisionId") or f"{record['sessionId']}:decision"),
+            "kind": kind_names.get(str(request.get("kind")), "session-decision"),
+            "missionId": record.get("missionId"),
+            "sessionId": record.get("sessionId"),
+            "issue": issue,
+            "stage": record.get("stage"),
+            "subject": subject,
+            "question": str(request.get("question") or f"A decision is required for {subject}."),
+            "requestedAt": request.get("requestedAt") or record.get("producedAt"),
+            "url": request.get("url"),
+            "source": record.get("source"),
+        })
+    return pending
+
+
+def _pending_decision_summary(items: list[dict], omitted: int, issues: list[dict]) -> str:
+    if not items:
+        if omitted or issues:
+            reasons = []
+            if omitted:
+                reasons.append(f"{omitted} pending item(s) were outside the snapshot limit")
+            if issues:
+                reasons.append(f"{len(issues)} pending-decision source error(s) remain")
+            reason_text = " and ".join(reasons)
+            return f"No pending decision was established from the returned records; {reason_text}."
+        return "Nothing currently needs the Person."
+    descriptions = [
+        f"{item.get('subject') or item.get('attentionId')}: {item.get('question')}"
+        for item in items
+    ]
+    qualifications = []
+    if omitted:
+        qualifications.append(f"{omitted} additional pending item(s) were omitted by the snapshot limit")
+    if issues:
+        qualifications.append(f"{len(issues)} pending-decision source error(s) remain")
+    qualification = f" Limits: {'; '.join(qualifications)}." if qualifications else ""
+    return f"{len(items)} current item(s) need the Person: {'; '.join(descriptions)}{qualification}"
 
 
 def _status_counts(items: list[dict], *keys: str) -> dict[str, int]:
@@ -2725,11 +3035,30 @@ def _coordinator_state_snapshot(policy: dict) -> dict:
         general_documents, general_document_total = [], 0
     general_documents_omitted = max(0, general_document_total - len(general_documents))
     if "missions" in include:
-        missions, mission_total = _mission_summaries(
+        missions, mission_total, mission_attention_total = _mission_summaries(
             policy, limits.get("missions", COORDINATOR_SNAPSHOT_MAX_MISSIONS), selector_task_ids)
+        session_statuses, pending_decision_source_issues = _agent_session_status_records(policy)
     else:
-        missions, mission_total = [], 0
+        missions, mission_total, mission_attention_total = [], 0, 0
+        session_statuses = []
+        pending_decision_source_issues = [{
+            "source": "snapshotPolicy",
+            "reason": "missions collection is disabled, so pending-decision state was not checked",
+        }]
     missions_omitted = max(0, mission_total - len(missions))
+    mission_pending = _mission_pending_decisions(missions)
+    session_pending = _session_pending_decisions(session_statuses)
+    all_pending = sorted(
+        [*mission_pending, *session_pending],
+        key=lambda item: (str(item.get("requestedAt", "")), str(item.get("attentionId", ""))),
+    )
+    pending_limit = limits.get("missions", COORDINATOR_SNAPSHOT_MAX_MISSIONS)
+    pending_decisions = _tail(all_pending, pending_limit)
+    mission_pending_omitted = max(0, mission_attention_total - len(mission_pending))
+    pending_decisions_omitted = max(
+        0,
+        len(all_pending) + mission_pending_omitted - len(pending_decisions),
+    )
     source_exclusions = [
         {"collection": name, "reason": "disabled by snapshotPolicy"}
         for name in COORDINATOR_SNAPSHOT_COLLECTIONS if name not in include
@@ -2766,6 +3095,14 @@ def _coordinator_state_snapshot(policy: dict) -> dict:
         "generalDocumentsOmittedFromSnapshot": general_documents_omitted,
         "missions": missions,
         "missionsOmittedFromSnapshot": missions_omitted,
+        "pendingDecisions": pending_decisions,
+        "pendingDecisionsOmittedFromSnapshot": pending_decisions_omitted,
+        "pendingDecisionSummary": _pending_decision_summary(
+            pending_decisions,
+            pending_decisions_omitted,
+            pending_decision_source_issues,
+        ),
+        "pendingDecisionSourceIssues": pending_decision_source_issues,
         "brokerStateIssues": broker_state_issues,
     }
 
@@ -2815,8 +3152,76 @@ def _coordinator_progress_scope(snapshot: dict) -> str:
     return _coordinator_join_phrases(parts)
 
 
+def _coordinator_token_count(source: dict, *names: str) -> int | None:
+    for name in names:
+        value = source.get(name)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+    return None
+
+
+def _coordinator_token_usage_from_event(provider: str, event: dict) -> dict | None:
+    """Normalize native provider usage without turning absence into zero."""
+    nested = next((
+        event.get(name) for name in ("usage", "token_usage", "tokenUsage")
+        if isinstance(event.get(name), dict)
+    ), None)
+    source = nested if isinstance(nested, dict) else event
+    aliases = {
+        "inputTokens": ("input_tokens", "inputTokens", "prompt_eval_count", "promptEvalCount"),
+        "outputTokens": ("output_tokens", "outputTokens", "eval_count", "evalCount"),
+        "cachedInputTokens": ("cached_input_tokens", "cachedInputTokens"),
+        "cacheCreationInputTokens": ("cache_creation_input_tokens", "cacheCreationInputTokens"),
+        "cacheReadInputTokens": ("cache_read_input_tokens", "cacheReadInputTokens"),
+        "totalTokens": ("total_tokens", "totalTokens"),
+    }
+    counts = {
+        target: count
+        for target, names in aliases.items()
+        if (count := _coordinator_token_count(source, *names)) is not None
+    }
+    if not counts:
+        return None
+    if "totalTokens" not in counts:
+        total_fields = ["inputTokens", "outputTokens"]
+        if provider == "claude":
+            total_fields += ["cacheCreationInputTokens", "cacheReadInputTokens"]
+        counted = [counts[name] for name in total_fields if name in counts]
+        if counted:
+            counts["totalTokens"] = sum(counted)
+    return {"status": "reported", **counts}
+
+
+def _coordinator_merge_token_usage(current: dict, reported: dict) -> dict:
+    if current.get("status") != "reported":
+        return dict(reported)
+    numeric_fields = set(current) | set(reported)
+    numeric_fields.discard("status")
+    return {
+        "status": "reported",
+        **{
+            field: int(current.get(field) or 0) + int(reported.get(field) or 0)
+            for field in numeric_fields
+        },
+    }
+
+
+def _coordinator_invocation_token_usage(task_id: str, mocked: bool) -> dict:
+    if mocked:
+        return {"status": "unknown"}
+    try:
+        progress = json.loads((common.TASKS_DIR / task_id / "progress.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"status": "unknown"}
+    usage = progress.get("tokenUsage") if isinstance(progress, dict) else None
+    if not isinstance(usage, dict) or usage.get("status") not in {"reported", "unknown"}:
+        return {"status": "unknown"}
+    return dict(usage)
+
+
 def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: dict | None = None, *,
-                         provider: str = "claude", model: str | None = None):
+                         provider: str = "claude", model: str | None = None,
+                         effort: str | None = None):
     """Publish live progress so a caller can tell working from hung.
 
     The model reports nothing until it finishes, so a waiting caller used to
@@ -2829,9 +3234,18 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
     subject = _coordinator_progress_subject(requirement)
     scope = _coordinator_progress_scope(snapshot or {})
     started_epoch = time.time()
-    provider_label = "Glimmer" if provider == "glimmer" else "Claude"
-    active_model = model or (glimmer_adapter.DEFAULT_MODEL if provider == "glimmer" else claude_adapter.COORDINATOR_MODEL)
-    transport_label = "Claude process" if provider == "claude" else "Glimmer request"
+    provider_label = {"claude": "Claude", "codex": "Codex", "glimmer": "Glimmer"}.get(provider, provider.title())
+    default_model = {
+        "claude": claude_adapter.COORDINATOR_MODEL,
+        "codex": codex_adapter.COORDINATOR_MODEL,
+        "glimmer": glimmer_adapter.DEFAULT_MODEL,
+    }.get(provider)
+    active_model = model or default_model
+    transport_label = {
+        "claude": "Claude process",
+        "codex": "Codex process",
+        "glimmer": "Glimmer request",
+    }.get(provider, f"{provider_label} process")
 
     def timeline_event(label: str, detail: str = "", **fields) -> dict:
         event = {
@@ -2849,7 +3263,9 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
         "provider": provider,
         "providerLabel": provider_label,
         "model": active_model,
+        **({"effort": effort} if effort else {}),
         "thinkingTokens": 0,
+        "tokenUsage": {"status": "unknown"},
         "events": 0,
         "startedAt": common.utc_now(),
         "elapsedSeconds": 0,
@@ -2914,6 +3330,9 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
     def on_event(event: dict) -> None:
         state["events"] += 1
         kind, subtype = event.get("type"), event.get("subtype")
+        reported_usage = _coordinator_token_usage_from_event(provider, event)
+        if reported_usage is not None:
+            state["tokenUsage"] = _coordinator_merge_token_usage(state["tokenUsage"], reported_usage)
         if isinstance(event.get("pid"), int):
             state["modelPid"] = event["pid"]
         if isinstance(event.get("pgid"), int):
@@ -2951,6 +3370,30 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
         elif subtype == "api_retry":
             state["phase"] = f"Provider retrying the model request for {subject}"
             append_timeline("Provider retry", f"{provider_label} reported a retry; waiting for the next stream event")
+        elif subtype == "glimmer_rewarm_started":
+            state["phase"] = f"Re-warming Glimmer model {active_model} for {subject}"
+            append_timeline(
+                "Re-warming local model",
+                f"Ollama is already running; loading {active_model} after keep-alive expiry.",
+            )
+        elif subtype == "glimmer_rewarm_completed":
+            state["phase"] = f"Glimmer model {active_model} re-warmed for {subject}"
+            append_timeline(
+                "Local model ready",
+                f"Glimmer model {active_model} is loaded; starting the advisory request.",
+            )
+        elif subtype == "glimmer_rewarm_failed":
+            state["phase"] = f"Glimmer model {active_model} re-warm failed for {subject}"
+            append_timeline(
+                "Local model re-warm failed",
+                str(event.get("reason") or "Ollama did not confirm the model load."),
+            )
+        elif subtype == "glimmer_request_budget_exhausted":
+            state["phase"] = f"Glimmer request budget exhausted after re-warm for {subject}"
+            append_timeline(
+                "Local model request timed out",
+                str(event.get("reason") or "No caller timeout remained after model re-warm."),
+            )
         elif subtype == "glimmer_request_started":
             state["phase"] = f"Glimmer request started for {subject}"
             append_timeline("Glimmer request started", f"Glimmer model {active_model} is loaded; waiting for stream chunks")
@@ -2982,6 +3425,7 @@ def cmd_coordinator_report(args) -> int:
     try:
         runtime_profile = _effective_coordinator_runtime_profile(args, contract)
         model_policy = _effective_coordinator_model_policy(args, contract)
+        model, effort = _validated_model_invocation(model_policy)
     except common.TaskBundleError as exc:
         return emit(_protocol_error_payload(str(exc)), exit_code=EXIT_PROTOCOL_ERROR)
     if runtime_profile and runtime_profile.get("modelRole") != model_policy.get("role"):
@@ -2997,16 +3441,26 @@ def cmd_coordinator_report(args) -> int:
     snapshot = {} if args.mock else _coordinator_state_snapshot(_effective_coordinator_snapshot_policy(args.task_id, contract))
     requirement = common.load_requirement(args.task_id)
     timeout = getattr(args, "timeout_seconds", None) or claude_adapter.COORDINATOR_TIMEOUT_SECONDS
-    progress_model = model_policy["selectedModel"]
     progress = None if args.mock else _coordinator_progress_writer(
-        args.task_id, requirement, snapshot, provider=provider, model=progress_model
+        args.task_id, requirement, snapshot, provider=provider, model=model, effort=effort
     )
-    if provider == "glimmer":
+    if provider == "codex":
+        result = codex_adapter.coordinator_report(
+            args.task_id, "mock" if args.mock else "live",
+            requirement, snapshot, pack_identity,
+            timeout=timeout,
+            progress=progress,
+            model=model,
+            effort=effort or codex_adapter.COORDINATOR_EFFORT,
+        )
+        role = "codex"
+    elif provider == "glimmer":
         result = glimmer_adapter.coordinator_report(
             args.task_id, "mock" if args.mock else "live",
             requirement, snapshot, pack_identity,
             timeout=timeout,
             progress=progress,
+            model=model,
         )
         role = "glimmer"
     else:
@@ -3015,11 +3469,19 @@ def cmd_coordinator_report(args) -> int:
             requirement, snapshot, pack_identity,
             timeout=timeout,
             progress=progress,
+            model=model,
+            effort=effort or claude_adapter.COORDINATOR_EFFORT,
         )
         role = "claude"
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "coordination-report", result)
-    common.record_stage(args.task_id, "coordination-report", result, role=role)
+    invocation = {
+        "provider": provider,
+        "model": model,
+        **({"effort": effort} if effort else {}),
+        "tokenUsage": _coordinator_invocation_token_usage(args.task_id, args.mock),
+    }
+    common.record_stage(args.task_id, "coordination-report", result, role=role, **invocation)
     return emit(result)
 
 
@@ -4944,7 +5406,7 @@ def build_parser() -> argparse.ArgumentParser:
     model_role_delete.set_defaults(func=cmd_model_role_delete)
     model_role_resolve = sub.add_parser("model-role-resolve")
     model_role_resolve.add_argument("role", nargs="?", default=os.environ.get("STEEL_MISSION_COORDINATOR_ROLE", DEFAULT_COORDINATOR_ROLE))
-    model_role_resolve.add_argument("--provider", choices=["claude", "glimmer"], default=None)
+    model_role_resolve.add_argument("--provider", choices=["claude", "codex", "glimmer"], default=None)
     model_role_resolve.add_argument("--ignore-readiness", action="store_true", default=False)
     model_role_resolve.set_defaults(func=cmd_model_role_resolve)
     runtime_profiles = sub.add_parser("runtime-profiles")
@@ -4991,7 +5453,7 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "coordination-report":
             command.add_argument(
                 "--provider",
-                choices=["claude", "glimmer"],
+                choices=["claude", "codex", "glimmer"],
                 default=None,
                 help="Compatibility override; prefer --role for new callers.",
             )

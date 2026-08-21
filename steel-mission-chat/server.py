@@ -162,10 +162,11 @@ INTEGRATION_REGISTRY_PATH = CONFIG_DIR / "integration-registry.json"
 AUTH_POLICY_PATH = CONFIG_DIR / "auth-policy.json"
 SCHEMA_REGISTRY_PATH = WORKER_DIR / "schemas" / "schema-registry.json"
 MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
+AGENT_SESSION_STATUS_FEED_NAME = "agent-session-status.jsonl"
 AGENT_SESSION_STATUS_FEED_PATH = Path(
     os.environ.get("STEEL_MISSION_AGENT_SESSION_STATUS_FEED")
     or os.environ.get("PRESENT_AGENT_SESSION_STATUS_FEED")
-    or MISSION_ROOT / "agent-session-status.jsonl"
+    or MISSION_ROOT / AGENT_SESSION_STATUS_FEED_NAME
 )
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
 AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")
@@ -366,8 +367,8 @@ def is_legacy_page_path(path: str) -> bool:
 
 
 def active_coordinator_provider() -> str:
-    provider = ACTIVE_COORDINATOR_PROVIDER or os.environ.get(COORDINATOR_PROVIDER_ENV, "claude")
-    return provider if provider in {"claude", "glimmer"} else "claude"
+    provider = ACTIVE_COORDINATOR_PROVIDER or os.environ.get(COORDINATOR_PROVIDER_ENV, "codex")
+    return provider if provider in {"claude", "codex", "glimmer"} else "codex"
 
 
 def active_coordinator_role() -> str:
@@ -383,6 +384,7 @@ def active_runtime_profile() -> str:
         return profile
     provider_profiles = {
         "claude": "dc13.claude",
+        "codex": "dc13.codex",
         "glimmer": "dc13.local",
     }
     provider = ACTIVE_COORDINATOR_PROVIDER or os.environ.get(COORDINATOR_PROVIDER_ENV)
@@ -428,6 +430,25 @@ def authorize_mission_bindings(actor: dict[str, Any], user_ids: list[str], capab
             raise PermissionError(f"mission user {user_id} is outside the actor organization scope")
 
 
+def bind_agent_session_status_feed(snapshot_policy: dict[str, Any]) -> dict[str, Any]:
+    sources = snapshot_policy.get("sources") if isinstance(snapshot_policy.get("sources"), dict) else {}
+    mission_roots = list(sources.get("missionRoots", [])) if isinstance(sources.get("missionRoots"), list) else []
+    feed_path = AGENT_SESSION_STATUS_FEED_PATH
+    feed_is_covered = any(
+        isinstance(root, str) and (
+            Path(root) == feed_path
+            or (feed_path.name == AGENT_SESSION_STATUS_FEED_NAME and Path(root) == feed_path.parent)
+        )
+        for root in mission_roots
+    )
+    if not feed_is_covered:
+        mission_roots.append(str(feed_path))
+    return {
+        **snapshot_policy,
+        "sources": {**sources, "missionRoots": mission_roots},
+    }
+
+
 def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
     selected_profile = profile or active_runtime_profile()
     failure: dict[str, Any] = {}
@@ -442,7 +463,8 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
         )
         payload = json.loads(result.stdout or "{}")
         if result.returncode == 0 and isinstance(payload, dict) and isinstance(payload.get("runtimeProfile"), dict):
-            return payload
+            snapshot_policy = payload.get("snapshotPolicy") if isinstance(payload.get("snapshotPolicy"), dict) else {}
+            return {**payload, "snapshotPolicy": bind_agent_session_status_feed(snapshot_policy)}
         failure = payload if isinstance(payload, dict) else {}
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         pass
@@ -461,7 +483,14 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
         raise ValueError(reason)
     if registered_profile.get("status") != "active":
         raise ValueError(f"runtime profile {selected_profile!r} is disabled")
-    model_policy = resolve_model_policy()
+    declared_provider = str(registered_profile.get("modelProvider") or "auto")
+    provider_override = declared_provider if declared_provider in {"claude", "codex", "glimmer"} else None
+    model_policy = resolve_model_policy(str(registered_profile.get("modelRole") or ""), provider_override)
+    model_policy = {
+        **model_policy,
+        "snapshotProfile": str(registered_profile.get("snapshotProfile") or "worker-local-default"),
+        "requiredProviderCapabilities": list(registered_profile.get("requiredProviderCapabilities", [])),
+    }
     return {
         "schemaVersion": 1,
         "producedAt": utc_now(),
@@ -469,15 +498,15 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
         "runtimeProfile": {
             "schemaVersion": 1,
             "id": selected_profile,
-            "label": selected_profile,
+            "label": str(registered_profile.get("label") or selected_profile),
             "status": "active",
-            "modelRole": model_policy.get("role") or active_coordinator_role(),
-            "modelProvider": str(model_policy.get("provider") or active_coordinator_provider()),
+            "modelRole": str(registered_profile.get("modelRole") or active_coordinator_role()),
+            "modelProvider": declared_provider,
             "requiredProviderCapabilities": list(model_policy.get("requiredProviderCapabilities", [])),
-            "snapshotProfile": model_policy.get("snapshotProfile") or "worker-local-default",
-            "defaultFor": ["steel-mission-chat"],
-            "editableBy": ["local-user"],
-            "visibilityRoleKeys": ["DC13"],
+            "snapshotProfile": str(registered_profile.get("snapshotProfile") or "worker-local-default"),
+            "defaultFor": list(registered_profile.get("defaultFor", [])),
+            "editableBy": list(registered_profile.get("editableBy", ["local-user"])),
+            "visibilityRoleKeys": list(registered_profile.get("visibilityRoleKeys", ["DC13"])),
             "registryPath": "unavailable",
             "registryHash": "0000000000000000000000000000000000000000000000000000000000000000",
             "resolvedAt": utc_now(),
@@ -1743,11 +1772,14 @@ def worker_json_command(args: list[str], payload: dict[str, Any] | None = None, 
     return 200, {"ok": True, "payload": data}
 
 
-def resolve_model_policy(role: str | None = None) -> dict[str, Any]:
+def resolve_model_policy(role: str | None = None, provider_override: str | None = None) -> dict[str, Any]:
     selected_role = role or active_coordinator_role()
+    command = [str(WORKER_BIN), "model-role-resolve", selected_role]
+    if provider_override in {"claude", "codex", "glimmer"}:
+        command.extend(["--provider", provider_override])
     try:
         result = subprocess.run(
-            [str(WORKER_BIN), "model-role-resolve", selected_role],
+            command,
             cwd=str(WORKER_DIR),
             text=True,
             capture_output=True,
@@ -1755,21 +1787,30 @@ def resolve_model_policy(role: str | None = None) -> dict[str, Any]:
             check=False,
         )
         payload = json.loads(result.stdout or "{}")
-        if result.returncode == 0 and isinstance(payload, dict) and payload.get("provider") in {"claude", "glimmer"}:
+        if result.returncode == 0 and isinstance(payload, dict) and payload.get("provider") in {
+            "claude", "codex", "glimmer",
+        }:
             return payload
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         pass
-    provider = active_coordinator_provider()
+    provider = provider_override or active_coordinator_provider()
     native_capabilities = {
         "claude": ["model-effort-controls", "provider-native-cli", "streaming-progress", "structured-output"],
+        "codex": ["non-interactive-execution", "provider-native-cli", "read-only-review", "structured-output"],
         "glimmer": ["local-inference", "offline-operation", "persistent-model-residency", "structured-json-output"],
     }
+    selected_models = {
+        "claude": "claude-sonnet-5",
+        "codex": "codex-cli-default",
+        "glimmer": "qwen2.5-coder:14b",
+    }
+    transports = {"claude": "claude-code", "codex": "codex-cli", "glimmer": "ollama"}
     return {
         "schemaVersion": 1,
         "role": selected_role,
-        "selectedModel": "qwen2.5-coder:14b" if provider == "glimmer" else "claude-sonnet-5",
+        "selectedModel": selected_models[provider],
         "provider": provider,
-        "transport": "ollama" if provider == "glimmer" else "claude-code",
+        "transport": transports[provider],
         "snapshotProfile": "worker-local-glimmer-fallback" if provider == "glimmer" else "worker-local-default",
         "capabilityMode": "provider-native-with-governance-envelope",
         "nativeCapabilities": native_capabilities[provider],
@@ -1808,7 +1849,8 @@ def cos_provider_summary() -> dict[str, Any]:
         summary["modelLoaded"] = payload.get("model_loaded") is True
         summary["ready"] = payload.get("ready") is True
     else:
-        summary["model"] = summary.get("model") or "claude-sonnet-5"
+        default_models = {"claude": "claude-sonnet-5", "codex": "codex-cli-default"}
+        summary["model"] = summary.get("model") or default_models.get(provider)
         summary["modelLoaded"] = True
         summary["ready"] = True
     return summary
@@ -1821,7 +1863,7 @@ def provider_status_strip() -> list[dict[str, Any]]:
     detail = worker_payload.get("detail") if isinstance(worker_payload.get("detail"), dict) else {}
     reported = detail.get("providers") if isinstance(detail.get("providers"), dict) else {}
     activity = {
-        provider: {"jobCount": 0, "thinkingTokens": 0, "reportsTokens": False}
+        provider: {"jobCount": 0, "thinkingTokens": 0, "reportsTokens": False, "models": []}
         for provider in ("claude", "codex", "glimmer")
     }
     with JOBS_LOCK:
@@ -1832,6 +1874,9 @@ def provider_status_strip() -> list[dict[str, Any]]:
         if provider not in activity:
             continue
         activity[provider]["jobCount"] += 1
+        model = progress.get("model") or job.get("model")
+        if isinstance(model, str) and model and model not in activity[provider]["models"]:
+            activity[provider]["models"].append(model)
         tokens = progress.get("thinkingTokens")
         if isinstance(tokens, int) and tokens >= 0:
             activity[provider]["thinkingTokens"] += tokens
@@ -1859,9 +1904,11 @@ def provider_status_strip() -> list[dict[str, Any]]:
         }
         if provider_activity["reportsTokens"]:
             item["tokenUsage"] = {"thinkingTokens": provider_activity["thinkingTokens"]}
+        if provider_activity["models"]:
+            item["model"] = ", ".join(provider_activity["models"])
         if provider_id == "glimmer":
             item["modelLoaded"] = provider.get("model_loaded") is True
-            item["model"] = provider.get("model")
+            item["model"] = item.get("model") or provider.get("model")
         providers.append(item)
     return providers
 
@@ -1935,7 +1982,7 @@ def default_snapshot_policy(provider: str = "claude", source_profile: str | None
         for item in general.get("documents", [])
         if isinstance(item, dict) and item.get("title") and item.get("path")
     ]
-    return {
+    return bind_agent_session_status_feed({
         "schemaVersion": 1,
         "sourceProfile": source_profile,
         "includeCollections": [
@@ -1970,7 +2017,7 @@ def default_snapshot_policy(provider: str = "claude", source_profile: str | None
             ],
             "documentPaths": general_documents,
         },
-    }
+    })
 
 
 def utc_now() -> str:
@@ -6201,7 +6248,9 @@ def build_requirement(question: str, messages: list[dict[str, str]],
         "state available to this run. Distinguish conversation-state, work-product, "
         "and canonical/execution state. Name anything material that was not checked "
         "or cannot be established. If active follow-up updates are present, say how "
-        "it changed the scope of the answer. Do not approve, adopt, certify, gate, or claim PASS."
+        "it changed the scope of the answer. When the question asks what needs the Person, "
+        "answer from pendingDecisions and repeat the worker-authored pendingDecisionSummary; "
+        "never fill gaps from conversation memory. Do not approve, adopt, certify, gate, or claim PASS."
     )
 
 
@@ -6416,6 +6465,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
                "taskId": task_id, "mock": mock, "question": question, "scope": scope,
                "profile": selected_profile, "missionId": mission_id, "operatorRole": operator,
                "provider": model_policy.get("provider"),
+               "model": model_policy.get("selectedModel"),
                "actorUserId": actor_id,
                "organizationId": selected_organization_id,
                "workMode": mode,
@@ -10073,14 +10123,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the local DC13 chat page.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--provider", choices=["claude", "glimmer"],
+    parser.add_argument("--provider", choices=["claude", "codex", "glimmer"],
                         default=os.environ.get(COORDINATOR_PROVIDER_ENV))
     parser.add_argument("--role", default=os.environ.get(COORDINATOR_ROLE_ENV))
     parser.add_argument("--profile", default=os.environ.get(COORDINATOR_RUNTIME_PROFILE_ENV))
     args = parser.parse_args()
     ACTIVE_COORDINATOR_PROVIDER = args.provider
     ACTIVE_COORDINATOR_ROLE = args.role
-    provider_profiles = {"claude": "dc13.claude", "glimmer": "dc13.local"}
+    provider_profiles = {"claude": "dc13.claude", "codex": "dc13.codex", "glimmer": "dc13.local"}
     ACTIVE_RUNTIME_PROFILE = args.profile or provider_profiles.get(args.provider)
     if args.provider:
         os.environ[COORDINATOR_PROVIDER_ENV] = args.provider

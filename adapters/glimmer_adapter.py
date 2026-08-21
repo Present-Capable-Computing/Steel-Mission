@@ -37,6 +37,7 @@ PORT = 11434
 BASE_URL = os.environ.get("STEEL_MISSION_OLLAMA_BASE_URL", f"http://{HOST}:{PORT}").rstrip("/")
 DEFAULT_MODEL = "qwen2.5-coder:14b"
 KEEP_ALIVE = "30m"
+REWARM_TIMEOUT_SECONDS = 90.0
 PID_FILE = common.LOGS_DIR / "glimmer.pid"
 SERVE_LOG = common.LOGS_DIR / "glimmer-serve.log"
 
@@ -44,6 +45,15 @@ SERVE_LOG = common.LOGS_DIR / "glimmer-serve.log"
 # much reclaimable memory rather than forcing swap thrash on a machine that
 # is also the user's active workstation.
 MIN_FREE_GB_TO_START = 11.0
+
+
+def model_binding_error(model: str, effort: str | None = None) -> str | None:
+    """Validate the Ollama model reference without requiring its server to be running."""
+    if not model or any(char.isspace() or ord(char) < 32 for char in model):
+        return f"provider 'glimmer' does not recognize model {model!r}"
+    if effort is not None:
+        return f"provider 'glimmer' does not support reasoning effort {effort!r}"
+    return None
 
 
 def _ollama_path() -> str | None:
@@ -109,7 +119,19 @@ def _generate_streaming_json(payload: dict[str, Any], timeout: float,
                     last_progress = now
                 if event.get("done"):
                     if progress is not None:
-                        progress({"type": "result", "subtype": "success"})
+                        usage = {}
+                        for source, target in (
+                            ("prompt_eval_count", "input_tokens"),
+                            ("eval_count", "output_tokens"),
+                        ):
+                            count = event.get(source)
+                            if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+                                usage[target] = count
+                        progress({
+                            "type": "result",
+                            "subtype": "success",
+                            **({"usage": usage} if usage else {}),
+                        })
                     break
     except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
         return None, f"glimmer generation failed: {exc.__class__.__name__}"
@@ -194,6 +216,52 @@ def status(model: str = DEFAULT_MODEL) -> dict[str, Any]:
         "service_running": running,
         "model_loaded": loaded,
         "ready": running and avail and loaded,
+    }
+
+
+def rewarm(model: str = DEFAULT_MODEL, *,
+           progress: Callable[[dict[str, Any]], None] | None = None,
+           timeout: float = REWARM_TIMEOUT_SECONDS) -> dict[str, Any]:
+    """Reload an installed model into an already-running Ollama server."""
+    st = status(model)
+    if st["ready"]:
+        return {"status": "READY", "provider": "glimmer", "model": model, "rewarmed": False}
+    if not st.get("service_running"):
+        return common.glimmer_not_ready(
+            "Ollama server is not running; refusing to cold-start it for a chat. "
+            "Run the explicit Glimmer start command first."
+        )
+    if not st.get("model_available"):
+        return common.glimmer_not_ready(
+            f"model {model!r} is not present in the local Ollama library "
+            "(WAITING_FOR_MODEL -- not substituting another model silently)"
+        )
+
+    if progress is not None:
+        progress({"type": "system", "subtype": "glimmer_rewarm_started", "model": model})
+    loaded = _http_post(
+        "/api/generate",
+        {"model": model, "prompt": "", "stream": False, "keep_alive": KEEP_ALIVE},
+        timeout=max(0.1, min(float(timeout), REWARM_TIMEOUT_SECONDS)),
+    )
+    if loaded is None or not model_loaded(model):
+        reason = "Glimmer model re-warm failed: Ollama did not confirm the model load"
+        if progress is not None:
+            progress({
+                "type": "system",
+                "subtype": "glimmer_rewarm_failed",
+                "model": model,
+                "reason": reason,
+            })
+        return common.glimmer_not_ready(reason)
+    if progress is not None:
+        progress({"type": "system", "subtype": "glimmer_rewarm_completed", "model": model})
+    return {
+        "status": "READY",
+        "provider": "glimmer",
+        "model": model,
+        "rewarmed": True,
+        "keep_alive": KEEP_ALIVE,
     }
 
 
@@ -290,7 +358,9 @@ def build(task_id: str, mode: str, prompt: str, model: str = DEFAULT_MODEL) -> d
 
     st = status(model)
     if not st["ready"]:
-        return common.glimmer_not_ready(f"glimmer not ready: {st}")
+        warmed = rewarm(model)
+        if warmed.get("status") != "READY":
+            return warmed
 
     result = _http_post(
         "/api/generate",
@@ -332,7 +402,31 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
                 "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE}
     st = status(model)
     if not st["ready"]:
-        return common.glimmer_not_ready(f"glimmer not ready: {st}")
+        caller_timeout = float(timeout)
+        started = time.monotonic()
+        warmed = rewarm(model, progress=progress, timeout=min(caller_timeout, REWARM_TIMEOUT_SECONDS))
+        if warmed.get("status") != "READY":
+            return warmed
+        remaining = caller_timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            reason = (
+                f"Glimmer re-warm exhausted the {caller_timeout:g}s caller timeout "
+                "before advisory generation"
+            )
+            if progress is not None:
+                progress({
+                    "type": "system",
+                    "subtype": "glimmer_request_budget_exhausted",
+                    "model": model,
+                    "reason": reason,
+                })
+            return {
+                "status": "PROVIDER_ERROR",
+                "provider": "glimmer",
+                "reason": reason,
+                "retryable": True,
+            }
+        timeout = remaining
 
     prompt = (
         "You are DC13 Delivery Coordinator answering 'Where are we?' for this worker-visible snapshot. "

@@ -35,7 +35,7 @@ DOCKER_PROVISIONER = WORKER_DIR / "bin" / "present-docker-provisioner"
 PRIVATE_RUNNER = WORKER_DIR / "bin" / "present-private-runner"
 
 sys.path.insert(0, str(WORKER_DIR))
-from adapters import claude_adapter, codex_adapter, common, schema_check, verifier  # noqa: E402
+from adapters import claude_adapter, codex_adapter, common, glimmer_adapter, schema_check, verifier  # noqa: E402
 
 sys.path.insert(0, str(TESTS_DIR))
 from support import broker_state_document  # noqa: E402
@@ -477,18 +477,25 @@ def test_status_does_not_require_optional_glimmer():
 
 
 def test_claude_live_plan_uses_canonical_envelope():
+    captured = {}
     original_auth = claude_adapter.authenticated
     original_invoke = claude_adapter._invoke
     try:
         claude_adapter.authenticated = lambda: (True, {})
-        claude_adapter._invoke = lambda prompt, schema: ({
-            "summary": "bounded plan",
-            "steps": [{"id": "s1", "description": "implement", "dependsOn": []}],
-            "openQuestions": [],
-        }, None)
-        payload = claude_adapter.plan("DEV-900006", "live", "requirement")
+        def fake_invoke(_prompt, _schema, **kwargs):
+            captured.update(kwargs)
+            return ({
+                "summary": "bounded plan",
+                "steps": [{"id": "s1", "description": "implement", "dependsOn": []}],
+                "openQuestions": [],
+            }, None)
+        claude_adapter._invoke = fake_invoke
+        payload = claude_adapter.plan(
+            "DEV-900006", "live", "requirement", model="claude-opus-5", effort="high",
+        )
         assert payload["mock"] is False
         assert payload["provenance"]["source"] == "worker"
+        assert captured == {"model": "claude-opus-5", "effort": "high"}
         assert schema_check.validate(payload, "canonical/plan-v1.json") == []
     finally:
         claude_adapter.authenticated = original_auth
@@ -532,6 +539,82 @@ def test_codex_live_fix_uses_supported_noninteractive_approval_config(tmp_path):
         assert captured["command"].count("--ask-for-approval") == 1
         assert payload["schemaVersion"] == 1
         assert payload["mock"] is False
+    finally:
+        codex_adapter.authenticated = original_auth
+        codex_adapter.common.run = original_run
+
+
+def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical():
+    captured = {}
+    progress = []
+    original_auth = codex_adapter.authenticated
+    original_run = codex_adapter.common.run
+    try:
+        codex_adapter.authenticated = lambda: (True, {})
+
+        def fake_run(command, *args, **kwargs):
+            captured["command"] = command
+            captured["input"] = kwargs.get("input")
+            schema_path = Path(command[command.index("--output-schema") + 1])
+            captured["schema"] = json.loads(schema_path.read_text())
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(json.dumps({
+                "summary": "One live record needs attention.",
+                "items": [{
+                    "subject": "DEV-900188",
+                    "status": "ACTIVE",
+                    "stateClass": "canonical",
+                    "source": "worker snapshot",
+                    "freshness": "current",
+                    "note": None,
+                }],
+                "notChecked": [],
+                "contradictions": [],
+                "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE,
+            }))
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    '{"type":"thread.started","thread_id":"thread-1"}\n'
+                    '{"type":"turn.completed","usage":{"input_tokens":120,'
+                    '"cached_input_tokens":20,"output_tokens":30}}\n'
+                ),
+                stderr="",
+            )
+
+        codex_adapter.common.run = fake_run
+        payload = codex_adapter.coordinator_report(
+            "DEV-900188",
+            "live",
+            "What needs attention?",
+            {"tasks": [{"taskId": "DEV-900188", "state": "active"}]},
+            {"probe": "ok", "packageId": "DC13", "corpusGeneration": 1, "currentThrough": "today"},
+            model="gpt-5.6-terra",
+            effort="high",
+            progress=progress.append,
+        )
+
+        command = captured["command"]
+        assert command[:4] == ["codex", "--ask-for-approval", "never", "exec"]
+        assert command[command.index("--model") + 1] == "gpt-5.6-terra"
+        assert command[command.index("--config") + 1] == 'model_reasoning_effort="high"'
+        assert command[command.index("--sandbox") + 1] == "read-only"
+        assert "--json" in command
+        assert "--output-schema" in command
+        item_schema = captured["schema"]["properties"]["items"]["items"]
+        assert item_schema["required"] == ["subject", "status", "stateClass", "source", "freshness", "note"]
+        assert item_schema["properties"]["note"]["type"] == ["string", "null"]
+        assert "STATE" in captured["input"]
+        assert payload["producer"] == "steel-mission coordination-report (codex)"
+        assert payload["mock"] is False
+        assert payload["packIdentity"]["probe"] == "ok"
+        assert "note" not in payload["items"][0]
+        assert progress[-2] == {
+            "type": "turn.completed",
+            "usage": {"input_tokens": 120, "cached_input_tokens": 20, "output_tokens": 30},
+        }
+        assert schema_check.validate(payload, "canonical/coordination-report-v1.json") == []
     finally:
         codex_adapter.authenticated = original_auth
         codex_adapter.common.run = original_run
@@ -4870,6 +4953,214 @@ def test_glimmer_ready_admin_status_is_success():
     assert cli._payload_exit_code({"status": "STOPPED", "provider": "glimmer"}) == 0
 
 
+def test_glimmer_coordinator_rewarms_an_unloaded_model_before_chat(monkeypatch):
+    progress: list[dict] = []
+    posts: list[tuple[str, dict, float]] = []
+
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": True,
+        "model_loaded": False,
+        "ready": False,
+    })
+    monkeypatch.setattr(glimmer_adapter, "model_loaded", lambda _model: True)
+
+    def fake_post(path, payload, timeout):
+        posts.append((path, payload, timeout))
+        return {"done": True}
+
+    def fake_generate(_payload, timeout, progress=None):
+        assert timeout <= 120
+        if progress:
+            progress({"type": "system", "subtype": "glimmer_request_started"})
+        return ({
+            "summary": "The local model re-warmed and answered.",
+            "items": [],
+            "notChecked": [],
+            "contradictions": [],
+        }, None)
+
+    monkeypatch.setattr(glimmer_adapter, "_http_post", fake_post)
+    monkeypatch.setattr(glimmer_adapter, "_generate_streaming_json", fake_generate)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"},
+        timeout=120, progress=progress.append,
+    )
+
+    assert result["summary"] == "The local model re-warmed and answered."
+    assert posts == [(
+        "/api/generate",
+        {"model": "qwen2.5-coder:14b", "prompt": "", "stream": False, "keep_alive": "30m"},
+        90.0,
+    )]
+    assert [event["subtype"] for event in progress] == [
+        "glimmer_rewarm_started",
+        "glimmer_rewarm_completed",
+        "glimmer_request_started",
+    ]
+
+
+def test_glimmer_stream_reports_native_ollama_evaluation_counts(monkeypatch):
+    report = {"summary": "Local answer", "items": [], "notChecked": [], "contradictions": []}
+    events = [
+        {"response": json.dumps(report), "done": False},
+        {"response": "", "done": True, "prompt_eval_count": 144, "eval_count": 21},
+    ]
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def __iter__(self):
+            return iter([json.dumps(event).encode() + b"\n" for event in events])
+
+    monkeypatch.setattr(glimmer_adapter.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    progress: list[dict] = []
+
+    output, error = glimmer_adapter._generate_streaming_json(
+        {"model": "qwen2.5-coder:14b", "prompt": "status"},
+        timeout=30,
+        progress=progress.append,
+    )
+
+    assert error is None
+    assert output == report
+    assert progress[-1] == {
+        "type": "result",
+        "subtype": "success",
+        "usage": {"input_tokens": 144, "output_tokens": 21},
+    }
+
+
+def test_glimmer_coordinator_reports_a_failed_rewarm_without_starting_chat(monkeypatch):
+    progress: list[dict] = []
+    generation_called = False
+
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": True,
+        "model_loaded": False,
+        "ready": False,
+    })
+    monkeypatch.setattr(glimmer_adapter, "_http_post", lambda *_args, **_kwargs: None)
+
+    def fake_generate(*_args, **_kwargs):
+        nonlocal generation_called
+        generation_called = True
+        return {}, None
+
+    monkeypatch.setattr(glimmer_adapter, "_generate_streaming_json", fake_generate)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"},
+        timeout=120, progress=progress.append,
+    )
+
+    assert result["status"] == "GLIMMER_NOT_READY"
+    assert "re-warm failed" in result["reason"]
+    assert result["retryable"] is True
+    assert generation_called is False
+    assert [event["subtype"] for event in progress] == [
+        "glimmer_rewarm_started",
+        "glimmer_rewarm_failed",
+    ]
+
+
+def test_glimmer_coordinator_stops_when_rewarm_exhausts_the_caller_budget(monkeypatch):
+    progress: list[dict] = []
+    generation_called = False
+
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": True,
+        "model_loaded": False,
+        "ready": False,
+    })
+    monkeypatch.setattr(glimmer_adapter, "rewarm", lambda *_args, **_kwargs: {
+        "status": "READY",
+        "provider": "glimmer",
+        "model": "qwen2.5-coder:14b",
+        "rewarmed": True,
+    })
+    clock = iter((10.0, 12.0))
+    monkeypatch.setattr(glimmer_adapter.time, "monotonic", lambda: next(clock))
+
+    def fake_generate(*_args, **_kwargs):
+        nonlocal generation_called
+        generation_called = True
+        return {}, None
+
+    monkeypatch.setattr(glimmer_adapter, "_generate_streaming_json", fake_generate)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"},
+        timeout=2, progress=progress.append,
+    )
+
+    assert result["status"] == "PROVIDER_ERROR"
+    assert "re-warm exhausted the 2s caller timeout" in result["reason"]
+    assert result["retryable"] is True
+    assert generation_called is False
+    assert progress[-1]["subtype"] == "glimmer_request_budget_exhausted"
+
+
+def test_glimmer_coordinator_still_refuses_to_cold_start_the_server(monkeypatch):
+    post_called = False
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": False,
+        "model_loaded": False,
+        "ready": False,
+    })
+
+    def fake_post(*_args, **_kwargs):
+        nonlocal post_called
+        post_called = True
+        return {"done": True}
+
+    monkeypatch.setattr(glimmer_adapter, "_http_post", fake_post)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"}, timeout=120,
+    )
+
+    assert result["status"] == "GLIMMER_NOT_READY"
+    assert "server is not running" in result["reason"]
+    assert "cold-start" in result["reason"]
+    assert post_called is False
+
+
+def test_glimmer_server_start_still_enforces_the_memory_floor(monkeypatch):
+    monkeypatch.setattr(glimmer_adapter, "installed", lambda: True)
+    monkeypatch.setattr(glimmer_adapter, "server_running", lambda: False)
+    monkeypatch.setattr(glimmer_adapter, "memory_check", lambda: {
+        "ok": True,
+        "free_gb": 3.0,
+        "min_required_gb": glimmer_adapter.MIN_FREE_GB_TO_START,
+    })
+
+    result = glimmer_adapter.start()
+
+    assert result["status"] == "GLIMMER_NOT_READY"
+    assert "insufficient free memory" in result["reason"]
+
+
 def test_model_binding_registry_validates_and_resolves_local_dc13_instance():
     code, registry = run_worker("model-roles")
     assert code == 0
@@ -4908,6 +5199,96 @@ def test_model_role_auto_falls_back_to_ready_glimmer():
     assert policy["fallbackReason"] == "primary-unavailable"
 
 
+def test_coordinator_role_prefers_codex_and_names_registry_fallback_when_unavailable():
+    cli = _load_cli_module()
+
+    preferred = cli._resolve_model_policy(
+        "dc13.coordination-report",
+        provider_capabilities={
+            "codex": {"ready": True},
+            "claude": {"ready": True},
+            "glimmer": {"ready": True},
+        },
+    )
+    fallback = cli._resolve_model_policy(
+        "dc13.coordination-report",
+        provider_capabilities={
+            "codex": {"ready": False},
+            "claude": {"ready": True},
+            "glimmer": {"ready": True},
+        },
+    )
+
+    assert preferred["provider"] == "codex"
+    assert preferred["selectedModel"] == "gpt-5.6-sol"
+    assert "reasoning-effort:xhigh" in preferred["nativeCapabilities"]
+    assert "fallbackReason" not in preferred
+    assert fallback["provider"] == "claude"
+    assert fallback["selectedModel"] == "claude-sonnet-5"
+    assert "reasoning-effort:medium" in fallback["nativeCapabilities"]
+    assert fallback["fallbackReason"] == "primary-unavailable"
+
+
+def test_delivery_roles_pin_opus_five_and_codex_maximum_settings():
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    models = {model["id"]: model for model in registry["models"]}
+    roles = {role["id"]: role for role in registry["roles"]}
+
+    assert roles["delivery.planner"]["primaryModel"] == "claude-opus-5"
+    assert roles["delivery.acceptance"]["primaryModel"] == "claude-opus-5"
+    assert "reasoning-effort:high" in models["claude-opus-5"]["nativeCapabilities"]
+    assert roles["delivery.reviewer"]["primaryModel"] == "gpt-5.6-sol"
+    assert "reasoning-effort:xhigh" in models["gpt-5.6-sol"]["nativeCapabilities"]
+
+
+def test_model_role_resolution_refuses_a_model_unknown_to_its_provider(tmp_path, monkeypatch):
+    cli = _load_cli_module()
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    codex = next(model for model in registry["models"] if model["provider"] == "codex")
+    old_id = codex["id"]
+    codex["id"] = "codex-invented-model"
+    for role in registry["roles"]:
+        if role["primaryModel"] == old_id:
+            role["primaryModel"] = codex["id"]
+        role["fallbackModels"] = [codex["id"] if model == old_id else model for model in role["fallbackModels"]]
+    path = tmp_path / "model-role-registry.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setenv(cli.MODEL_ROLE_REGISTRY_ENV, str(path))
+
+    with pytest.raises(
+        common.TaskBundleError,
+        match="provider 'codex' does not recognize model 'codex-invented-model'",
+    ):
+        cli._resolve_model_policy("dc13.coordination-report", require_ready=False)
+
+
+def test_previous_v1_registry_migrates_the_legacy_codex_binding(tmp_path, monkeypatch):
+    cli = _load_cli_module()
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    codex = next(model for model in registry["models"] if model["provider"] == "codex")
+    current_id = codex["id"]
+    codex["id"] = "codex-cli-default"
+    codex["nativeCapabilities"] = [
+        capability for capability in codex["nativeCapabilities"]
+        if not capability.startswith("reasoning-effort:")
+    ]
+    for role in registry["roles"]:
+        if role["primaryModel"] == current_id:
+            role["primaryModel"] = codex["id"]
+        role["fallbackModels"] = [
+            codex["id"] if model == current_id else model for model in role["fallbackModels"]
+        ]
+    path = tmp_path / "model-role-registry.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setenv(cli.MODEL_ROLE_REGISTRY_ENV, str(path))
+
+    policy = cli._resolve_model_policy("dc13.coordination-report", require_ready=False)
+
+    assert policy["selectedModel"] == "gpt-5.6-sol"
+    assert "reasoning-effort:xhigh" in policy["nativeCapabilities"]
+    assert cli._validated_model_invocation(policy) == ("gpt-5.6-sol", "xhigh")
+
+
 def test_model_role_refuses_provider_that_lacks_required_native_capability():
     cli = _load_cli_module()
 
@@ -4924,7 +5305,9 @@ def test_runtime_profile_registry_validates_and_resolves_local_profile():
     code, registry = run_worker("runtime-profiles")
     assert code == 0
     assert schema_check.validate(registry, "canonical/runtime-profile-registry-v1.json") == []
-    assert {profile["id"] for profile in registry["profiles"]} >= {"dc13.auto", "dc13.local", "dc13.claude"}
+    assert {profile["id"] for profile in registry["profiles"]} >= {
+        "dc13.auto", "dc13.codex", "dc13.local", "dc13.claude",
+    }
 
     code, resolution = run_worker("runtime-profile-resolve", "dc13.local", "--ignore-readiness")
 
@@ -4955,6 +5338,182 @@ def test_runtime_profile_registry_validates_and_resolves_local_profile():
     }
     assert resolution["snapshotPolicy"]["sourceProfile"] == "worker-local-glimmer-fallback"
     assert "${" not in json.dumps(resolution["snapshotPolicy"])
+
+
+def test_codex_runtime_profile_is_selectable_and_contract_valid():
+    code, resolution = run_worker("runtime-profile-resolve", "dc13.codex", "--ignore-readiness")
+
+    assert code == 0
+    assert schema_check.validate(resolution, "canonical/runtime-profile-resolution-v1.json") == []
+    assert resolution["runtimeProfile"]["modelProvider"] == "codex"
+    assert resolution["modelPolicy"]["provider"] == "codex"
+    assert resolution["modelPolicy"]["transport"] == "codex-cli"
+
+
+def test_mock_coordinator_report_routes_through_codex():
+    task_id = "DEV-900188"
+    purge_task(task_id)
+    try:
+        code, payload = run_worker("coordination-report", task_id, "--mock", "--provider", "codex")
+
+        assert code == 0
+        assert payload["producer"] == "steel-mission coordination-report (codex)"
+        assert payload["mock"] is True
+        assert schema_check.validate(payload, "canonical/coordination-report-v1.json") == []
+    finally:
+        purge_task(task_id)
+
+
+def test_changing_registry_model_changes_coordinator_invocation_and_record(monkeypatch, tmp_path):
+    cli = _load_cli_module()
+    captured: dict = {}
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    codex = next(model for model in registry["models"] if model["provider"] == "codex")
+    old_id = codex["id"]
+    codex["id"] = "gpt-5.6-terra"
+    codex["nativeCapabilities"] = ["provider-native-cli", "reasoning-effort:high"]
+    for role in registry["roles"]:
+        if role["primaryModel"] == old_id:
+            role["primaryModel"] = codex["id"]
+        role["fallbackModels"] = [
+            codex["id"] if model == old_id else model for model in role["fallbackModels"]
+        ]
+    path = tmp_path / "model-role-registry.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setenv(cli.MODEL_ROLE_REGISTRY_ENV, str(path))
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = True
+        timeout_seconds = 42
+        profile = None
+        role = None
+        provider = None
+
+    def fake_report(*_args, model=None, effort=None, **_kwargs):
+        captured["adapter"] = {"model": model, "effort": effort}
+        return {"status": "OK"}
+
+    def fake_record(_task_id, _stage, _fields=None, **extra):
+        captured["record"] = extra
+        return extra
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_effective_coordinator_runtime_profile", lambda *_args: None)
+    monkeypatch.setattr(cli, "_effective_coordinator_snapshot_policy", lambda *_args: {})
+    monkeypatch.setattr(cli, "_coordinator_state_snapshot", lambda *_args: {})
+    monkeypatch.setattr(cli, "_coordinator_pack_identity", lambda: {"probe": "ok"})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_coordinator_progress_writer", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Where are we?")
+    monkeypatch.setattr(cli.common, "record_stage", fake_record)
+    monkeypatch.setattr(cli.codex_adapter, "coordinator_report", fake_report)
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_coordinator_report(Args()) == 0
+    assert captured["adapter"] == {"model": "gpt-5.6-terra", "effort": "high"}
+    assert captured["record"] == {
+        "role": "codex",
+        "provider": "codex",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "tokenUsage": {"status": "unknown"},
+    }
+
+
+def test_plan_command_invokes_the_registry_declared_opus_model(monkeypatch):
+    cli = _load_cli_module()
+    captured: dict = {}
+    policy = {
+        "selectedModel": "claude-opus-5",
+        "provider": "claude",
+        "nativeCapabilities": ["reasoning-effort:high"],
+    }
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = False
+
+    def fake_plan(*_args, model=None, effort=None, **_kwargs):
+        captured.update(model=model, effort=effort)
+        return {"status": "OK"}
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_resolve_model_policy", lambda *_args, **_kwargs: policy)
+    monkeypatch.setattr(cli.claude_adapter, "plan", fake_plan)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Plan this")
+    monkeypatch.setattr(cli.common, "record_stage", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_plan(Args()) == 0
+    assert captured == {"model": "claude-opus-5", "effort": "high"}
+
+
+def test_review_command_invokes_the_registry_declared_codex_model(monkeypatch, tmp_path):
+    cli = _load_cli_module()
+    captured: dict = {}
+    policy = {
+        "selectedModel": "gpt-5.6-sol",
+        "provider": "codex",
+        "nativeCapabilities": ["reasoning-effort:xhigh"],
+    }
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = False
+
+    def fake_review(*_args, model=None, effort=None, **_kwargs):
+        captured.update(model=model, effort=effort)
+        return {"status": "OK"}
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_resolve_model_policy", lambda *_args, **_kwargs: policy)
+    monkeypatch.setattr(cli, "_latest_stage_output_commit", lambda *_args: "a" * 40)
+    monkeypatch.setattr(cli, "_worktree_path", lambda *_args: tmp_path / "absent")
+    monkeypatch.setattr(cli, "_artifact_plan_text", lambda _task_id: "plan")
+    monkeypatch.setattr(cli, "_workflow_input_context_text", lambda: "context")
+    monkeypatch.setattr(cli.codex_adapter, "review", fake_review)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Review this")
+    monkeypatch.setattr(cli.common, "record_stage", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_review(Args()) == 0
+    assert captured == {"model": "gpt-5.6-sol", "effort": "xhigh"}
+
+
+def test_acceptance_command_invokes_the_registry_declared_opus_model(monkeypatch, tmp_path):
+    cli = _load_cli_module()
+    captured: dict = {}
+    policy = {
+        "selectedModel": "claude-opus-5",
+        "provider": "claude",
+        "nativeCapabilities": ["reasoning-effort:high"],
+    }
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = False
+
+    def fake_adversarial(*_args, model=None, effort=None, **_kwargs):
+        captured.update(model=model, effort=effort)
+        return {"status": "OK"}
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_resolve_model_policy", lambda *_args, **_kwargs: policy)
+    monkeypatch.setattr(cli, "_latest_stage_output_commit", lambda *_args: "a" * 40)
+    monkeypatch.setattr(cli, "_worktree_path", lambda *_args: tmp_path / "absent")
+    monkeypatch.setattr(cli, "_artifact_plan_text", lambda _task_id: "plan")
+    monkeypatch.setattr(cli, "_workflow_input_context_text", lambda: "context")
+    monkeypatch.setattr(cli.claude_adapter, "adversarial", fake_adversarial)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Accept this")
+    monkeypatch.setattr(cli.common, "record_stage", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_adversarial(Args()) == 0
+    assert captured == {"model": "claude-opus-5", "effort": "high"}
 
 
 def test_steel_mission_refuses_unknown_runtime_profile_before_starting_mission(tmp_path):
@@ -4994,7 +5553,8 @@ def test_steel_mission_known_runtime_profile_keeps_offline_fallback(monkeypatch)
 
     assert resolution["runtimeProfile"]["id"] == "dc13.local"
     assert resolution["runtimeProfile"]["status"] == "active"
-    assert resolution["modelPolicy"]["provider"] in {"claude", "glimmer"}
+    assert resolution["runtimeProfile"]["modelProvider"] == "glimmer"
+    assert resolution["modelPolicy"]["provider"] == "glimmer"
 
 
 def test_runtime_profile_manager_publisher_can_save_and_clone(tmp_path, monkeypatch):
@@ -5325,7 +5885,7 @@ def test_mock_coordinator_report_is_canonical_advisory_and_claims_no_authority()
         assert code == 0
         assert payload["mock"] is True
         assert payload["taskId"] == task_id
-        assert payload["producer"] == "steel-mission coordination-report (claude)"
+        assert payload["producer"] == "steel-mission coordination-report (codex)"
         # The invariant is worker-authored, never model prose: no authority,
         # no PASS, advisory only.
         assert "no authority" in payload["advisoryNote"]
@@ -5373,6 +5933,141 @@ def test_coordinator_state_snapshot_is_bounded_and_declares_omissions():
         assert item["totalAvailable"] >= item["returned"]
         assert item["omittedFromSnapshot"] == item["totalAvailable"] - item["returned"]
     assert "generatedAt" in snapshot and "repositoryCommits" in snapshot
+
+
+def test_coordinator_pending_decisions_come_from_live_mission_and_session_records(tmp_path):
+    cli = _load_cli_module()
+    mission_root = tmp_path / "missions"
+    escalated_dir = mission_root / "ms-aaaaaaaaaaaaaaaaaaaaaaaa"
+    escalated_dir.mkdir(parents=True)
+    escalated_path = escalated_dir / "mission.json"
+    escalated = {
+        "missionId": "ms-aaaaaaaaaaaaaaaaaaaaaaaa",
+        "taskId": "DEV-900187",
+        "state": "waiting_for_decision",
+        "objective": "Keep the redirected mission within its grant",
+        "updatedAt": "2026-08-21T15:00:00Z",
+        "decisionRequest": {
+            "id": "decision-scope-187",
+            "question": "Should mission 187 stay within the granted paths?",
+            "requestedAt": "2026-08-21T15:00:00Z",
+        },
+    }
+    escalated_path.write_text(json.dumps(escalated))
+
+    approval_dir = mission_root / "ms-bbbbbbbbbbbbbbbbbbbbbbbb"
+    approval_dir.mkdir()
+    approval_path = approval_dir / "mission.json"
+    approval = {
+        "missionId": "ms-bbbbbbbbbbbbbbbbbbbbbbbb",
+        "taskId": "DEV-900188",
+        "state": "waiting_for_approval",
+        "objective": "Publish the accepted delivery",
+        "currentNodeId": "publish-approval",
+        "updatedAt": "2026-08-21T15:01:00Z",
+        "nodes": [{
+            "nodeId": "publish-approval",
+            "title": "Publish approval",
+            "kind": "approval",
+            "capability": "delivery.approve",
+            "requiresApproval": True,
+            "state": "waiting_for_approval",
+        }],
+    }
+    approval_path.write_text(json.dumps(approval))
+
+    session = json.loads(
+        (WORKER_DIR / "schemas" / "fixtures" / "valid" / "agent-session-status-v1.working.json").read_text()
+    )
+    session["eventId"] = "ase-cccccccccccccccccccccccc"
+    session["lastEvent"] = {
+        "eventId": session["eventId"],
+        "sequence": session["sequence"],
+        "at": "2026-08-21T15:02:00Z",
+        "kind": "decision-requested",
+        "summary": "The review is blocked on the Person.",
+    }
+    session["state"] = "waiting-on-person"
+    session["stage"] = "review-loop"
+    session["pendingDecision"] = {
+        "decisionId": "decision-blocked-session",
+        "kind": "blocked",
+        "question": "Who can provide the missing acceptance account?",
+        "requestedAt": "2026-08-21T15:02:00Z",
+    }
+    feed_path = mission_root / "agent-session-status.jsonl"
+    feed_path.write_text(json.dumps(session) + "\n")
+
+    policy = {
+        "schemaVersion": 1,
+        "sourceProfile": "pending-decision-fixture",
+        "includeCollections": ["missions"],
+        "limits": {"missions": 10, "operatorAudit": 0},
+        "taskSelector": {"mode": "latest"},
+        "sources": {
+            "taskRoots": [],
+            "logRoots": [],
+            "buildJobRoots": [],
+            "verifyResultRoots": [],
+            "brokerStatePaths": [],
+            "missionRoots": [str(mission_root)],
+            "repositoryRoots": [],
+        },
+    }
+
+    snapshot = cli._coordinator_state_snapshot(policy)
+
+    assert {item["kind"] for item in snapshot["pendingDecisions"]} == {
+        "blocked-session", "escalated-mission", "mission-approval",
+    }
+    assert "Should mission 187 stay within the granted paths?" in snapshot["pendingDecisionSummary"]
+    assert "Who can provide the missing acceptance account?" in snapshot["pendingDecisionSummary"]
+    assert snapshot["pendingDecisionsOmittedFromSnapshot"] == 0
+    escalated_summary = next(item for item in snapshot["missions"] if item["missionId"] == escalated["missionId"])
+    assert escalated_summary["decisionRequest"] == escalated["decisionRequest"]
+
+    escalated_path.write_text(json.dumps({**escalated, "state": "done", "decisionRequest": None}))
+    approval_path.write_text(json.dumps({
+        **approval,
+        "state": "done",
+        "nodes": [{**approval["nodes"][0], "state": "done"}],
+    }))
+    finished = {
+        **session,
+        "eventId": "ase-dddddddddddddddddddddddd",
+        "sequence": 3,
+        "state": "succeeded",
+        "lastEvent": {
+            "eventId": "ase-dddddddddddddddddddddddd",
+            "sequence": 3,
+            "at": "2026-08-21T15:03:00Z",
+            "kind": "finished",
+            "summary": "The session finished.",
+        },
+        "outcome": {"status": "succeeded", "summary": "The session finished."},
+    }
+    finished.pop("pendingDecision")
+    feed_path.write_text(json.dumps(session) + "\n" + json.dumps(finished) + "\n")
+
+    empty = cli._coordinator_state_snapshot(policy)
+
+    assert empty["pendingDecisions"] == []
+    assert empty["pendingDecisionSummary"] == "Nothing currently needs the Person."
+
+
+def test_server_snapshot_policy_binds_the_configured_status_feed_and_attention_rule(tmp_path, monkeypatch):
+    feed_path = tmp_path / "live-status.jsonl"
+    monkeypatch.setenv("STEEL_MISSION_AGENT_SESSION_STATUS_FEED", str(feed_path))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+
+    policy = chat["default_snapshot_policy"]()
+    resolved = chat["resolve_runtime_profile"]("dc13.claude")["snapshotPolicy"]
+    requirement = chat["build_requirement"]("What needs me?", [])
+
+    assert str(feed_path) in policy["sources"]["missionRoots"]
+    assert str(feed_path) in resolved["sources"]["missionRoots"]
+    assert "pendingDecisions" in requirement
+    assert "pendingDecisionSummary" in requirement
 
 
 def test_coordinator_snapshot_policy_attached_to_job_controls_snapshot_roots(tmp_path):
@@ -5689,6 +6384,7 @@ def test_coordinator_progress_messages_name_the_question_and_snapshot_context():
         assert initial["phase"].startswith("Starting Claude")
         assert initial["provider"] == "claude"
         assert initial["model"] == cli.claude_adapter.COORDINATOR_MODEL
+        assert initial["tokenUsage"] == {"status": "unknown"}
         assert initial["timeline"][0]["label"] == "Snapshot ready"
         assert "30 of 47 tasks" in initial["timeline"][0]["detail"]
         assert initial["timeline"][1]["label"] == "Context checkpoint"
@@ -5744,12 +6440,28 @@ def test_coordinator_progress_messages_name_the_question_and_snapshot_context():
         assert writing["timeline"][-2]["label"] == "Writing findings"
         assert writing["timeline"][-1]["label"] == "Context checkpoint"
 
-        writer({"type": "result"})
+        writer({
+            "type": "result",
+            "usage": {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 20,
+                "cache_read_input_tokens": 30,
+                "output_tokens": 11,
+            },
+        })
         finishing = json.loads((progress_dir / "progress.json").read_text())
         assert finishing["phase"].startswith("Finalizing the reconciled report")
         assert finishing["events"] == 6
         assert finishing["resultSeconds"] >= started["firstEventSeconds"]
         assert finishing["timeline"][-1]["label"] == "Result received"
+        assert finishing["tokenUsage"] == {
+            "status": "reported",
+            "inputTokens": 10,
+            "outputTokens": 11,
+            "cacheCreationInputTokens": 20,
+            "cacheReadInputTokens": 30,
+            "totalTokens": 71,
+        }
     finally:
         purge_task(task_id)
 
@@ -5775,6 +6487,35 @@ def test_coordinator_progress_messages_show_glimmer_provider_and_model():
         assert initial["model"] == "qwen2.5-coder:14b"
         assert initial["phase"].startswith("Starting Glimmer")
 
+        writer({"type": "system", "subtype": "glimmer_rewarm_started"})
+        warming = json.loads((progress_dir / "progress.json").read_text())
+        assert warming["phase"].startswith("Re-warming Glimmer model qwen2.5-coder:14b")
+        assert warming["timeline"][-1]["label"] == "Re-warming local model"
+
+        writer({"type": "system", "subtype": "glimmer_rewarm_completed"})
+        warmed = json.loads((progress_dir / "progress.json").read_text())
+        assert warmed["phase"].startswith("Glimmer model qwen2.5-coder:14b re-warmed")
+        assert warmed["timeline"][-1]["label"] == "Local model ready"
+
+        writer({
+            "type": "system",
+            "subtype": "glimmer_rewarm_failed",
+            "reason": "Glimmer model re-warm failed: timed out",
+        })
+        failed = json.loads((progress_dir / "progress.json").read_text())
+        assert failed["phase"].startswith("Glimmer model qwen2.5-coder:14b re-warm failed")
+        assert failed["timeline"][-1]["label"] == "Local model re-warm failed"
+        assert failed["timeline"][-1]["detail"] == "Glimmer model re-warm failed: timed out"
+
+        writer({
+            "type": "system",
+            "subtype": "glimmer_request_budget_exhausted",
+            "reason": "Glimmer re-warm exhausted the 90s caller timeout before advisory generation",
+        })
+        exhausted = json.loads((progress_dir / "progress.json").read_text())
+        assert exhausted["phase"].startswith("Glimmer request budget exhausted after re-warm")
+        assert exhausted["timeline"][-1]["label"] == "Local model request timed out"
+
         writer({"type": "system", "subtype": "glimmer_request_started"})
         started = json.loads((progress_dir / "progress.json").read_text())
         assert started["phase"].startswith("Glimmer request started")
@@ -5790,6 +6531,125 @@ def test_coordinator_progress_messages_show_glimmer_provider_and_model():
             f"{event.get('label', '')} {event.get('detail', '')}" for event in retrying["timeline"]
         ]
         assert "Claude" not in json.dumps(worded), worded
+    finally:
+        purge_task(task_id)
+
+
+def test_coordinator_progress_messages_show_codex_provider_and_model():
+    cli = _load_cli_module()
+    task_id = "DEV-900188"
+    progress_dir = common.TASKS_DIR / task_id
+    purge_task(task_id)
+    try:
+        progress_dir.mkdir(parents=True)
+        cli._coordinator_progress_writer(
+            task_id,
+            "status",
+            {"snapshotCollections": [{"name": "tasks", "returned": 1, "totalAvailable": 1}]},
+            provider="codex",
+            model="codex-cli-default",
+        )
+
+        initial = json.loads((progress_dir / "progress.json").read_text())
+        assert initial["provider"] == "codex"
+        assert initial["providerLabel"] == "Codex"
+        assert initial["model"] == "codex-cli-default"
+        assert initial["phase"].startswith("Starting Codex")
+    finally:
+        purge_task(task_id)
+
+
+@pytest.mark.parametrize(("provider", "event", "expected"), [
+    (
+        "claude",
+        {"usage": {"inputTokens": 8, "cacheCreationInputTokens": 12,
+                   "cacheReadInputTokens": 20, "outputTokens": 5}},
+        {"status": "reported", "inputTokens": 8, "outputTokens": 5,
+         "cacheCreationInputTokens": 12, "cacheReadInputTokens": 20, "totalTokens": 45},
+    ),
+    (
+        "codex",
+        {"type": "turn.completed", "usage": {
+            "input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 25,
+        }},
+        {"status": "reported", "inputTokens": 100, "outputTokens": 25,
+         "cachedInputTokens": 40, "totalTokens": 125},
+    ),
+    (
+        "glimmer",
+        {"prompt_eval_count": 144, "eval_count": 21},
+        {"status": "reported", "inputTokens": 144, "outputTokens": 21, "totalTokens": 165},
+    ),
+])
+def test_coordinator_token_usage_normalizes_provider_native_counts(provider, event, expected):
+    cli = _load_cli_module()
+    assert cli._coordinator_token_usage_from_event(provider, event) == expected
+
+
+def test_coordinator_token_usage_missing_or_invalid_is_unknown():
+    cli = _load_cli_module()
+    assert cli._coordinator_token_usage_from_event("claude", {"type": "result"}) is None
+    assert cli._coordinator_token_usage_from_event(
+        "codex", {"usage": {"input_tokens": -1, "output_tokens": True}}
+    ) is None
+
+
+def test_coordinator_invocation_record_uses_the_same_reported_usage_as_progress(monkeypatch):
+    cli = _load_cli_module()
+    task_id = "DEV-900191"
+    captured: dict = {}
+    purge_task(task_id)
+    try:
+        (common.TASKS_DIR / task_id).mkdir(parents=True)
+
+        class Args:
+            mock = False
+            timeout_seconds = 42
+            profile = None
+            role = None
+            provider = None
+
+        Args.task_id = task_id
+
+        def fake_report(*_args, progress=None, **_kwargs):
+            assert progress is not None
+            progress({
+                "type": "turn.completed",
+                "usage": {"input_tokens": 120, "cached_input_tokens": 20, "output_tokens": 30},
+            })
+            return {"status": "OK"}
+
+        def fake_record(_task_id, _stage, _fields=None, **extra):
+            captured["record"] = extra
+            return extra
+
+        monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+        monkeypatch.setattr(cli, "_effective_coordinator_runtime_profile", lambda *_args: None)
+        monkeypatch.setattr(cli, "_effective_coordinator_model_policy", lambda *_args: {
+            "role": "dc13.coordination-report",
+            "provider": "codex",
+            "selectedModel": "gpt-5.6-sol",
+            "nativeCapabilities": ["provider-native-cli", "reasoning-effort:xhigh"],
+        })
+        monkeypatch.setattr(cli, "_effective_coordinator_snapshot_policy", lambda *_args: {})
+        monkeypatch.setattr(cli, "_coordinator_state_snapshot", lambda *_args: {})
+        monkeypatch.setattr(cli, "_coordinator_pack_identity", lambda: {"probe": "ok"})
+        monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+        monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Where are we?")
+        monkeypatch.setattr(cli.common, "record_stage", fake_record)
+        monkeypatch.setattr(cli.codex_adapter, "coordinator_report", fake_report)
+        monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+        assert cli.cmd_coordinator_report(Args()) == 0
+        progress = json.loads((common.TASKS_DIR / task_id / "progress.json").read_text())
+        assert progress["tokenUsage"] == {
+            "status": "reported",
+            "inputTokens": 120,
+            "outputTokens": 30,
+            "cachedInputTokens": 20,
+            "totalTokens": 150,
+        }
+        assert captured["record"]["tokenUsage"] == progress["tokenUsage"]
     finally:
         purge_task(task_id)
 
@@ -6343,16 +7203,18 @@ def test_coordinator_report_budget_is_caller_supplied():
                     "contradictions": []}, None
 
         claude_adapter._invoke = fake_invoke
-        claude_adapter.coordinator_report("DEV-900007", "live", "requirement", {},
-                                  {"probe": "ok"}, timeout=42)
+        claude_adapter.coordinator_report(
+            "DEV-900007", "live", "requirement", {}, {"probe": "ok"},
+            timeout=42, model="claude-opus-5", effort="high",
+        )
         # A deadline, not a fresh grant per attempt: the budget is shared with
         # the survey re-ask, so an attempt gets what remains of it and can
         # never exceed it.
         assert 40 <= captured["timeout"] <= 42
         # Effort is pinned: `low` returned an empty "placeholder" stub claiming
         # nothing was unchecked, which the role canon forbids.
-        assert captured["effort"] == "medium"
-        assert captured["model"] == claude_adapter.COORDINATOR_MODEL
+        assert captured["effort"] == "high"
+        assert captured["model"] == "claude-opus-5"
     finally:
         claude_adapter._invoke = original
         claude_adapter.authenticated = original_auth

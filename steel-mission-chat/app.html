@@ -2323,6 +2323,7 @@ select {
             /* @__PURE__ */ u3("select", { value: String(profile.modelProvider || "auto"), onChange: (event) => update("modelProvider", event.currentTarget.value), children: [
               /* @__PURE__ */ u3("option", { value: "auto", children: "auto" }),
               /* @__PURE__ */ u3("option", { value: "claude", children: "claude" }),
+              /* @__PURE__ */ u3("option", { value: "codex", children: "codex" }),
               /* @__PURE__ */ u3("option", { value: "glimmer", children: "glimmer" })
             ] })
           ] }),
@@ -2801,6 +2802,7 @@ select {
       connection: typeof provider.connection === "string" ? provider.connection : "unavailable",
       activity: provider.activity === "working" ? "working" : "idle",
       jobCount: typeof provider.jobCount === "number" ? provider.jobCount : 0,
+      ...typeof provider.model === "string" && provider.model ? { model: provider.model } : {},
       ...thinkingTokens === void 0 ? {} : { thinkingTokens }
     };
   }
@@ -2843,6 +2845,14 @@ select {
   }
   function chatIsActive(job) {
     return Boolean(job && ["running", "waiting_for_decision", "paused"].includes(job.state));
+  }
+  function chatTokenUsageLabel(progress) {
+    const provider = progress?.providerLabel || (progress?.provider ? progress.provider.charAt(0).toUpperCase() + progress.provider.slice(1) : "");
+    const usage = progress?.tokenUsage;
+    if (usage?.status === "reported" && typeof usage.totalTokens === "number") {
+      return `${usage.totalTokens.toLocaleString()} tokens reported${provider ? ` by ${provider}` : ""}`;
+    }
+    return `Token usage unknown${provider ? ` for ${provider}` : ""}`;
   }
   async function startChat(request, input) {
     const response = await request("/api/chat", {
@@ -2907,7 +2917,7 @@ select {
         content: chatAnswerText(completed),
         error: failed
       }]);
-      setJob(null);
+      setJob(completed);
     };
     const watchJob = async (jobId) => {
       try {
@@ -2990,7 +3000,7 @@ select {
       }
     };
     const active = chatIsActive(job);
-    const decision = job?.progress?.decisionRequest;
+    const decision = active ? job?.progress?.decisionRequest : void 0;
     const progressLabel = job?.progress?.phase || (job?.state === "paused" ? "Delivery Coordinator is paused." : "Delivery Coordinator is checking the worker-visible state.");
     return /* @__PURE__ */ u3("section", { class: "chat-panel", "aria-labelledby": "chatTitle", children: [
       /* @__PURE__ */ u3("header", { children: [
@@ -3007,10 +3017,7 @@ select {
         job && /* @__PURE__ */ u3("article", { class: "chat-message assistant chat-progress", "data-job-state": job.state, children: [
           /* @__PURE__ */ u3("strong", { children: "Delivery Coordinator" }),
           /* @__PURE__ */ u3("p", { children: progressLabel }),
-          job.progress?.thinkingTokens !== void 0 && /* @__PURE__ */ u3("small", { children: [
-            job.progress.thinkingTokens.toLocaleString(),
-            " thinking tokens reported"
-          ] }),
+          /* @__PURE__ */ u3("small", { children: chatTokenUsageLabel(job.progress) }),
           decision && /* @__PURE__ */ u3("form", { class: "decision-request", onSubmit: submitDecision, children: [
             /* @__PURE__ */ u3("fieldset", { children: [
               /* @__PURE__ */ u3("legend", { children: decision.question || "Choose how the Delivery Coordinator should continue." }),
@@ -3090,14 +3097,18 @@ select {
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Coordinator models are unavailable");
     const profiles = Array.isArray(payload.registry?.profiles) ? payload.registry.profiles.filter((item) => Boolean(item) && typeof item === "object" && item.status === "active" && item.modelRole === "dc13.coordination-report" && typeof item.id === "string") : [];
     const resolved = (await Promise.all(profiles.map((profile) => resolveProfile(request, profile)))).filter((model) => Boolean(model));
+    const activeProfile = typeof payload.activeProfile === "string" ? payload.activeProfile : "";
     const byProvider = /* @__PURE__ */ new Map();
     for (const model of resolved) {
       const profile = profiles.find((item) => item.id === model.profileId);
       const explicit = profile?.modelProvider === model.provider;
       const current = byProvider.get(model.provider);
-      if (!current || explicit && !current.explicit) byProvider.set(model.provider, { model, explicit });
+      const active = model.profileId === activeProfile;
+      const currentIsActive = current?.model.profileId === activeProfile;
+      if (!current || active || !currentIsActive && explicit && !current.explicit) {
+        byProvider.set(model.provider, { model, explicit });
+      }
     }
-    const activeProfile = typeof payload.activeProfile === "string" ? payload.activeProfile : "";
     const models = [...byProvider.values()].map((item) => item.model).sort((left, right) => {
       if (left.profileId === activeProfile) return -1;
       if (right.profileId === activeProfile) return 1;
@@ -3407,6 +3418,7 @@ select {
               /* @__PURE__ */ u3("span", { "data-connection": provider.connection, children: provider.connection }),
               " \xB7 ",
               /* @__PURE__ */ u3("span", { "data-activity": provider.activity, children: provider.activity }),
+              provider.model && ` \xB7 ${provider.model}`,
               provider.thinkingTokens !== void 0 && ` \xB7 ${provider.thinkingTokens.toLocaleString()} thinking tokens`
             ] })
           ] }, provider.id)),
