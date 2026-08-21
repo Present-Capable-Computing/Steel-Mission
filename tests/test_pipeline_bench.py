@@ -22,6 +22,7 @@ from tooling.mission_pipeline_bench import (
     PipelineBench,
     SubprocessRunner,
     reported_opus_major,
+    structured_value,
 )
 
 
@@ -1067,6 +1068,25 @@ def test_claude_stages_require_reported_opus_major_version_five_or_newer():
     ) == 4
     assert reported_opus_major('{"modelUsage":{"claude-opus-5":{},"claude-opus-4":{}}}') == 4
     assert reported_opus_major('{"structured_output":{"summary":"opus-5"}}') is None
+
+
+def test_claude_stages_accept_the_current_json_event_array():
+    structured = {"clean": True, "summary": "runtime preflight", "steps": [], "touchedPaths": []}
+    events = [
+        {"type": "system", "model": "claude-opus-5"},
+        {
+            "type": "result",
+            "structured_output": structured,
+            "modelUsage": {
+                "claude-haiku-4-5-20251001": {},
+                "claude-opus-5": {},
+            },
+        },
+    ]
+    result = CommandResult(["claude"], 0, json.dumps(events), "", 0.1)
+
+    assert structured_value(result) == structured
+    assert reported_opus_major(result.stdout) == 5
 
 
 def test_model_subprocess_environment_allows_only_its_provider_credential(tmp_path, monkeypatch):

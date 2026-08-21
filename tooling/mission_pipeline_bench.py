@@ -982,18 +982,23 @@ class GitHubPlatform:
 
 def reported_opus_major(output: str) -> int | None:
     try:
-        envelope = json.loads(output)
+        value = json.loads(output)
     except json.JSONDecodeError:
         return None
-    if not isinstance(envelope, dict):
+    if isinstance(value, dict):
+        envelopes = [value]
+    elif isinstance(value, list):
+        envelopes = [item for item in value if isinstance(item, dict)]
+    else:
         return None
     trusted_names: list[str] = []
-    model = envelope.get("model")
-    if isinstance(model, str):
-        trusted_names.append(model)
-    usage = envelope.get("modelUsage")
-    if isinstance(usage, dict):
-        trusted_names.extend(str(name) for name in usage)
+    for envelope in envelopes:
+        model = envelope.get("model")
+        if isinstance(model, str):
+            trusted_names.append(model)
+        usage = envelope.get("modelUsage")
+        if isinstance(usage, dict):
+            trusted_names.extend(str(name) for name in usage)
     versions = [
         int(match.group(1))
         for name in trusted_names
@@ -1007,6 +1012,22 @@ def structured_value(result: CommandResult) -> dict[str, Any]:
         envelope = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise BenchError(f"model returned non-JSON output: {result.stdout[-1000:]}") from exc
+    if isinstance(envelope, list):
+        result_events = [
+            item
+            for item in envelope
+            if isinstance(item, dict) and item.get("type") == "result"
+        ]
+        if not result_events:
+            result_events = [
+                item
+                for item in envelope
+                if isinstance(item, dict)
+                and ("structured_output" in item or "result" in item)
+            ]
+        if not result_events:
+            raise BenchError("model returned no result object")
+        envelope = result_events[-1]
     if not isinstance(envelope, dict):
         raise BenchError("model returned a non-object")
     structured = envelope.get("structured_output")
