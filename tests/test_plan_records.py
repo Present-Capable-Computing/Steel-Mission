@@ -333,10 +333,14 @@ def test_session_guardrails_are_recorded_on_every_surface():
     manifest = _load(MANIFEST)
     by_key = {issue["key"]: issue for issue in manifest["issues"]}
 
-    walled = [key for key in by_key if key.partition("-")[0] in {"c0", "c1", "c2"}]
-    walled += ["p1-status-feed-persistence", "p2-agent-executor"]
-    for key in walled:
-        wall = by_key[key].get("allowedPaths")
+    # Every task issue carries a wall, not a hand-picked subset: the rule says
+    # "each agent-workable issue", and a wall that exists only where someone
+    # remembered to add one is not a wall. Walls are refined per issue at claim
+    # time through a manifest change, never silently widened by a session.
+    for key, issue in by_key.items():
+        if "epic" in issue["labels"]:
+            continue
+        wall = issue.get("allowedPaths")
         assert isinstance(wall, list) and wall, f"{key}: no path wall declared"
 
     bench = by_key["c1-mission-pipeline-bench"]
