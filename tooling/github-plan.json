@@ -316,6 +316,11 @@
       "name": "C2",
       "color": "fbca04",
       "description": "Codex coordinator and maximum models"
+    },
+    {
+      "name": "founder-act",
+      "color": "5319e7",
+      "description": "Only the Founder can perform this; dependent agent sessions are blocked, never improvising"
     }
   ],
   "milestones": [
@@ -2267,7 +2272,11 @@
       "epic": "epic-c0",
       "requirement": "This installation's console signs the Founder in as Andrew Hermann, owner of a Steel Mission organization, seeded into the runtime state directory through the existing config-seeding seam. The shipped tree stays what it is: Northstar Forge and its demo users are the product's fixture, and AGENTS.md's one-thing-never-to-do rule - never make an installation work by changing this repository - binds this task doubly, since the tests load the shipped fixture by path.",
       "acceptance": "A fresh loopback session lands as Andrew Hermann, owner, with the Steel Mission organization active, demonstrated against the running server. config/ and starter-company/ are byte-identical before and after, and the org-data-boundary tests pass unchanged. The seeding is idempotent: a second start does not duplicate or reorder what the first wrote.",
-      "surface": "authentication, authorization, or session handling"
+      "surface": "authentication, authorization, or session handling",
+      "allowedPaths": [
+        "steel-mission-chat/",
+        "tests/"
+      ]
     },
     {
       "key": "c0-owner-capability-truth",
@@ -2283,7 +2292,12 @@
       "epic": "epic-c0",
       "requirement": "The capability workspace derives owner and admin capabilities the way the server already does, instead of reading the raw per-user assignment field. Today capabilityWorkspaceView (steel-mission-ui/src/capabilities.ts) filters actor.capabilities, which is empty for owner and admin by design, while corporate_workspace (steel-mission-chat/server.py, visibleCapabilities) grants those roles all thirteen unconditionally. The result is the registered owner landing on 'No Domain Capabilities are assigned yet' with an instruction to ask an owner - a screen that lies about authority to the one person who has all of it.",
       "acceptance": "A fresh session as the registered owner renders all thirteen capabilities, demonstrated against the running server and asserted by a test watched to fail first. The derivation has one source of truth: the page consumes the workspace grant, and no console code path reads raw assignedCapabilities for display again. Publisher and user views are unchanged, covered by the existing tests.",
-      "surface": "authentication, authorization, or session handling"
+      "surface": "authentication, authorization, or session handling",
+      "allowedPaths": [
+        "steel-mission-ui/",
+        "steel-mission-chat/app.html",
+        "tests/"
+      ]
     },
     {
       "key": "c0-stale-identity-fallback",
@@ -2299,7 +2313,11 @@
       "epic": "epic-c0",
       "requirement": "A loopback request whose declared X-Present-Actor matches no registered user resolves the way a request with no declared identity does, instead of fabricating a capability-less actor. The fix for #169 covered only the no-headers path (authenticate_http_request, steel-mission-chat/server.py); the declared-but-unresolvable branch still hard-codes capabilities: [], and the console persists identity headers in localStorage, so one stale value re-creates the dead end the fix closed.",
       "acceptance": "A loopback request with X-Present-Actor naming an unregistered user resolves to the registered owner, asserted by a test watched to fail first. The audit trail records that a declared identity was discarded and why. oidc-required behaviour is untouched, shown by the existing identity-boundary tests.",
-      "surface": "authentication, authorization, or session handling"
+      "surface": "authentication, authorization, or session handling",
+      "allowedPaths": [
+        "steel-mission-chat/server.py",
+        "tests/"
+      ]
     },
     {
       "key": "c0-truthful-sidebar-and-status-strip",
@@ -2314,7 +2332,12 @@
       "epic": "epic-c0",
       "requirement": "The console reports server, authority and provider state from the endpoints that already know it. 'Server: Not connected' and 'Authority: Advisory' are hardcoded JSX (steel-mission-ui/src/app.tsx) even when /api/health returns live coordinator readiness including a real local-model probe, and /api/control-plane/readiness returns authority state. A status strip shows, per provider - claude, codex, glimmer - connected, online, idle or working, with token usage where the provider reports it.",
       "acceptance": "Stopping and starting the local model observably changes the strip, demonstrated against the running server. No status string in the built page is a constant: a test greps the committed page for the retired literals and fails if they return. Idle versus working reflects live job state, asserted by a test that starts a job and reads the strip's source endpoint.",
-      "surface": "none of the above — console rendering only"
+      "surface": "none of the above — console rendering only",
+      "allowedPaths": [
+        "steel-mission-ui/",
+        "steel-mission-chat/app.html",
+        "tests/"
+      ]
     },
     {
       "key": "c1-chat-composer",
@@ -2329,7 +2352,12 @@
       "epic": "epic-c1",
       "requirement": "The landing screen carries a chat composer wired to the pipeline the server already ships: POST /api/chat, job polling, follow-ups and decisions (steel-mission-chat/server.py) have been orphaned since the legacy console was deleted in PR #162 - the machinery answers, no page asks. The composer streams a conversation with the coordinator under the active runtime profile.",
       "acceptance": "A Person types a question on the landing screen and receives the coordinator's answer, demonstrated against the running server with the local model. The orphaned endpoints have a consumer again, covered by page-level tests. The plain form at /plain is unchanged.",
-      "surface": "none of the above — console rendering only"
+      "surface": "none of the above — console rendering only",
+      "allowedPaths": [
+        "steel-mission-ui/",
+        "steel-mission-chat/app.html",
+        "tests/"
+      ]
     },
     {
       "key": "c1-work-modes",
@@ -2347,6 +2375,11 @@
       "surface": "none of the above — console rendering only",
       "dependsOn": [
         "c1-chat-composer"
+      ],
+      "allowedPaths": [
+        "steel-mission-ui/",
+        "steel-mission-chat/app.html",
+        "tests/"
       ]
     },
     {
@@ -2363,7 +2396,33 @@
       "epic": "epic-c1",
       "requirement": "One schema describes the state of an agent session - claimed issue, stage, worker, machine account, started, last event, budget spent, outcome - written as append-only JSONL. This is the durable artifact of the bench under D7: MS-0002 persists it in the store and MS-0003's job protocol carries it, so it is designed as a contract, not a log format.",
       "acceptance": "The schema exists under schemas/ with valid and invalid fixtures, and a validator test covers both. The bench writes it and the progress panel reads it with no intermediate translation. A schema-authority review confirms the shape before P1 consumes it.",
-      "surface": "authority-owned schemas"
+      "surface": "authority-owned schemas",
+      "allowedPaths": [
+        "schemas/",
+        "tooling/",
+        "tests/"
+      ]
+    },
+    {
+      "key": "c1-founder-machine-accounts",
+      "title": "Create the three machine accounts and raise the review wall",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "founder-act",
+        "area:identity",
+        "prj:PRJ-0001"
+      ],
+      "epic": "epic-c1",
+      "requirement": "The three D9 machine accounts exist and the review wall stands, so the pipeline's final stage has real provenance to work with. The live check of 2026-08-21 found none of it: no sm-agent-claude, sm-agent-codex or sm-agent-qwen identities, gh authenticated only as the maintainer, required approving reviews at zero, code-owner review off, and CODEOWNERS assigning every surface to one person. #185's acceptance (a mission ending in a merged pull request through the acceptance account's approval) is unreachable until this lands. Account creation, collaborator grants and branch-protection changes are the Founder's act, recorded as such in PRJ-0001-D9; no agent works around this issue.",
+      "acceptance": "The three accounts exist and hold collaborator access with least privilege. The acceptance account appears in CODEOWNERS for the non-authority paths, and schemas/canonical/ stays with the maintainer. Whatever branch-protection settings change, the change and its reasoning are recorded in docs/workplan.md section 6 in the same pull request that documents the wall. A test or recorded check shows author and approver are different identities on a rehearsal pull request.",
+      "surface": "none of the above: GitHub organization administration, no repository code",
+      "allowedPaths": [
+        "docs/workplan.md",
+        ".github/CODEOWNERS"
+      ],
+      "dependsOn": []
     },
     {
       "key": "c1-mission-pipeline-bench",
@@ -2378,10 +2437,15 @@
       ],
       "epic": "epic-c1",
       "requirement": "A tooling-level bench executes a granted mission unattended through the D8 pipeline: plan by Claude at Opus 5 or above; develop and commit by the local model in an isolated worktree under its machine account; a bounded review loop by Codex; final review, approval and merge by Claude at Opus 5 or above, with auto-merge armed so the approval is what lands it. The bench claims the issue by assignment, feeds the agent exactly the issue's requirement and acceptance text, enforces the workplan's gates mechanically - no push while the suite is red, failing-test evidence in the pull request body - refuses security-review-labelled issues, honours per-session time and turn budgets, and escalates through the existing user-decision functionality when the plan proves unclean. It lives in tooling/, never product code, and is disposable by declaration under D7.",
-      "acceptance": "A granted rehearsal mission runs the full pipeline on a real issue to a merged pull request with no human action after the grant, and the evidence pack records every stage. A deliberately unclean plan escalates and waits, then resumes on the Person's decision, asserted by a test. The bench cannot merge: branch protection is the wall, and the merge fires only on the acceptance account's approval. Killing a session leaves the main checkout untouched, shown by git status.",
+      "acceptance": "A granted rehearsal mission runs the full pipeline on a real issue to a merged pull request with no human action after the grant, and the evidence pack records every stage. A deliberately unclean plan escalates and waits, then resumes on the Person's decision, asserted by a test. The bench cannot merge: branch protection is the wall, and the merge fires only on the acceptance account's approval. Killing a session leaves the main checkout untouched, shown by git status. The bench implementation stays under 700 lines excluding tests. That number is a tripwire, not a target: crossing it is evidence the thin-wrapper design is wrong, and the session stops and escalates rather than hardening further.",
       "surface": "subprocess or container execution",
       "dependsOn": [
+        "c1-founder-machine-accounts",
         "c1-session-status-feed"
+      ],
+      "allowedPaths": [
+        "tooling/",
+        "tests/"
       ]
     },
     {
@@ -2400,6 +2464,11 @@
       "surface": "none of the above — console rendering only",
       "dependsOn": [
         "c1-session-status-feed"
+      ],
+      "allowedPaths": [
+        "steel-mission-ui/",
+        "steel-mission-chat/app.html",
+        "tests/"
       ]
     },
     {
@@ -2418,6 +2487,11 @@
       "surface": "control plane",
       "dependsOn": [
         "c1-session-status-feed"
+      ],
+      "allowedPaths": [
+        "steel-mission-chat/",
+        "bin/",
+        "tests/"
       ]
     },
     {
@@ -2434,7 +2508,15 @@
       "epic": "epic-c2",
       "requirement": "Codex joins claude and glimmer as a coordinator provider and becomes the normal-mode chat default. The provider set is pinned in four independent layers today: the request schemas (coordination-report-request-v1, runtime-profile-resolution-v1, model-role-registry-v1), the worker dispatch (bin/present-worker), the server allowlists (steel-mission-chat/server.py), and the page. codex_adapter gains a coordinator_report with the same schema-constrained envelope the other two adapters return, and a codex runtime profile becomes selectable.",
       "acceptance": "A chat is answered by Codex with provider and model visible in the status strip, demonstrated against the running server. Every widened enum carries an updated fixture, and the routing contract tests cover the third provider including its unavailable state, which fails closed to the registry's fallback rather than substituting silently. The full suite is green.",
-      "surface": "subprocess or container execution"
+      "surface": "subprocess or container execution",
+      "allowedPaths": [
+        "adapters/",
+        "bin/",
+        "steel-mission-chat/",
+        "schemas/",
+        "steel-mission-ui/",
+        "tests/"
+      ]
     },
     {
       "key": "c2-registry-model-plumbing",
@@ -2449,7 +2531,13 @@
       "epic": "epic-c2",
       "requirement": "The model id and effort resolved from config/model-role-registry.json flow into the adapter invocations. Today cmd_coordinator_report (bin/present-worker) calls the adapters without a model argument, so hardcoded defaults run regardless of the registry - the selection is display and audit metadata only, which means the Settings page can silently have no effect. With the plumbing in place, the planner and acceptance roles are set to Opus 5 or above and Codex to its maximum available model and reasoning setting.",
       "acceptance": "Changing the registry's model id changes the invoked model, shown from the invocation record rather than the display, asserted by a test watched to fail first. The maximum settings are recorded in the registry, and a chat demonstrates each role running its declared model. A registry model the provider does not recognise is refused at resolution time with a named error, never silently mapped to a default.",
-      "surface": "control plane"
+      "surface": "control plane",
+      "allowedPaths": [
+        "bin/",
+        "adapters/",
+        "config/",
+        "tests/"
+      ]
     },
     {
       "key": "c2-glimmer-rewarm",
@@ -2464,7 +2552,12 @@
       "epic": "epic-c2",
       "requirement": "A chat that arrives after the local model's keep-alive has expired triggers a reload instead of a refusal. Today glimmer readiness requires the model loaded (adapters/glimmer_adapter.py), Ollama unloads after thirty idle minutes, and the next request returns glimmer_not_ready until someone re-runs the manual start - a dead end on a machine where the model is installed and the server is up. The deliberate refusal to cold-start the server process itself stays: re-warm covers reloading a model into a running server, not booting one.",
       "acceptance": "A chat issued more than thirty idle minutes after the last one succeeds without manual intervention, with the re-warm visible in the status strip while it happens. The memory floor check still gates an actual server start, covered by the existing tests. A re-warm that fails reports the failure truthfully rather than hanging the chat.",
-      "surface": "control plane"
+      "surface": "control plane",
+      "allowedPaths": [
+        "adapters/",
+        "bin/",
+        "tests/"
+      ]
     },
     {
       "key": "c2-token-usage-capture",
@@ -2479,7 +2572,14 @@
       "epic": "epic-c2",
       "requirement": "Each coordinator invocation records the token usage its provider reports - Ollama returns evaluation counts natively, the CLI stream events carry usage - and the status strip surfaces it per provider. Where a provider reports nothing, the strip says unknown rather than zero.",
       "acceptance": "After a chat, the strip shows the tokens that invocation reported, matching the invocation record. A provider that reports no usage shows unknown, asserted by a test. Usage lands in the evidence trail with the invocation it belongs to.",
-      "surface": "none of the above — console rendering only"
+      "surface": "none of the above — console rendering only",
+      "allowedPaths": [
+        "adapters/",
+        "bin/",
+        "steel-mission-ui/",
+        "steel-mission-chat/app.html",
+        "tests/"
+      ]
     },
     {
       "key": "p1-status-feed-persistence",
@@ -2497,6 +2597,11 @@
       "surface": "control plane",
       "dependsOn": [
         "c1-session-status-feed"
+      ],
+      "allowedPaths": [
+        "steel_core/",
+        "schemas/",
+        "tests/"
       ]
     },
     {
@@ -2515,9 +2620,17 @@
       "acceptance": "A granted mission runs plan, develop and commit, review loop, and final review to a merged pull request through the broker and a runner agent, with the bench retired and the retirement recorded. The executor's environment is asserted by test: credentials present are exactly the declared set, and a sentinel secret never appears in arguments, logs, store or artifacts. The existing shell-command delivery path is unchanged, covered by its current tests.",
       "surface": "subprocess or container execution",
       "dependsOn": [
+        "c1-founder-machine-accounts",
         "c1-mission-pipeline-bench",
         "p1-status-feed-persistence",
         "p2-transport-branch"
+      ],
+      "allowedPaths": [
+        "steel_core/",
+        "bin/",
+        "adapters/",
+        "schemas/",
+        "tests/"
       ]
     }
   ]
