@@ -34,6 +34,12 @@ import {
   loadCoordinatorModels,
   type CoordinatorModel,
 } from "./coordinator-models";
+import {
+  loadMissionProgress,
+  MissionProgressPanel,
+  unavailableMissionProgress,
+  type MissionProgress,
+} from "./mission-progress";
 
 
 function browserCookie(name: string): string {
@@ -70,6 +76,7 @@ function App() {
   const [coordinatorModels, setCoordinatorModels] = useState<CoordinatorModel[]>([]);
   const [coordinatorProfile, setCoordinatorProfile] = useState("");
   const [coordinatorModelError, setCoordinatorModelError] = useState("");
+  const [missionProgress, setMissionProgress] = useState<MissionProgress | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -100,6 +107,28 @@ function App() {
         })
         .finally(() => {
           if (current) refreshTimer = window.setTimeout(refresh, 10000);
+        });
+    };
+    refresh();
+    return () => {
+      current = false;
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let current = true;
+    let refreshTimer: number | undefined;
+    const refresh = () => {
+      loadMissionProgress(apiRequest)
+        .then((progress) => {
+          if (current) setMissionProgress(progress);
+        })
+        .catch((error: unknown) => {
+          if (current) setMissionProgress(unavailableMissionProgress(error));
+        })
+        .finally(() => {
+          if (current) refreshTimer = window.setTimeout(refresh, 5000);
         });
     };
     refresh();
@@ -287,6 +316,8 @@ function App() {
             {settingsOpen ? "Close settings" : "Settings"}
           </button>
         </header>
+
+        {!settingsOpen && <MissionProgressPanel progress={missionProgress} />}
 
         {settingsOpen && (
           <section id="settingsPanel" class="settings-panel" aria-label="Settings">

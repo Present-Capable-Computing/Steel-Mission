@@ -162,6 +162,11 @@ INTEGRATION_REGISTRY_PATH = CONFIG_DIR / "integration-registry.json"
 AUTH_POLICY_PATH = CONFIG_DIR / "auth-policy.json"
 SCHEMA_REGISTRY_PATH = WORKER_DIR / "schemas" / "schema-registry.json"
 MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
+AGENT_SESSION_STATUS_FEED_PATH = Path(
+    os.environ.get("STEEL_MISSION_AGENT_SESSION_STATUS_FEED")
+    or os.environ.get("PRESENT_AGENT_SESSION_STATUS_FEED")
+    or MISSION_ROOT / "agent-session-status.jsonl"
+)
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
 AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")
 AUTH_AUDIT_LEDGER_PATH = Path(os.environ.get("PRESENT_AUTH_AUDIT_LEDGER") or MISSION_ROOT / "_auth-audit.jsonl")
@@ -5431,6 +5436,71 @@ def append_follow_up(job_id: str, content: str) -> dict[str, Any]:
     return event
 
 
+def agent_session_status_feed(
+    feed_path: Path | None = None,
+) -> dict[str, Any]:
+    """Read the canonical status feed without translating it into bench state."""
+    path = feed_path or AGENT_SESSION_STATUS_FEED_PATH
+    if not path.exists():
+        return {"ok": True, "schemaVersion": 1, "sessions": [], "errors": []}
+
+    latest: dict[str, dict[str, Any]] = {}
+    rejected: list[dict[str, Any]] = []
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    rejected.append({
+                        "line": line_number,
+                        "message": f"invalid JSON: {exc.msg}",
+                    })
+                    continue
+                if not isinstance(record, dict):
+                    rejected.append({
+                        "line": line_number,
+                        "message": "$: expected object",
+                    })
+                    continue
+                errors = schema_check.validate(
+                    record,
+                    "canonical/agent-session-status-v1.json",
+                )
+                if errors:
+                    rejected.append({
+                        "line": line_number,
+                        "message": "; ".join(errors),
+                    })
+                    continue
+                session_id = str(record["sessionId"])
+                current = latest.get(session_id)
+                if current is None or int(record["sequence"]) > int(current["sequence"]):
+                    latest[session_id] = record
+    except (OSError, UnicodeError) as exc:
+        return {
+            "ok": False,
+            "error": f"Agent session status feed is unreadable: {exc}",
+        }
+
+    sessions = sorted(
+        latest.values(),
+        key=lambda record: (
+            str(record["issue"]["repository"]),
+            int(record["issue"]["number"]),
+            str(record["sessionId"]),
+        ),
+    )
+    return {
+        "ok": True,
+        "schemaVersion": 1,
+        "sessions": sessions,
+        "errors": rejected,
+    }
+
+
 def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
     data = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
     handler.send_response(status)
@@ -9389,6 +9459,10 @@ class Handler(BaseHTTPRequestHandler):
                 **cos_provider_summary(),
                 "providers": provider_status_strip(),
             })
+            return
+        if path == "/api/agent-sessions":
+            payload = agent_session_status_feed()
+            json_response(self, 200 if payload.get("ok") else 503, payload)
             return
         if path == "/api/runtime-profiles/resolve":
             profile = (parse_qs(urlparse(self.path).query).get("profile") or [""])[0].strip()

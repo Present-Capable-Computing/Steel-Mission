@@ -188,6 +188,101 @@ select {
 .work-surface {
   min-width: 0;
 }
+.mission-progress {
+  display: grid;
+  gap: 0.9rem;
+  margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 0;
+  padding: 1.1rem;
+  border: 1px solid #34404c;
+  border-radius: 1rem;
+  background: rgba(15, 21, 28, 0.92);
+}
+.mission-progress > header,
+.mission-progress article > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.mission-progress h2,
+.mission-progress > header p,
+.mission-progress article p {
+  margin: 0;
+}
+.mission-progress > header > p,
+.mission-progress-empty,
+.mission-progress-event {
+  color: #8d9aa8;
+}
+.mission-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 0.75rem;
+}
+.mission-progress article {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.9rem;
+  border: 1px solid #29323d;
+  border-radius: 0.75rem;
+  background: #10161d;
+}
+.mission-progress article[data-session-state=working] {
+  border-color: #47796c;
+}
+.mission-progress article[data-session-state=waiting-on-person] {
+  border-color: #b58a4b;
+}
+.mission-progress article header a {
+  color: #c9e9e0;
+  overflow-wrap: anywhere;
+}
+.mission-progress article header span {
+  color: #a7ddcf;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mission-progress article[data-session-state=waiting-on-person] header span {
+  color: #e3b86f;
+}
+.mission-progress dl {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+.mission-progress dl div {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: 0.65rem;
+}
+.mission-progress dt {
+  color: #8d9aa8;
+}
+.mission-progress dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mission-progress-decision {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+  border-radius: 0.65rem;
+  background: #2b2418;
+  color: #f1d19a;
+}
+.mission-progress-decision a {
+  color: inherit;
+}
+.mission-progress-error {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #8d4d4d;
+  border-radius: 0.65rem;
+  background: #2b191b;
+  color: #f0b2b2;
+}
 .delivery-setup {
   display: grid;
   gap: 0.75rem;
@@ -3014,6 +3109,127 @@ select {
     };
   }
 
+  // steel-mission-ui/src/mission-progress.tsx
+  var STAGE_LABELS = {
+    "plan": "Plan",
+    "develop-and-commit": "Develop and commit",
+    "review-loop": "Review loop",
+    "final-review-and-merge": "Final review and merge"
+  };
+  var STATE_LABELS = {
+    "idle": "Idle",
+    "working": "Working",
+    "waiting-on-person": "Waiting on Person",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "budget-exhausted": "Budget exhausted"
+  };
+  function isObject(value) {
+    return Boolean(value) && typeof value === "object";
+  }
+  function isSession(value) {
+    if (!isObject(value) || !isObject(value.issue) || !isObject(value.worker)) return false;
+    if (!isObject(value.budgetLimit) || !isObject(value.budgetSpent) || !isObject(value.lastEvent)) return false;
+    return typeof value.sessionId === "string" && typeof value.issue.repository === "string" && typeof value.issue.number === "number" && typeof value.issue.url === "string" && typeof value.stage === "string" && value.stage in STAGE_LABELS && typeof value.state === "string" && value.state in STATE_LABELS && typeof value.worker.id === "string" && typeof value.worker.provider === "string" && typeof value.worker.model === "string" && typeof value.worker.role === "string" && typeof value.machineAccount === "string" && typeof value.budgetLimit.elapsedSeconds === "number" && typeof value.budgetLimit.turns === "number" && typeof value.budgetSpent.elapsedSeconds === "number" && typeof value.budgetSpent.turns === "number" && typeof value.lastEvent.summary === "string";
+  }
+  function isFeedError(value) {
+    return isObject(value) && typeof value.line === "number" && typeof value.message === "string";
+  }
+  async function loadMissionProgress(request) {
+    const response = await request("/api/agent-sessions", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(String(payload.error || "Mission progress is unavailable"));
+    }
+    const sessions = Array.isArray(payload.sessions) ? payload.sessions.filter(isSession) : [];
+    const errors = Array.isArray(payload.errors) ? payload.errors.filter(isFeedError) : [];
+    const omitted = Array.isArray(payload.sessions) ? payload.sessions.length - sessions.length : 0;
+    return {
+      sessions,
+      errors: omitted ? [...errors, { line: 0, message: `${omitted} malformed API session record${omitted === 1 ? " was" : "s were"} rejected` }] : errors
+    };
+  }
+  function unavailableMissionProgress(error) {
+    return {
+      sessions: [],
+      errors: [],
+      unavailable: error instanceof Error ? error.message : "Mission progress is unavailable"
+    };
+  }
+  function MissionProgressPanel({ progress }) {
+    return /* @__PURE__ */ u3(
+      "section",
+      {
+        id: "missionProgressPanel",
+        class: "mission-progress",
+        "aria-labelledby": "missionProgressTitle",
+        "aria-live": "polite",
+        children: [
+          /* @__PURE__ */ u3("header", { children: [
+            /* @__PURE__ */ u3("div", { children: [
+              /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Mission pipeline" }),
+              /* @__PURE__ */ u3("h2", { id: "missionProgressTitle", children: "Live progress" })
+            ] }),
+            /* @__PURE__ */ u3("p", { children: "Read-only status from the canonical agent-session feed." })
+          ] }),
+          !progress && /* @__PURE__ */ u3("p", { class: "mission-progress-empty", children: "Loading live sessions\u2026" }),
+          progress?.unavailable && /* @__PURE__ */ u3("p", { role: "alert", class: "mission-progress-error", children: progress.unavailable }),
+          progress?.errors.map((error) => /* @__PURE__ */ u3("p", { role: "alert", class: "mission-progress-error", children: [
+            error.line > 0 ? `Feed line ${error.line} rejected` : "Feed record rejected",
+            ": ",
+            error.message
+          ] }, `${error.line}:${error.message}`)),
+          progress && !progress.unavailable && progress.sessions.length === 0 && /* @__PURE__ */ u3("p", { class: "mission-progress-empty", children: "No live mission sessions." }),
+          Boolean(progress?.sessions.length) && /* @__PURE__ */ u3("div", { class: "mission-progress-grid", children: progress?.sessions.map((session) => /* @__PURE__ */ u3("article", { "data-session-state": session.state, children: [
+            /* @__PURE__ */ u3("header", { children: [
+              /* @__PURE__ */ u3("a", { href: session.issue.url, children: [
+                session.issue.repository,
+                " #",
+                session.issue.number
+              ] }),
+              /* @__PURE__ */ u3("span", { children: STATE_LABELS[session.state] })
+            ] }),
+            /* @__PURE__ */ u3("dl", { children: [
+              /* @__PURE__ */ u3("div", { children: [
+                /* @__PURE__ */ u3("dt", { children: "Stage" }),
+                /* @__PURE__ */ u3("dd", { children: STAGE_LABELS[session.stage] })
+              ] }),
+              /* @__PURE__ */ u3("div", { children: [
+                /* @__PURE__ */ u3("dt", { children: "Worker" }),
+                /* @__PURE__ */ u3("dd", { children: [
+                  session.machineAccount,
+                  " \xB7 ",
+                  session.worker.id
+                ] })
+              ] }),
+              /* @__PURE__ */ u3("div", { children: [
+                /* @__PURE__ */ u3("dt", { children: "Budget" }),
+                /* @__PURE__ */ u3("dd", { children: [
+                  session.budgetSpent.turns,
+                  " / ",
+                  session.budgetLimit.turns,
+                  " turns \xB7 ",
+                  " ",
+                  session.budgetSpent.elapsedSeconds,
+                  " / ",
+                  session.budgetLimit.elapsedSeconds,
+                  " seconds"
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ u3("p", { class: "mission-progress-event", children: session.lastEvent.summary }),
+            session.state === "waiting-on-person" && session.pendingDecision && /* @__PURE__ */ u3("p", { class: "mission-progress-decision", children: [
+              /* @__PURE__ */ u3("strong", { children: "Waiting on Person" }),
+              /* @__PURE__ */ u3("span", { children: session.pendingDecision.question }),
+              session.pendingDecision.url && /* @__PURE__ */ u3("a", { href: session.pendingDecision.url, children: "View decision" })
+            ] })
+          ] }, session.sessionId)) })
+        ]
+      }
+    );
+  }
+
   // steel-mission-ui/src/app.tsx
   function browserCookie(name) {
     return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1) || "";
@@ -3045,6 +3261,7 @@ select {
     const [coordinatorModels, setCoordinatorModels] = d2([]);
     const [coordinatorProfile, setCoordinatorProfile] = d2("");
     const [coordinatorModelError, setCoordinatorModelError] = d2("");
+    const [missionProgress, setMissionProgress] = d2(null);
     h2(() => {
       let current = true;
       loadCoordinatorModels(apiRequest).then((loaded) => {
@@ -3070,6 +3287,24 @@ select {
           if (current) setConsoleStatus(unavailableConsoleStatus(error));
         }).finally(() => {
           if (current) refreshTimer = window.setTimeout(refresh, 1e4);
+        });
+      };
+      refresh();
+      return () => {
+        current = false;
+        if (refreshTimer !== void 0) window.clearTimeout(refreshTimer);
+      };
+    }, []);
+    h2(() => {
+      let current = true;
+      let refreshTimer;
+      const refresh = () => {
+        loadMissionProgress(apiRequest).then((progress) => {
+          if (current) setMissionProgress(progress);
+        }).catch((error) => {
+          if (current) setMissionProgress(unavailableMissionProgress(error));
+        }).finally(() => {
+          if (current) refreshTimer = window.setTimeout(refresh, 5e3);
         });
       };
       refresh();
@@ -3237,6 +3472,7 @@ select {
             }
           )
         ] }),
+        !settingsOpen && /* @__PURE__ */ u3(MissionProgressPanel, { progress: missionProgress }),
         settingsOpen && /* @__PURE__ */ u3("section", { id: "settingsPanel", class: "settings-panel", "aria-label": "Settings", children: [
           /* @__PURE__ */ u3("nav", { class: "settings-nav", "aria-label": "Settings sections", children: SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ u3(
             "button",

@@ -6,6 +6,7 @@ the contract survives changes to the application implementation.
 from __future__ import annotations
 
 import copy
+import json
 import re
 import runpy
 import threading
@@ -198,6 +199,55 @@ def test_application_is_the_only_page_renderer_for_public_page_routes():
         status, html = route_response(chat, path)
         assert status == 200
         assert html == chat["application_chat_index"]()
+
+
+def test_agent_session_status_route_keeps_live_sessions_and_reports_rejected_entries(tmp_path):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    valid = json.loads(
+        (WORKER_DIR / "schemas" / "fixtures" / "valid" / "agent-session-status-v1.working.json").read_text()
+    )
+    earlier = copy.deepcopy(valid)
+    earlier["sequence"] = 1
+    earlier["eventId"] = "ase-aaaaaaaaaaaaaaaaaaaaaaaa"
+    earlier["lastEvent"] = {
+        "eventId": earlier["eventId"],
+        "sequence": 1,
+        "at": "2026-08-21T07:59:00Z",
+        "kind": "started",
+        "summary": "Planning started.",
+    }
+    second = copy.deepcopy(valid)
+    second["eventId"] = "ase-bbbbbbbbbbbbbbbbbbbbbbbb"
+    second["sessionId"] = "as-bbbbbbbbbbbbbbbbbbbbbbbb"
+    second["missionId"] = "ms-bbbbbbbbbbbbbbbbbbbbbbbb"
+    second["issue"]["number"] = 186
+    second["issue"]["url"] = "https://github.com/Present-Capable-Computing/Steel-Mission/issues/186"
+    second["worker"] = {
+        "id": "codex:reviewer",
+        "provider": "codex",
+        "model": "codex",
+        "role": "reviewer",
+    }
+    second["machineAccount"] = "sm-agent-codex"
+    second["stage"] = "review-loop"
+    rejected = copy.deepcopy(second)
+    rejected["sessionId"] = "not-a-canonical-session-id"
+
+    feed = tmp_path / "agent-session-status.jsonl"
+    feed.write_text("\n".join(json.dumps(record) for record in (earlier, valid, second, rejected)) + "\n")
+    chat["Handler"].do_GET.__globals__["AGENT_SESSION_STATUS_FEED_PATH"] = feed
+
+    status, payload = route_response(chat, "/api/agent-sessions")
+
+    assert status == 200
+    assert [session["issue"]["number"] for session in payload["sessions"]] == [184, 186]
+    assert payload["sessions"][0]["sequence"] == 2
+    assert payload["errors"] == [
+        {
+            "line": 4,
+            "message": "$.sessionId: does not match ^as-[a-f0-9]{24}$",
+        }
+    ]
 
 
 def test_head_length_matches_the_application_page_body():
