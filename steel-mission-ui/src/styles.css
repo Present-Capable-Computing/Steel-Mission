@@ -229,6 +229,132 @@ select {
   background: #10161d;
 }
 
+.chat-panel {
+  display: grid;
+  gap: 1rem;
+  margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 4rem;
+}
+
+.chat-panel > header h1,
+.chat-panel > header p {
+  margin: 0.35rem 0 0;
+}
+
+.chat-panel > header > p:last-child,
+.chat-empty {
+  color: #8d9aa8;
+}
+
+.chat-conversation {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-height: 15rem;
+  max-height: 34rem;
+  overflow-y: auto;
+  padding: 1rem;
+  border: 1px solid #34404c;
+  border-radius: 1rem;
+  background: rgba(15, 21, 28, 0.92);
+}
+
+.chat-message {
+  max-width: min(46rem, 88%);
+  padding: 0.85rem 1rem;
+  border: 1px solid #29323d;
+  border-radius: 0.8rem;
+  background: #10161d;
+}
+
+.chat-message.user {
+  justify-self: end;
+  border-color: #47796c;
+  background: #182a27;
+}
+
+.chat-message.error {
+  border-color: #8d4d4d;
+}
+
+.chat-message p,
+.chat-message small {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+}
+
+.chat-message small {
+  display: block;
+  color: #8d9aa8;
+}
+
+.chat-composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.chat-composer label {
+  grid-column: 1 / -1;
+  color: #aab4bf;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chat-composer textarea,
+.decision-request textarea {
+  min-height: 5rem;
+  resize: vertical;
+  border: 1px solid #34404c;
+  border-radius: 0.75rem;
+  background: #141b23;
+  color: inherit;
+  padding: 0.8rem;
+  font: inherit;
+}
+
+.chat-composer button,
+.decision-request button {
+  min-height: 2.75rem;
+  border: 1px solid #76b6a5;
+  border-radius: 0.65rem;
+  background: #2d695b;
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+}
+
+.decision-request,
+.decision-request fieldset {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.decision-request fieldset {
+  padding: 0.8rem;
+  border: 1px solid #34404c;
+  border-radius: 0.65rem;
+}
+
+.decision-request label {
+  display: flex;
+  gap: 0.65rem;
+  align-items: start;
+}
+
+.decision-request label span,
+.decision-request label small {
+  display: grid;
+}
+
+@media (max-width: 720px) {
+  .chat-composer {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings-panel {
   display: grid;
   grid-template-columns: minmax(14rem, 19rem) 1fr;

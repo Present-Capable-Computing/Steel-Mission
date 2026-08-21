@@ -58,10 +58,20 @@
         <section id="settingsSection-audit" class="settings-section" aria-labelledby="settingsNav-audit" hidden><p class="eyebrow">Settings</p><h2>Audit</h2><p>Configuration mutations</p></section>
       </div>
     </section>
-    <section class="empty-state" aria-labelledby="newConsoleTitle">
-      <p class="eyebrow">Rebuilt console</p>
-      <h1 id="newConsoleTitle">Steel Mission is ready.</h1>
-      <p>JavaScript activates the application shell.</p>
+    <section class="chat-panel" aria-labelledby="chatTitle">
+      <header>
+        <p class="eyebrow">Delivery Coordinator</p>
+        <h1 id="chatTitle">Ask Steel Mission</h1>
+        <p>Ask a question, add context while the answer is running, or respond when the coordinator needs a decision.</p>
+      </header>
+      <div id="chatConversation" class="chat-conversation" aria-live="polite">
+        <p class="chat-empty">Loading the live conversation…</p>
+      </div>
+      <form id="chatComposer" class="chat-composer">
+        <label for="chatQuestion">Message Delivery Coordinator</label>
+        <textarea id="chatQuestion" placeholder="Where are we, what is unverified, and what needs my attention?" required></textarea>
+        <button id="chatSend" type="submit">Ask Delivery Coordinator</button>
+      </form>
     </section>
   </section>
 </main>

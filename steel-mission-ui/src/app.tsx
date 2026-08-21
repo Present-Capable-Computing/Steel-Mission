@@ -29,6 +29,7 @@ import {
   unavailableConsoleStatus,
   type ConsoleStatus,
 } from "./status";
+import {ChatPanel} from "./chat-panel";
 
 
 function browserCookie(name: string): string {
@@ -389,13 +390,7 @@ function App() {
           </section>
         )}
 
-        <section class="empty-state" aria-labelledby="newConsoleTitle" hidden={settingsOpen}>
-          <p class="eyebrow">Rebuilt console</p>
-          <h1 id="newConsoleTitle">Steel Mission is ready.</h1>
-          <p>
-            Use your assigned Domain Capabilities and the settings workspace to prepare and govern delivery work.
-          </p>
-        </section>
+        {!settingsOpen && <ChatPanel request={apiRequest} workMode={workMode} />}
       </section>
     </main>
   );

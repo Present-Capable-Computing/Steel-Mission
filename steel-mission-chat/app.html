@@ -214,6 +214,114 @@ select {
   border-radius: 0.75rem;
   background: #10161d;
 }
+.chat-panel {
+  display: grid;
+  gap: 1rem;
+  margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 4rem;
+}
+.chat-panel > header h1,
+.chat-panel > header p {
+  margin: 0.35rem 0 0;
+}
+.chat-panel > header > p:last-child,
+.chat-empty {
+  color: #8d9aa8;
+}
+.chat-conversation {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-height: 15rem;
+  max-height: 34rem;
+  overflow-y: auto;
+  padding: 1rem;
+  border: 1px solid #34404c;
+  border-radius: 1rem;
+  background: rgba(15, 21, 28, 0.92);
+}
+.chat-message {
+  max-width: min(46rem, 88%);
+  padding: 0.85rem 1rem;
+  border: 1px solid #29323d;
+  border-radius: 0.8rem;
+  background: #10161d;
+}
+.chat-message.user {
+  justify-self: end;
+  border-color: #47796c;
+  background: #182a27;
+}
+.chat-message.error {
+  border-color: #8d4d4d;
+}
+.chat-message p,
+.chat-message small {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+}
+.chat-message small {
+  display: block;
+  color: #8d9aa8;
+}
+.chat-composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+.chat-composer label {
+  grid-column: 1 / -1;
+  color: #aab4bf;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.chat-composer textarea,
+.decision-request textarea {
+  min-height: 5rem;
+  resize: vertical;
+  border: 1px solid #34404c;
+  border-radius: 0.75rem;
+  background: #141b23;
+  color: inherit;
+  padding: 0.8rem;
+  font: inherit;
+}
+.chat-composer button,
+.decision-request button {
+  min-height: 2.75rem;
+  border: 1px solid #76b6a5;
+  border-radius: 0.65rem;
+  background: #2d695b;
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+}
+.decision-request,
+.decision-request fieldset {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+.decision-request fieldset {
+  padding: 0.8rem;
+  border: 1px solid #34404c;
+  border-radius: 0.65rem;
+}
+.decision-request label {
+  display: flex;
+  gap: 0.65rem;
+  align-items: start;
+}
+.decision-request label span,
+.decision-request label small {
+  display: grid;
+}
+@media (max-width: 720px) {
+  .chat-composer {
+    grid-template-columns: 1fr;
+  }
+}
 .settings-panel {
   display: grid;
   grid-template-columns: minmax(14rem, 19rem) 1fr;
@@ -504,10 +612,20 @@ select {
             <section id="settingsSection-audit" class="settings-section" aria-labelledby="settingsNav-audit" hidden><p class="eyebrow">Settings</p><h2>Audit</h2><p>Configuration mutations</p></section>
           </div>
         </section>
-        <section class="empty-state" aria-labelledby="newConsoleTitle">
-          <p class="eyebrow">Rebuilt console</p>
-          <h1 id="newConsoleTitle">Steel Mission is ready.</h1>
-          <p>JavaScript activates the application shell.</p>
+        <section class="chat-panel" aria-labelledby="chatTitle">
+          <header>
+            <p class="eyebrow">Delivery Coordinator</p>
+            <h1 id="chatTitle">Ask Steel Mission</h1>
+            <p>Ask a question, add context while the answer is running, or respond when the coordinator needs a decision.</p>
+          </header>
+          <div id="chatConversation" class="chat-conversation" aria-live="polite">
+            <p class="chat-empty">Loading the live conversation…</p>
+          </div>
+          <form id="chatComposer" class="chat-composer">
+            <label for="chatQuestion">Message Delivery Coordinator</label>
+            <textarea id="chatQuestion" placeholder="Where are we, what is unverified, and what needs my attention?" required></textarea>
+            <button id="chatSend" type="submit">Ask Delivery Coordinator</button>
+          </form>
         </section>
       </section>
     </main>
@@ -648,7 +766,7 @@ select {
     };
   }
   function q(n2, u4, t3, i3, r3, o3, e3, f4, c3, a3) {
-    var s3, h3, p3, v3, y3, d3, _2, k3, x2, M, I2, P2, A2, H2, T2, j3, F = u4.type;
+    var s3, h3, p3, v3, y3, d3, _2, k3, x2, M, I2, P2, A3, H2, T3, j3, F = u4.type;
     if (void 0 !== u4.constructor) return null;
     128 & t3.__u && (c3 = !!(32 & t3.__u), o3 = [f4 = u4.__e = t3.__e]), (s3 = l.__b) && s3(u4);
     n: if ("function" == typeof F) {
@@ -666,11 +784,11 @@ select {
             p3.componentDidUpdate(y3, d3, _2);
           });
         }
-        if (p3.context = P2, p3.props = x2, p3.__P = n2, p3.__e = false, A2 = l.__r, H2 = 0, M) p3.state = p3.__s, p3.__d = false, A2 && A2(u4), s3 = p3.render(p3.props, p3.state, p3.context), w.push.apply(p3.__h, p3._sb), p3._sb = [];
+        if (p3.context = P2, p3.props = x2, p3.__P = n2, p3.__e = false, A3 = l.__r, H2 = 0, M) p3.state = p3.__s, p3.__d = false, A3 && A3(u4), s3 = p3.render(p3.props, p3.state, p3.context), w.push.apply(p3.__h, p3._sb), p3._sb = [];
         else do {
-          p3.__d = false, A2 && A2(u4), s3 = p3.render(p3.props, p3.state, p3.context), p3.state = p3.__s;
+          p3.__d = false, A3 && A3(u4), s3 = p3.render(p3.props, p3.state, p3.context), p3.state = p3.__s;
         } while (p3.__d && ++H2 < 25);
-        p3.state = p3.__s, null != p3.getChildContext && (i3 = m(m({}, i3), p3.getChildContext())), M && !v3 && null != p3.getSnapshotBeforeUpdate && (_2 = p3.getSnapshotBeforeUpdate(y3, d3)), T2 = null != s3 && s3.type === S && null == s3.key ? E(s3.props.children) : s3, f4 = L(n2, g(T2) ? T2 : [T2], u4, t3, i3, r3, o3, e3, f4, c3, a3), p3.base = u4.__e, u4.__u &= -161, p3.__h.length && e3.push(p3), k3 && (p3.__E = p3.__ = null);
+        p3.state = p3.__s, null != p3.getChildContext && (i3 = m(m({}, i3), p3.getChildContext())), M && !v3 && null != p3.getSnapshotBeforeUpdate && (_2 = p3.getSnapshotBeforeUpdate(y3, d3)), T3 = null != s3 && s3.type === S && null == s3.key ? E(s3.props.children) : s3, f4 = L(n2, g(T3) ? T3 : [T3], u4, t3, i3, r3, o3, e3, f4, c3, a3), p3.base = u4.__e, u4.__u &= -161, p3.__h.length && e3.push(p3), k3 && (p3.__E = p3.__ = null);
       } catch (n3) {
         if (e3.length = h3, u4.__v = null, c3 || null != o3) {
           if (n3.then) {
@@ -830,6 +948,15 @@ select {
   function h2(n2, u4) {
     var i3 = s2(t2++, 3);
     !c2.__s && C2(i3.__H, u4) && (i3.__ = n2, i3.u = u4, r2.__H.__h.push(i3));
+  }
+  function A2(n2) {
+    return o2 = 5, T2(function() {
+      return { current: n2 };
+    }, []);
+  }
+  function T2(n2, r3) {
+    var u4 = s2(t2++, 7);
+    return C2(u4.__H, r3) && (u4.__ = n2(), u4.__H = r3, u4.__h = n2), u4.__;
   }
   function j2() {
     for (var n2; n2 = f2.shift(); ) {
@@ -2587,6 +2714,233 @@ select {
     };
   }
 
+  // steel-mission-ui/src/chat.ts
+  async function responsePayload(response, fallback) {
+    const payload = await response.json();
+    if (!response.ok || typeof payload.jobId !== "string") {
+      throw new Error(payload.error || fallback);
+    }
+    return payload;
+  }
+  function chatIsActive(job) {
+    return Boolean(job && ["running", "waiting_for_decision", "paused"].includes(job.state));
+  }
+  async function startChat(request, input) {
+    const response = await request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(input)
+    });
+    return responsePayload(response, "Delivery Coordinator job did not start");
+  }
+  async function pollChatJob(request, jobId) {
+    const response = await request(`/api/chat/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+    return responsePayload(response, "Delivery Coordinator job status could not be read");
+  }
+  async function sendFollowUp(request, jobId, content) {
+    const response = await request(`/api/chat/${encodeURIComponent(jobId)}/follow-up`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ content })
+    });
+    return responsePayload(response, "Follow-up could not be applied");
+  }
+  async function answerDecision(request, jobId, optionId, freeText) {
+    const response = await request(`/api/chat/${encodeURIComponent(jobId)}/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ optionId, freeText })
+    });
+    return responsePayload(response, "Decision could not be applied");
+  }
+  function chatAnswerText(job) {
+    const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
+    for (const value of payload.summary ? [payload.summary] : [payload.reason, payload.error, job.error]) {
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    if (job.state === "cancelled") return "Delivery Coordinator job was cancelled.";
+    if (job.state === "done" && job.ok !== false) return "Delivery Coordinator finished without a written summary.";
+    return job.error || "Delivery Coordinator request failed.";
+  }
+
+  // steel-mission-ui/src/chat-panel.tsx
+  var POLL_INTERVAL_MS = 1200;
+  function delay(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+  function ChatPanel({ request, workMode }) {
+    const [messages, setMessages] = d2([]);
+    const [draft, setDraft] = d2("");
+    const [job, setJob] = d2(null);
+    const [decisionOption, setDecisionOption] = d2("");
+    const [decisionContext, setDecisionContext] = d2("");
+    const mounted = A2(true);
+    h2(() => () => {
+      mounted.current = false;
+    }, []);
+    const finishJob = (completed) => {
+      const failed = completed.state === "error" || completed.ok === false;
+      setMessages((current) => [...current, {
+        role: "assistant",
+        content: chatAnswerText(completed),
+        error: failed
+      }]);
+      setJob(null);
+    };
+    const watchJob = async (jobId) => {
+      try {
+        while (mounted.current) {
+          await delay(POLL_INTERVAL_MS);
+          if (!mounted.current) return;
+          const next = await pollChatJob(request, jobId);
+          if (!mounted.current) return;
+          setJob(next);
+          const requestState = next.progress?.decisionRequest;
+          if (requestState) {
+            const defaultOption = requestState.defaultOptionId || requestState.options.find((option) => option.default)?.id || "";
+            setDecisionOption((current) => current || defaultOption);
+          }
+          if (!chatIsActive(next)) {
+            finishJob(next);
+            return;
+          }
+        }
+      } catch (error) {
+        if (!mounted.current) return;
+        setMessages((current) => [...current, {
+          role: "assistant",
+          content: error instanceof Error ? error.message : "Delivery Coordinator job status could not be read.",
+          error: true
+        }]);
+        setJob(null);
+      }
+    };
+    const submit = async (event) => {
+      event.preventDefault();
+      const content = draft.trim();
+      if (!content) return;
+      setDraft("");
+      setMessages((current) => [...current, { role: "user", content }]);
+      if (chatIsActive(job) && job) {
+        try {
+          const updated = await sendFollowUp(request, job.jobId, content);
+          setJob((current) => current ? { ...current, ...updated } : updated);
+        } catch (error) {
+          setMessages((current) => [...current, {
+            role: "assistant",
+            content: error instanceof Error ? error.message : "Follow-up could not be applied.",
+            error: true
+          }]);
+        }
+        return;
+      }
+      try {
+        const started = await startChat(request, {
+          question: content,
+          messages,
+          workMode
+        });
+        setJob(started);
+        void watchJob(started.jobId);
+      } catch (error) {
+        setMessages((current) => [...current, {
+          role: "assistant",
+          content: error instanceof Error ? error.message : "Delivery Coordinator job did not start.",
+          error: true
+        }]);
+        setJob(null);
+      }
+    };
+    const submitDecision = async (event) => {
+      event.preventDefault();
+      if (!job) return;
+      try {
+        const updated = await answerDecision(request, job.jobId, decisionOption, decisionContext);
+        setJob((current) => current ? { ...current, ...updated } : updated);
+        setDecisionContext("");
+      } catch (error) {
+        setMessages((current) => [...current, {
+          role: "assistant",
+          content: error instanceof Error ? error.message : "Decision could not be applied.",
+          error: true
+        }]);
+      }
+    };
+    const active = chatIsActive(job);
+    const decision = job?.progress?.decisionRequest;
+    const progressLabel = job?.progress?.phase || (job?.state === "paused" ? "Delivery Coordinator is paused." : "Delivery Coordinator is checking the worker-visible state.");
+    return /* @__PURE__ */ u3("section", { class: "chat-panel", "aria-labelledby": "chatTitle", children: [
+      /* @__PURE__ */ u3("header", { children: [
+        /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Delivery Coordinator" }),
+        /* @__PURE__ */ u3("h1", { id: "chatTitle", children: "Ask Steel Mission" }),
+        /* @__PURE__ */ u3("p", { children: "Ask a question, add context while the answer is running, or respond when the coordinator needs a decision." })
+      ] }),
+      /* @__PURE__ */ u3("div", { id: "chatConversation", class: "chat-conversation", "aria-live": "polite", children: [
+        messages.length === 0 && !job && /* @__PURE__ */ u3("p", { class: "chat-empty", children: "Ask what is unverified, what needs attention, or what should happen next." }),
+        messages.map((message, index) => /* @__PURE__ */ u3("article", { class: `chat-message ${message.role}${message.error ? " error" : ""}`, children: [
+          /* @__PURE__ */ u3("strong", { children: message.role === "user" ? "You" : "Delivery Coordinator" }),
+          /* @__PURE__ */ u3("p", { children: message.content })
+        ] }, `${message.role}-${index}`)),
+        job && /* @__PURE__ */ u3("article", { class: "chat-message assistant chat-progress", "data-job-state": job.state, children: [
+          /* @__PURE__ */ u3("strong", { children: "Delivery Coordinator" }),
+          /* @__PURE__ */ u3("p", { children: progressLabel }),
+          job.progress?.thinkingTokens !== void 0 && /* @__PURE__ */ u3("small", { children: [
+            job.progress.thinkingTokens.toLocaleString(),
+            " thinking tokens reported"
+          ] }),
+          decision && /* @__PURE__ */ u3("form", { class: "decision-request", onSubmit: submitDecision, children: [
+            /* @__PURE__ */ u3("fieldset", { children: [
+              /* @__PURE__ */ u3("legend", { children: decision.question || "Choose how the Delivery Coordinator should continue." }),
+              decision.context && /* @__PURE__ */ u3("p", { children: decision.context }),
+              decision.options.map((option) => /* @__PURE__ */ u3("label", { children: [
+                /* @__PURE__ */ u3(
+                  "input",
+                  {
+                    type: "radio",
+                    name: `decision-${decision.id || job.jobId}`,
+                    value: option.id,
+                    checked: decisionOption === option.id,
+                    onChange: () => setDecisionOption(option.id)
+                  }
+                ),
+                /* @__PURE__ */ u3("span", { children: [
+                  /* @__PURE__ */ u3("strong", { children: option.label }),
+                  option.description && /* @__PURE__ */ u3("small", { children: option.description })
+                ] })
+              ] }, option.id))
+            ] }),
+            /* @__PURE__ */ u3(
+              "textarea",
+              {
+                value: decisionContext,
+                placeholder: decision.freeText?.placeholder || "Add context or a different preference\u2026",
+                onInput: (event) => setDecisionContext(event.currentTarget.value)
+              }
+            ),
+            /* @__PURE__ */ u3("button", { type: "submit", children: "Continue" })
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ u3("form", { id: "chatComposer", class: "chat-composer", onSubmit: submit, children: [
+        /* @__PURE__ */ u3("label", { for: "chatQuestion", children: active ? "Add a follow-up" : "Message Delivery Coordinator" }),
+        /* @__PURE__ */ u3(
+          "textarea",
+          {
+            id: "chatQuestion",
+            value: draft,
+            placeholder: active ? "Add context or redirect the running answer\u2026" : "Where are we, what is unverified, and what needs my attention?",
+            onInput: (event) => setDraft(event.currentTarget.value),
+            required: true
+          }
+        ),
+        /* @__PURE__ */ u3("button", { id: "chatSend", type: "submit", children: active ? "Send follow-up" : "Ask Delivery Coordinator" })
+      ] })
+    ] });
+  }
+
   // steel-mission-ui/src/app.tsx
   function browserCookie(name) {
     return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1) || "";
@@ -2891,11 +3245,7 @@ select {
             section.id
           )) })
         ] }),
-        /* @__PURE__ */ u3("section", { class: "empty-state", "aria-labelledby": "newConsoleTitle", hidden: settingsOpen, children: [
-          /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Rebuilt console" }),
-          /* @__PURE__ */ u3("h1", { id: "newConsoleTitle", children: "Steel Mission is ready." }),
-          /* @__PURE__ */ u3("p", { children: "Use your assigned Domain Capabilities and the settings workspace to prepare and govern delivery work." })
-        ] })
+        !settingsOpen && /* @__PURE__ */ u3(ChatPanel, { request: apiRequest, workMode })
       ] })
     ] });
   }
