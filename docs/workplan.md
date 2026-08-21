@@ -277,6 +277,35 @@ and the templates do not have a bypass in normal use.
   its session id before the first commit, so two workers never hold one issue and
   the board shows who has what. Mission branches follow the same
   `<milestone>/<short-slug>` convention as everyone else's.
+- **Reachability before work.** Before the first commit, a session verifies every
+  acceptance precondition that is someone else's act: accounts, credentials,
+  infrastructure, another issue's outcome. One unmet precondition means the
+  session posts the blocker on the issue and ends. Finding a blocker and
+  continuing to build is the failure mode this rule exists to prevent; the
+  blocker comment is the deliverable, not a footnote to five more hours of work.
+- **Session ceilings end the session.** A session carries a commit ceiling and a
+  wall-clock ceiling proportionate to the issue's budget, enforced by the
+  harness rather than by the agent's judgment. Hitting a ceiling stops the work
+  and posts the state: what is done, what is not, what changed the estimate.
+  Twenty commits on a task budgeted in hours is not persistence, it is the
+  signal that the plan was wrong.
+- **An issue names its paths.** Each agent-workable issue carries `allowedPaths`
+  in the manifest, and the session checks every commit's files against it. An
+  edit outside the wall is an escalation before the commit, never a discovery in
+  review. Trust boundaries (`steel-mission-chat/`, `bin/`, `adapters/`,
+  `schemas/canonical/`) enter a session's wall only when the issue says so.
+- **Reviews converge or escalate.** The review loop is bounded, and each round
+  may only shrink or correct what exists. A review that demands new
+  architecture, a new mechanism, or a new dependency has found a design
+  question, and design questions belong to the Person: the loop ends and the
+  session escalates. Where thinness is load-bearing, the acceptance states a
+  line ceiling, and crossing it is evidence the design is wrong, not a reason
+  to keep going.
+- **Acceptance runs where the code runs.** Every acceptance criterion is
+  executable on the host the deliverable targets, and platform-specific
+  mechanisms name their platform in the issue. A protection that no test on the
+  target host can exercise is decoration, and a skipped test on shipped code is
+  a red flag, not a pass.
 
 ## 8. Acceptance criteria for the project
 
