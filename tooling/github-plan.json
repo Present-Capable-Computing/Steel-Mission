@@ -320,7 +320,7 @@
     {
       "name": "founder-act",
       "color": "5319e7",
-      "description": "Work only the Founder can perform; agent sessions that depend on it are blocked, never improvising around it"
+      "description": "Only the Founder can perform this; dependent agent sessions are blocked, never improvising"
     }
   ],
   "milestones": [
