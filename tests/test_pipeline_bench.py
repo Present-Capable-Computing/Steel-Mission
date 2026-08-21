@@ -287,6 +287,14 @@ class ProtectionRunner:
         return CommandResult(argv, 0, output, "", 0.1)
 
 
+class EncodedBranchProtectionRunner(ProtectionRunner):
+    def run(self, argv, cwd, timeout, **kwargs):
+        endpoint = argv[-1]
+        if "/branches/" in endpoint:
+            assert endpoint.endswith("/branches/release%2F2026/protection")
+        return super().run(argv, cwd, timeout, **kwargs)
+
+
 class DiffRunner:
     def run(
         self,
@@ -426,7 +434,7 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
         decisions=FakeDecision(),
     ).run()
 
-    assert result["state"] == "merged"
+    assert result["state"] == "queued"
     assert result["reviewCorrectionRounds"] == 1
     first_push = platform.calls.index("push")
     assert any(call.startswith("command:make test") for call in platform.calls[:first_push])
@@ -484,7 +492,7 @@ def test_pull_request_body_stays_outside_the_worker_writable_session(tmp_path):
         decisions=FakeDecision(),
     ).run()
 
-    assert result["state"] == "merged"
+    assert result["state"] == "queued"
     assert victim.read_text() == "must remain unchanged\n"
 
 
@@ -535,7 +543,7 @@ def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch)
         decisions=FakeDecision(),
     ).run()
 
-    assert result["state"] == "merged"
+    assert result["state"] == "queued"
 
 
 def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
@@ -594,7 +602,7 @@ def test_unclean_plan_waits_on_existing_decision_flow_then_replans_inside_grant(
         decisions=decisions,
     ).run()
 
-    assert result["state"] == "merged"
+    assert result["state"] == "queued"
     assert decisions.calls[0] == "request"
     assert decisions.calls[1].startswith("wait:JOB-decision:")
     assert platform.calls.index("worktree") < platform.calls.index("commit:commit-1")
@@ -663,6 +671,33 @@ def test_red_test_runner_error_is_not_accepted_as_the_granted_assertion_failure(
         bench.run()
 
     assert "push" not in platform.calls
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    assert feed[-1]["stage"] == "develop-and-commit"
+
+
+def test_failure_after_claim_during_worktree_setup_is_recorded(tmp_path):
+    class BrokenWorktreePlatform(FakePlatform):
+        def prepare_worktree(self, grant_value, session_dir):
+            super().prepare_worktree(grant_value, session_dir)
+            raise BenchError("isolated worktree setup failed")
+
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=BrokenWorktreePlatform(tmp_path),
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="worktree setup failed"):
+        bench.run()
+
+    evidence = json.loads(bench.evidence_path.read_text())
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    assert evidence["state"] == "failed"
+    assert evidence["failure"]["reason"] == "isolated worktree setup failed"
+    assert feed[-1]["state"] == "failed"
+    assert feed[-1]["stage"] == "plan"
 
 
 def test_repository_gate_cannot_change_head_before_the_bench_pushes(tmp_path):
@@ -726,25 +761,20 @@ def test_grant_drift_abort_rechecks_the_issue_contract_before_push(tmp_path):
     assert "push" not in platform.calls
 
 
-def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaustion(tmp_path):
+def test_accepted_pull_request_returns_queued_without_waiting_for_landing(tmp_path):
     platform = FakePlatform(tmp_path, merge_failure=True)
-    bench = PipelineBench(
+
+    result = PipelineBench(
         write_grant(tmp_path / "grant.json"),
         tmp_path / "state",
         platform=platform,
         agents=FakeAgents(),
         decisions=FakeDecision(),
-    )
+    ).run()
 
-    with pytest.raises(BenchError, match="acceptance budget"):
-        bench.run()
-
-    assert next(
-        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
-    ) < platform.calls.index("disable-auto-merge")
-    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
-    assert feed[-1]["state"] == "budget-exhausted"
-    assert feed[-1]["outcome"]["status"] == "budget-exhausted"
+    assert result["state"] == "queued"
+    assert not any(call.startswith("merged:") for call in platform.calls)
+    assert "disable-auto-merge" not in platform.calls
 
 
 def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
@@ -1536,6 +1566,27 @@ def test_repository_wall_requires_both_interpreter_check_contexts(tmp_path, monk
         platform.validate_repository_wall(grant())
 
 
+def test_repository_wall_percent_encodes_a_slash_in_the_base_branch(tmp_path, monkeypatch):
+    value = grant()
+    value["baseBranch"] = "release/2026"
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+    platform = GitHubPlatform(
+        tmp_path,
+        EncodedBranchProtectionRunner(protected_repository()),
+    )
+
+    platform.validate_repository_wall(value)
+
+
 def test_pull_request_validation_rejects_a_retargeted_base(tmp_path, monkeypatch):
     value = grant()
     monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
@@ -1637,6 +1688,52 @@ def test_authenticated_push_ignores_an_untrusted_askpass_symlink(tmp_path, monke
     platform.push(value, worktree, 30)
 
     assert victim.read_text() == "must remain unchanged\n"
+
+
+def test_authenticated_push_uses_a_parent_only_empty_hooks_directory(tmp_path, monkeypatch):
+    value = grant()
+    credential_names = {
+        account["tokenEnv"] for account in value["machineAccounts"].values()
+    }
+    for name in credential_names:
+        monkeypatch.setenv(
+            name,
+            "local-token" if name == value["machineAccounts"]["local"]["tokenEnv"] else "secret",
+        )
+    worktree = tmp_path / "session" / "worktree"
+    worktree.mkdir(parents=True)
+    worker_environment = mission_bench.isolated_command_env(worktree.parent, credential_names)
+    worker_hooks = Path(worker_environment["GIT_CONFIG_VALUE_3"])
+    (worker_hooks / "pre-push").write_text("#!/bin/sh\nexit 99\n")
+    (worker_hooks / "pre-push").chmod(0o700)
+
+    class TrustedHooksRunner(PushRunner):
+        def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
+            if "push" in argv:
+                hooks = Path(extra_env["GIT_CONFIG_VALUE_3"])
+                assert not hooks.is_relative_to(worktree.parent)
+                assert list(hooks.iterdir()) == []
+            return super().run(
+                argv,
+                cwd,
+                timeout,
+                input_text=input_text,
+                extra_env=extra_env,
+                inherit_env=inherit_env,
+            )
+
+    GitHubPlatform(tmp_path, TrustedHooksRunner(credential_names)).push(value, worktree, 30)
+
+
+def test_worker_sandbox_write_root_excludes_session_control_files(tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    environment = mission_bench.isolated_command_env(session_dir, set())
+
+    sandbox_root = Path(environment["SM_BENCH_SANDBOX_ROOT"])
+    assert sandbox_root.parent == session_dir
+    assert sandbox_root != session_dir
 
 
 def test_merge_poll_and_sleep_never_exceed_the_remaining_acceptance_budget(tmp_path, monkeypatch):

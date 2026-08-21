@@ -17,6 +17,7 @@ import secrets
 import selectors
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -407,11 +408,13 @@ def isolated_command_env(
     scrub_all_credentials: bool = False,
 ) -> dict[str, str]:
     """Remove GitHub authority from repository-authored and model commands."""
-    gh_config = session_dir / "no-github-credentials"
-    hooks = session_dir / "no-git-hooks"
-    sandbox_home = session_dir / "sandbox-home"
-    sandbox_tmp = session_dir / "sandbox-tmp"
+    sandbox_root = session_dir / "worker-sandbox"
+    gh_config = sandbox_root / "no-github-credentials"
+    hooks = sandbox_root / "no-git-hooks"
+    sandbox_home = sandbox_root / "home"
+    sandbox_tmp = sandbox_root / "tmp"
     sandbox_directories = (
+        sandbox_root,
         gh_config,
         hooks,
         sandbox_home,
@@ -424,7 +427,21 @@ def isolated_command_env(
     )
     for directory in sandbox_directories:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        directory.chmod(0o700)
+        try:
+            metadata = directory.lstat()
+        except OSError as exc:
+            raise BenchError(f"cannot inspect worker sandbox directory: {directory}") from exc
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise BenchError(f"worker sandbox path is not a real directory: {directory}")
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(directory, flags)
+            try:
+                os.fchmod(descriptor, 0o700)
+            finally:
+                os.close(descriptor)
+        except OSError as exc:
+            raise BenchError(f"cannot secure worker sandbox directory: {directory}") from exc
     environment = {
         "HOME": str(sandbox_home),
         "TMPDIR": str(sandbox_tmp),
@@ -435,7 +452,7 @@ def isolated_command_env(
         "XDG_RUNTIME_DIR": str(sandbox_home / ".runtime"),
         "CODEX_HOME": str(sandbox_home / ".codex"),
         "CLAUDE_CONFIG_DIR": str(sandbox_home / ".claude"),
-        "SM_BENCH_SANDBOX_ROOT": str(session_dir),
+        "SM_BENCH_SANDBOX_ROOT": str(sandbox_root),
         "GH_CONFIG_DIR": str(gh_config),
         "GH_TOKEN": "",
         "GITHUB_TOKEN": "",
@@ -890,7 +907,7 @@ class GitHubPlatform:
             label="live-base CODEOWNERS read")
         result = self._run([
             "gh", "api",
-            f"repos/{grant['repository']}/branches/{grant['baseBranch']}/protection",
+            f"repos/{grant['repository']}/branches/{encoded_branch}/protection",
         ], timeout=remaining(), extra_env=environment, complete_stdout=True,
             label="branch protection read")
         try:
@@ -1180,12 +1197,25 @@ class GitHubPlatform:
         token = os.environ.get(token_env)
         if not token:
             raise BenchError(f"machine-account credential {token_env} is not available")
-        preparation_environment = isolated_command_env(
-            worktree.parent,
-            self._credential_envs(grant),
-            scrub_all_credentials=True,
-        )
         with tempfile.TemporaryDirectory(prefix="steel-mission-push-auth-") as auth_directory:
+            trusted_root = Path(auth_directory)
+            trusted_hooks = trusted_root / "hooks"
+            trusted_home = trusted_root / "home"
+            trusted_tmp = trusted_root / "tmp"
+            for directory in (trusted_hooks, trusted_home, trusted_tmp):
+                directory.mkdir(mode=0o700)
+            preparation_environment = isolated_command_env(
+                worktree.parent,
+                self._credential_envs(grant),
+                scrub_all_credentials=True,
+            )
+            preparation_environment.update({
+                "HOME": str(trusted_home),
+                "TMPDIR": str(trusted_tmp),
+                "TEMP": str(trusted_tmp),
+                "TMP": str(trusted_tmp),
+                "GIT_CONFIG_VALUE_3": str(trusted_hooks),
+            })
             askpass = Path(auth_directory) / "git-askpass.sh"
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
             flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -2019,11 +2049,18 @@ class PipelineBench:
         self.claimed_at = utc_now()
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self._save_evidence()
+        plan_budget = StageBudget(self.grant["budgets"]["plan"])
+        self._emit(
+            "plan",
+            "working",
+            "The granted mission is preparing its isolated planning worktree.",
+            plan_budget,
+            event_kind="stage-started",
+        )
         worktree = self.platform.prepare_worktree(self.grant, self.session_dir)
         contract = self._contract()
-        plan_budget = StageBudget(self.grant["budgets"]["plan"])
 
-        self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget, event_kind="stage-started")
+        self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget)
         plan_prompt = (
             "Plan this granted mission. Do not change its requirement, acceptance evidence, budgets, or authority. "
             "Return clean=false when any assumption, scope boundary, or acceptance command is unresolved.\n\n"
@@ -2061,6 +2098,13 @@ class PipelineBench:
         self._emit("plan", "idle", require_text(plan.get("summary"), "plan summary"), plan_budget, event_kind="stage-completed")
 
         develop_budget = StageBudget(self.grant["budgets"]["develop"])
+        self._emit(
+            "develop",
+            "working",
+            "The granted regression is being observed before development begins.",
+            develop_budget,
+            event_kind="stage-started",
+        )
         red_result = self.platform.run_command(
             self.grant["definitionOfDone"]["redTest"],
             worktree,
@@ -2257,12 +2301,17 @@ class PipelineBench:
             previous_commit,
             arm_timeout,
         )
-        merged = self.platform.wait_for_merge(
-            self.grant, int(pull_request["number"]), acceptance_budget.remaining()
-        )
-        self.auto_merge_armed = False
-        self.evidence["stages"]["acceptance"] = {"ci": ci, "review": acceptance, "merge": merged}
-        self.evidence["state"] = "merged"
+        queued = {
+            "state": "queued",
+            "armedAt": utc_now(),
+            "headCommit": previous_commit,
+        }
+        self.evidence["stages"]["acceptance"] = {
+            "ci": ci,
+            "review": acceptance,
+            "autoMerge": queued,
+        }
+        self.evidence["state"] = "queued"
         self.evidence["completedAt"] = utc_now()
         self._save_evidence()
         artifacts = [
@@ -2270,12 +2319,12 @@ class PipelineBench:
             {"kind": "pull-request", "uri": str(pull_request["url"])},
         ]
         self._emit(
-            "acceptance", "succeeded", summary, acceptance_budget,
+            "acceptance", "succeeded", f"{summary} Auto-merge is queued.", acceptance_budget,
             event_kind="session-completed", outcome_status="succeeded", artifact_refs=artifacts,
         )
         return {
             "ok": True,
-            "state": "merged",
+            "state": "queued",
             "missionId": self.grant["missionId"],
             "sessionId": self.session_id,
             "pullRequest": pull_request,
