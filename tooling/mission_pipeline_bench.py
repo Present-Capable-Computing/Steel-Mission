@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import fcntl
 import json
 import os
 import re
@@ -17,7 +18,9 @@ import secrets
 import selectors
 import shutil
 import signal
+import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -153,6 +156,21 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
     require_text(grant.get("grantedBy"), "grantedBy")
     require_text(grant.get("requirement"), "requirement")
     require_text(grant.get("acceptanceEvidence"), "acceptanceEvidence")
+
+    surfaces = grant.get("surfaces")
+    surface_names = {
+        "authentication",
+        "networkService",
+        "subprocessExecution",
+        "authoritySchemas",
+    }
+    if not isinstance(surfaces, dict) or set(surfaces) != surface_names:
+        raise BenchError(
+            "surfaces must declare exactly authentication, networkService, "
+            "subprocessExecution, and authoritySchemas"
+        )
+    if not all(isinstance(surfaces[name], bool) for name in surface_names):
+        raise BenchError("surfaces declarations must be booleans")
 
     definition = grant.get("definitionOfDone")
     if not isinstance(definition, dict):
@@ -401,6 +419,37 @@ def _deny_descendant_process_group_escape() -> None:
         raise OSError(ctypes.get_errno(), "cannot install process-containment filter")
 
 
+def _isolate_network_namespace() -> None:
+    """Give a repository-authored gate its own loopback-only network."""
+    clone_newuser = 0x10000000
+    clone_newnet = 0x40000000
+    libc = ctypes.CDLL(None, use_errno=True)
+    uid = os.getuid()
+    gid = os.getgid()
+    if libc.unshare(clone_newuser | clone_newnet) != 0:
+        raise OSError(ctypes.get_errno(), "cannot create isolated user/network namespaces")
+    try:
+        Path("/proc/self/setgroups").write_text("deny")
+    except FileNotFoundError:
+        pass
+    Path("/proc/self/uid_map").write_text(f"0 {uid} 1")
+    Path("/proc/self/gid_map").write_text(f"0 {gid} 1")
+    if libc.setresgid(0, 0, 0) != 0 or libc.setresuid(0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "cannot enter isolated namespace identity")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
+        request = struct.pack("16sh", b"lo", 0)
+        flags = struct.unpack(
+            "16sh",
+            fcntl.ioctl(control.fileno(), 0x8913, request),
+        )[1]
+        fcntl.ioctl(
+            control.fileno(),
+            0x8914,
+            struct.pack("16sh", b"lo", flags | 0x1),
+        )
+
+
 def isolated_command_env(
     session_dir: Path,
     credential_envs: set[str],
@@ -533,6 +582,7 @@ class SubprocessRunner:
         extra_env: dict[str, str] | None = None,
         inherit_env: bool = True,
         complete_stdout: bool = False,
+        network_access: bool = True,
     ) -> CommandResult:
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise BenchError("refusing a non-argv command")
@@ -543,6 +593,8 @@ class SubprocessRunner:
         environment.pop("GITHUB_TOKEN", None)
         if extra_env:
             environment.update(extra_env)
+        if not network_access and not sys.platform.startswith("linux"):
+            raise BenchError("network-isolated repository commands require Linux")
         execution_argv = list(argv)
         landlock_setup: tuple[int, tuple[str, ...], tuple[str, ...]] | None = None
         if not inherit_env and sys.platform.startswith("linux"):
@@ -577,10 +629,12 @@ class SubprocessRunner:
                 tuple(dict.fromkeys(write_roots)),
             )
         preexec_fn = None
-        if landlock_setup is not None or (
+        if not network_access or landlock_setup is not None or (
             sys.platform.startswith("linux") and PARENT_CONTAINMENT_READY
         ):
             def child_setup() -> None:
+                if not network_access:
+                    _isolate_network_namespace()
                 if landlock_setup is not None:
                     _restrict_filesystem_with_landlock(*landlock_setup)
                 if PARENT_CONTAINMENT_READY:
@@ -889,7 +943,13 @@ class GitHubPlatform:
                     f"{worker} commit email is not verified by its authenticated GitHub account"
                 )
 
-    def validate_repository_wall(self, grant: dict[str, Any], timeout: float = 120) -> None:
+    def validate_repository_wall(
+        self,
+        grant: dict[str, Any],
+        timeout: float = 120,
+        *,
+        changed_paths: list[str] | None = None,
+    ) -> None:
         deadline = time.monotonic() + timeout
 
         def remaining() -> float:
@@ -1047,6 +1107,17 @@ class GitHubPlatform:
                         "machine accounts cannot own authority paths in final effective CODEOWNERS rules"
                     )
 
+        for changed_path in changed_paths or []:
+            matching_rules = [rule for rule in rules if matches(rule[0], changed_path)]
+            effective_owners = {
+                token.lstrip("@").lower()
+                for token in (matching_rules[-1][1:] if matching_rules else [])
+            }
+            if acceptance_login.lower() not in effective_owners:
+                raise BenchError(
+                    f"acceptance account cannot review changed path under effective CODEOWNERS: {changed_path}"
+                )
+
     def claim_issue(self, grant: dict[str, Any], session_id: str) -> None:
         account = grant["machineAccounts"]["local"]
         environment = self._account_env(grant, "local")
@@ -1116,7 +1187,14 @@ class GitHubPlatform:
         timeout: int,
         extra_env: dict[str, str],
     ) -> CommandResult:
-        return self.runner.run(argv, cwd, timeout, extra_env=extra_env, inherit_env=False)
+        return self.runner.run(
+            argv,
+            cwd,
+            timeout,
+            extra_env=extra_env,
+            inherit_env=False,
+            network_access=False,
+        )
 
     def assert_machine_commit(
         self,
@@ -1888,6 +1966,22 @@ class PipelineBench:
         red = self.evidence.get("redTest", {})
         gates = self.evidence.get("stages", {}).get("develop", {}).get("gates", {})
         corrections = self.evidence.get("stages", {}).get("corrections", [])
+        surfaces = self.grant["surfaces"]
+
+        def surface_checkbox(name: str, label: str) -> str:
+            mark = "x" if surfaces[name] else " "
+            return f"- [{mark}] {label}"
+
+        surface_lines = "\n".join((
+            surface_checkbox("authentication", "Authentication, authorization, or session handling"),
+            surface_checkbox("networkService", "A network-listening service, or its bind address"),
+            surface_checkbox("subprocessExecution", "Subprocess or container execution"),
+            surface_checkbox(
+                "authoritySchemas",
+                "Authority-owned schemas (`schemas/canonical/`, `schemas/schema-registry.json`)",
+            ),
+            f"- [{'x' if not any(surfaces.values()) else ' '}] None of the above",
+        ))
         commits = [self.evidence.get("stages", {}).get("develop", {}).get("commit")]
         commits.extend(
             item.get("commit") for item in corrections
@@ -1915,8 +2009,9 @@ class PipelineBench:
             f"- Codex correction rounds: {self.evidence.get('reviewCorrectionRounds', 0)}\n"
             f"{correction_lines}\n\n"
             "## Surfaces touched\n\n"
-            "The granted issue defines the touched surface. The bench refuses security-review-labelled issues "
-            "and stops authority-owned paths for human review.\n\n"
+            f"{surface_lines}\n\n"
+            "These machine-checkable declarations are part of the mission grant. Anything ticked above requires "
+            "the repository's security-review path before merge; authority-owned paths also stop for Person delivery.\n\n"
             "## Reversibility\n\n"
             "Revert the mission commit or close this pull request without merging. The bench does not mutate main directly.\n"
         )
@@ -2248,6 +2343,7 @@ class PipelineBench:
             )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
             self._validate_changed_paths(correction_paths, correction_budget, contract)
+            paths = correction_paths
             previous_commit = correction_commit
             self.evidence["stages"].setdefault("corrections", []).append({
                 "round": round_number,
@@ -2278,6 +2374,7 @@ class PipelineBench:
         self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
+            changed_paths=paths,
         )
         self.platform.assert_pr_head(
             self.grant,
@@ -2310,6 +2407,7 @@ class PipelineBench:
         self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
+            changed_paths=paths,
         )
         self.platform.assert_pr_head(
             self.grant,

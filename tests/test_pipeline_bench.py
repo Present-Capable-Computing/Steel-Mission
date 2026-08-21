@@ -1,6 +1,7 @@
 import json
 import os
 import runpy
+import socket
 import subprocess
 import sys
 import threading
@@ -41,6 +42,12 @@ def grant() -> dict:
         "grantedBy": "andrewHermann",
         "requirement": REQUIREMENT,
         "acceptanceEvidence": ACCEPTANCE,
+        "surfaces": {
+            "authentication": False,
+            "networkService": False,
+            "subprocessExecution": False,
+            "authoritySchemas": False,
+        },
         "definitionOfDone": {
             "redTest": ["python3", "-m", "pytest", "tests/test_rehearsal.py", "-q"],
             "redFailure": {"exitCodes": [1], "outputPattern": "1 failed"},
@@ -110,8 +117,10 @@ class FakePlatform:
     def validate_machine_accounts(self, _grant):
         self.calls.append("accounts")
 
-    def validate_repository_wall(self, _grant, timeout=None):
+    def validate_repository_wall(self, _grant, timeout=None, *, changed_paths=None):
         self.calls.append("branch-protection")
+        if changed_paths is not None:
+            self.calls.append(f"codeowners-paths:{','.join(changed_paths)}")
         self.remote_timeouts.append(("branch-protection", timeout))
 
     def claim_issue(self, _grant, session_id):
@@ -815,10 +824,14 @@ def test_pull_request_head_change_after_ci_stops_before_approval_or_auto_merge(t
 
 def test_branch_wall_is_revalidated_before_auto_merge_is_armed(tmp_path):
     class WeakeningWallPlatform(FakePlatform):
-        def validate_repository_wall(self, grant_value, timeout=None):
+        def validate_repository_wall(self, grant_value, timeout=None, *, changed_paths=None):
             if any(operation == "branch-protection" for operation, _timeout in self.remote_timeouts):
                 raise BenchError("branch protection changed before auto-merge")
-            super().validate_repository_wall(grant_value, timeout)
+            super().validate_repository_wall(
+                grant_value,
+                timeout,
+                changed_paths=changed_paths,
+            )
 
     platform = WeakeningWallPlatform(tmp_path)
     bench = PipelineBench(
@@ -1173,6 +1186,77 @@ def test_untrusted_subprocess_inherits_only_allowlisted_parent_environment(tmp_p
     assert environment["ANTHROPIC_API_KEY"] == "provider-only"
 
 
+def test_repository_authored_gates_request_an_isolated_network(tmp_path):
+    class RecordingRunner:
+        def __init__(self):
+            self.network_access = None
+
+        def run(
+            self,
+            argv,
+            cwd,
+            timeout,
+            *,
+            extra_env=None,
+            inherit_env=True,
+            network_access=True,
+        ):
+            self.network_access = network_access
+            return CommandResult(argv, 0, "", "", 0.1)
+
+    runner = RecordingRunner()
+    platform = GitHubPlatform(tmp_path, runner)
+
+    platform.run_command(
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        tmp_path,
+        5,
+        mission_bench.isolated_command_env(tmp_path / "session", set()),
+    )
+
+    assert runner.network_access is False
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux network namespaces")
+def test_network_isolated_gate_cannot_reach_host_loopback(tmp_path):
+    with socket.socket() as host_listener:
+        host_listener.bind(("127.0.0.1", 0))
+        host_listener.listen()
+        host_port = host_listener.getsockname()[1]
+        script = (
+            "import socket\n"
+            f"host_port = {host_port}\n"
+            "probe = socket.socket()\n"
+            "probe.settimeout(0.5)\n"
+            "try:\n"
+            "    probe.connect(('127.0.0.1', host_port))\n"
+            "except OSError:\n"
+            "    pass\n"
+            "else:\n"
+            "    raise SystemExit('host loopback remained reachable')\n"
+            "finally:\n"
+            "    probe.close()\n"
+            "private = socket.socket()\n"
+            "private.bind(('127.0.0.1', 0))\n"
+            "private.listen()\n"
+            "client = socket.create_connection(private.getsockname(), timeout=0.5)\n"
+            "accepted, _address = private.accept()\n"
+            "accepted.close(); client.close(); private.close()\n"
+        )
+        environment = mission_bench.isolated_command_env(tmp_path / "session", set())
+
+        result = SubprocessRunner().run(
+            [sys.executable, "-c", script],
+            tmp_path,
+            5,
+            extra_env=environment,
+            inherit_env=False,
+            network_access=False,
+        )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_untrusted_subprocess_uses_a_clean_session_home(tmp_path, monkeypatch):
     original_home = tmp_path / "credential-bearing-home"
     original_home.mkdir()
@@ -1437,6 +1521,37 @@ def test_grant_rejects_free_form_abort_conditions():
         mission_bench.validate_grant(value)
 
 
+def test_grant_requires_every_machine_checkable_pr_surface():
+    value = grant()
+    del value["surfaces"]["networkService"]
+
+    with pytest.raises(BenchError, match="surfaces must declare exactly"):
+        mission_bench.validate_grant(value)
+
+
+def test_pull_request_body_renders_the_granted_security_surface_checkboxes(tmp_path):
+    value = grant()
+    value["surfaces"].update({
+        "authentication": True,
+        "subprocessExecution": True,
+    })
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=FakePlatform(tmp_path),
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    body = bench._pr_body()
+
+    assert "- [x] Authentication, authorization, or session handling" in body
+    assert "- [ ] A network-listening service, or its bind address" in body
+    assert "- [x] Subprocess or container execution" in body
+    assert "- [ ] Authority-owned schemas (`schemas/canonical/`, `schemas/schema-registry.json`)" in body
+    assert "- [ ] None of the above" in body
+
+
 @pytest.mark.parametrize("target", ["machine", "decision"])
 def test_grant_rejects_github_token_refs_that_collide_with_provider_credentials(target):
     value = grant()
@@ -1507,6 +1622,29 @@ def test_repository_wall_allows_unrelated_rules_after_authority_ownership(tmp_pa
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_rejects_changed_paths_not_owned_by_acceptance_account(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+        "/tooling/ @andrewHermann\n"
+    )
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="acceptance account cannot review changed path"):
+        platform.validate_repository_wall(
+            grant(),
+            changed_paths=["tooling/mission_pipeline_bench.py"],
+        )
 
 
 def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path, monkeypatch):
