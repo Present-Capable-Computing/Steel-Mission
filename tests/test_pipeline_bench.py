@@ -60,9 +60,9 @@ def grant() -> dict:
         "abortConditions": [{"kind": "budget-exhausted"}],
         "maxReviewRounds": 2,
         "machineAccounts": {
-            "claude": {"login": "sm-agent-claude", "email": "claude@example.invalid", "tokenEnv": "SM_AGENT_CLAUDE_GITHUB_TOKEN"},
-            "codex": {"login": "sm-agent-codex", "email": "codex@example.invalid", "tokenEnv": "SM_AGENT_CODEX_GITHUB_TOKEN"},
-            "local": {"login": "sm-agent-qwen", "email": "qwen@example.invalid", "tokenEnv": "SM_AGENT_QWEN_GITHUB_TOKEN"},
+            "claude": {"login": "sm-agent-claude", "email": "101+sm-agent-claude@users.noreply.github.com", "tokenEnv": "SM_AGENT_CLAUDE_GITHUB_TOKEN"},
+            "codex": {"login": "sm-agent-codex", "email": "102+sm-agent-codex@users.noreply.github.com", "tokenEnv": "SM_AGENT_CODEX_GITHUB_TOKEN"},
+            "local": {"login": "sm-agent-qwen", "email": "103+sm-agent-qwen@users.noreply.github.com", "tokenEnv": "SM_AGENT_QWEN_GITHUB_TOKEN"},
         },
         "decisionApi": {"baseUrl": "http://127.0.0.1:8765"},
     }
@@ -309,19 +309,17 @@ class DiffRunner:
 
 
 class AccountRunner:
-    def __init__(self, accounts, unverified=()):
+    def __init__(self, accounts):
         self.accounts = accounts
-        self.unverified = set(unverified)
+        self.commands = []
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
-        login, email = self.accounts[extra_env["GH_TOKEN"]]
+        login, account_id = self.accounts[extra_env["GH_TOKEN"]]
         command = [Path(argv[0]).name, *argv[1:]]
-        if command == ["gh", "api", "user", "--jq", ".login"]:
-            output = login + "\n"
-        else:
-            assert command == ["gh", "api", "user/emails"]
-            assert complete_stdout is True
-            output = json.dumps([{"email": email, "verified": email not in self.unverified}])
+        self.commands.append(command)
+        assert command == ["gh", "api", "user"]
+        assert complete_stdout is True
+        output = json.dumps({"login": login, "id": account_id})
         return CommandResult(argv, 0, output, "", 0.1)
 
 
@@ -1319,19 +1317,34 @@ def test_repository_wall_requires_both_interpreter_checks(tmp_path, monkeypatch)
         platform.validate_repository_wall(value)
 
 
-def test_machine_commit_email_must_be_verified_by_the_authenticated_account(tmp_path, monkeypatch):
+def test_machine_accounts_use_repo_scoped_identity_without_user_email_scope(tmp_path, monkeypatch):
     value = grant()
     accounts = {}
-    for worker, account in value["machineAccounts"].items():
+    for account_id, (worker, account) in enumerate(value["machineAccounts"].items(), start=101):
         token = f"token-{worker}"
         monkeypatch.setenv(account["tokenEnv"], token)
-        accounts[token] = (account["login"], account["email"])
-    platform = GitHubPlatform(
-        tmp_path,
-        AccountRunner(accounts, unverified={value["machineAccounts"]["local"]["email"]}),
-    )
+        accounts[token] = (account["login"], account_id)
+    runner = AccountRunner(accounts)
+    platform = GitHubPlatform(tmp_path, runner)
 
-    with pytest.raises(BenchError, match="local commit email is not verified"):
+    platform.validate_machine_accounts(value)
+
+    assert runner.commands == [["gh", "api", "user"]] * 3
+
+
+def test_machine_commit_email_must_match_the_authenticated_account_noreply_identity(
+    tmp_path, monkeypatch
+):
+    value = grant()
+    value["machineAccounts"]["local"]["email"] = "wrong@example.invalid"
+    accounts = {}
+    for account_id, (worker, account) in enumerate(value["machineAccounts"].items(), start=101):
+        token = f"token-{worker}"
+        monkeypatch.setenv(account["tokenEnv"], token)
+        accounts[token] = (account["login"], account_id)
+    platform = GitHubPlatform(tmp_path, AccountRunner(accounts))
+
+    with pytest.raises(BenchError, match="local commit email must match"):
         platform.validate_machine_accounts(value)
 
 
