@@ -580,6 +580,9 @@ class GitHubPlatform:
             return oid.lower()
 
         base_oid = live_base_oid()
+        validated_base = self.validated_base_oids.get(grant["baseBranch"])
+        if validated_base is not None and base_oid != validated_base:
+            raise BenchError("base branch advanced after mission validation")
         codeowners_result = self._run([
             "gh", "api", "-H", "Accept: application/vnd.github.raw+json",
             f"repos/{grant['repository']}/contents/.github/CODEOWNERS?ref={base_oid}",
@@ -1529,15 +1532,29 @@ class PipelineBench:
 
         self.platform.validate_machine_accounts(self.grant)
         self.platform.validate_repository_wall(self.grant)
-        self.platform.claim_issue(self.grant, self.session_id)
-        self.claimed_at = utc_now()
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self._save_evidence()
+        plan_budget = StageBudget(self.grant["budgets"]["plan"])
+        self._emit(
+            "plan",
+            "working",
+            "The granted mission is claiming its issue under the validated repository wall.",
+            plan_budget,
+            event_kind="stage-started",
+        )
+        self.platform.claim_issue(self.grant, self.session_id)
+        self.claimed_at = utc_now()
+        self._save_evidence()
+        self._emit(
+            "plan",
+            "working",
+            "The granted mission is preparing its isolated planning worktree.",
+            plan_budget,
+        )
         worktree = self.platform.prepare_worktree(self.grant, self.session_dir)
         contract = self._contract()
-        plan_budget = StageBudget(self.grant["budgets"]["plan"])
 
-        self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget, event_kind="stage-started")
+        self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget)
         plan_prompt = (
             "Plan this granted mission. Do not change its requirement, acceptance evidence, budgets, or authority. "
             "Return clean=false when any assumption, scope boundary, or acceptance command is unresolved.\n\n"

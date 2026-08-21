@@ -448,6 +448,35 @@ def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
     assert platform.calls == ["issue"]
 
 
+def test_partial_claim_failure_is_recorded_after_assignment(tmp_path):
+    class PartialClaimPlatform(FakePlatform):
+        def claim_issue(self, _grant, _session_id):
+            self.calls.append("assignment-succeeded")
+            raise BenchError("issue claim comment failed: comment failed")
+
+    state_root = tmp_path / "state"
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        state_root,
+        platform=PartialClaimPlatform(tmp_path),
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="issue claim comment failed"):
+        bench.run()
+
+    evidence = json.loads((bench.session_dir / "evidence.json").read_text())
+    feed = [
+        json.loads(line)
+        for line in (state_root / "agent-session-status.jsonl").read_text().splitlines()
+    ]
+    assert evidence["state"] == "failed"
+    assert evidence["failure"]["reason"] == "issue claim comment failed: comment failed"
+    assert feed[-1]["stage"] == "plan"
+    assert feed[-1]["lastEvent"]["kind"] == "session-stopped"
+
+
 def test_security_review_label_added_during_execution_stops_before_push(tmp_path):
     changed_issue = issue(labels=["task", "security-review"])
 
@@ -1045,6 +1074,39 @@ def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_p
 
     with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
         platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_rejects_a_base_advance_after_initial_validation(
+    tmp_path, monkeypatch
+):
+    value = grant()
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+
+    class AdvancingBaseRunner(ProtectionRunner):
+        def __init__(self):
+            super().__init__(protected_repository())
+            self.base_oids = ["a" * 40, "a" * 40, "b" * 40]
+
+        def run(self, argv, cwd, timeout, **kwargs):
+            if "/git/ref/heads/" in argv[-1]:
+                oid = self.base_oids.pop(0)
+                return CommandResult(argv, 0, json.dumps({"object": {"sha": oid}}), "", 0.1)
+            return super().run(argv, cwd, timeout, **kwargs)
+
+    platform = GitHubPlatform(tmp_path, AdvancingBaseRunner())
+    platform.validate_repository_wall(value)
+
+    with pytest.raises(BenchError, match="base branch advanced after mission validation"):
+        platform.validate_repository_wall(value)
 
 
 def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path, monkeypatch):
