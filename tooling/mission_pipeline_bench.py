@@ -264,6 +264,22 @@ class _LandlockPathBeneathAttr(ctypes.Structure):
     ]
 
 
+class _SockFilter(ctypes.Structure):
+    _fields_ = [
+        ("code", ctypes.c_ushort),
+        ("jt", ctypes.c_ubyte),
+        ("jf", ctypes.c_ubyte),
+        ("k", ctypes.c_uint32),
+    ]
+
+
+class _SockFprog(ctypes.Structure):
+    _fields_ = [
+        ("length", ctypes.c_ushort),
+        ("filters", ctypes.POINTER(_SockFilter)),
+    ]
+
+
 def _landlock_abi() -> int:
     if not sys.platform.startswith("linux"):
         raise BenchError("untrusted filesystem isolation requires Linux Landlock")
@@ -322,6 +338,38 @@ def _restrict_filesystem_with_landlock(
         for descriptor in opened:
             os.close(descriptor)
         os.close(ruleset_fd)
+
+
+def _deny_descendant_process_group_escape() -> None:
+    machine = os.uname().machine.lower()
+    denied_by_architecture = {
+        "x86_64": (109, 112),
+        "amd64": (109, 112),
+        "aarch64": (154, 157),
+        "arm64": (154, 157),
+        "riscv64": (154, 157),
+    }
+    denied = denied_by_architecture.get(machine)
+    if denied is None:
+        raise OSError(95, f"unsupported architecture for process containment: {machine}")
+    load_syscall_number = 0x20
+    jump_equal = 0x15
+    return_errno = 0x00050000 | 1
+    return_allow = 0x7FFF0000
+    instructions = [_SockFilter(load_syscall_number, 0, 0, 0)]
+    for syscall_number in denied:
+        instructions.extend((
+            _SockFilter(jump_equal, 0, 1, syscall_number),
+            _SockFilter(0x06, 0, 0, return_errno),
+        ))
+    instructions.append(_SockFilter(0x06, 0, 0, return_allow))
+    filters = (_SockFilter * len(instructions))(*instructions)
+    program = _SockFprog(length=len(instructions), filters=filters)
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(38, 1, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "cannot enable no-new-privileges")
+    if libc.prctl(22, 2, ctypes.byref(program)) != 0:
+        raise OSError(ctypes.get_errno(), "cannot install process-containment filter")
 
 
 def isolated_command_env(
@@ -451,7 +499,7 @@ class SubprocessRunner:
         if extra_env:
             environment.update(extra_env)
         execution_argv = list(argv)
-        preexec_fn = None
+        landlock_setup: tuple[int, tuple[str, ...], tuple[str, ...]] | None = None
         if not inherit_env and sys.platform.startswith("linux"):
             located = execution_argv[0] if os.path.isabs(execution_argv[0]) else shutil.which(
                 execution_argv[0],
@@ -466,7 +514,8 @@ class SubprocessRunner:
             read_roots = [
                 path for path in (
                     "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt",
-                    "/nix/store", "/proc", "/sys", str(executable.parent),
+                    "/nix/store", "/proc/self", "/proc/thread-self", "/sys",
+                    str(executable.parent),
                 )
                 if Path(path).exists()
             ]
@@ -477,11 +526,22 @@ class SubprocessRunner:
             if sandbox_root:
                 write_roots.append(sandbox_root)
             abi = _landlock_abi()
-            preexec_fn = lambda: _restrict_filesystem_with_landlock(
+            landlock_setup = (
                 abi,
                 tuple(dict.fromkeys(read_roots)),
                 tuple(dict.fromkeys(write_roots)),
             )
+        preexec_fn = None
+        if landlock_setup is not None or (
+            sys.platform.startswith("linux") and PARENT_CONTAINMENT_READY
+        ):
+            def child_setup() -> None:
+                if landlock_setup is not None:
+                    _restrict_filesystem_with_landlock(*landlock_setup)
+                if PARENT_CONTAINMENT_READY:
+                    _deny_descendant_process_group_escape()
+
+            preexec_fn = child_setup
         started = time.monotonic()
         if timeout <= 0:
             raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}")
@@ -594,6 +654,35 @@ class StageBudget:
 
     def limit(self) -> dict[str, int]:
         return {"elapsedSeconds": self.limit_seconds, "turns": self.limit_turns}
+
+
+class CoupledStageBudget:
+    """Charge a correction to both the development and active review grants."""
+
+    def __init__(self, *budgets: StageBudget):
+        self.budgets = budgets
+
+    def remaining(self) -> int:
+        return min(budget.remaining() for budget in self.budgets)
+
+    def use_turn(self) -> int:
+        for budget in self.budgets:
+            budget.use_turn()
+        return self.remaining()
+
+    def spent(self) -> dict[str, int]:
+        values = [budget.spent() for budget in self.budgets]
+        return {
+            "elapsedSeconds": max(value["elapsedSeconds"] for value in values),
+            "turns": max(value["turns"] for value in values),
+        }
+
+    def limit(self) -> dict[str, int]:
+        values = [budget.limit() for budget in self.budgets]
+        return {
+            "elapsedSeconds": min(value["elapsedSeconds"] for value in values),
+            "turns": min(value["turns"] for value in values),
+        }
 
 
 class GitHubPlatform:
@@ -1367,7 +1456,16 @@ class DecisionClient:
         self.base_url = require_text(configuration.get("baseUrl"), "decisionApi.baseUrl").rstrip("/")
         self.token_env = configuration.get("tokenEnv") if isinstance(configuration.get("tokenEnv"), str) else ""
 
-    def _request(self, path: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        payload: dict[str, Any] | None = None,
+        timeout: float = 15,
+    ) -> dict[str, Any]:
+        if timeout <= 0:
+            raise BenchError("decision API request exceeded its stage budget")
         headers = {"Accept": "application/json", "X-Present-Role": "owner", "X-Present-Actor": "mission-bench"}
         if self.token_env:
             token = os.environ.get(self.token_env)
@@ -1380,7 +1478,7 @@ class DecisionClient:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 value = json.loads(response.read())
         except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
             raise BenchError(f"decision API request failed: {exc}") from exc
@@ -1388,29 +1486,65 @@ class DecisionClient:
             raise BenchError(f"decision API refused the request: {value}")
         return value
 
-    def request(self, context: str) -> dict[str, Any]:
-        value = self._request("/api/chat", method="POST", payload={
-            "question": "ask me to decide",
+    def request(
+        self,
+        context: str,
+        timeout: float = 30,
+        *,
+        question: str = "How should this mission resolve the unclean plan?",
+        options: list[dict[str, str]] | None = None,
+        default_option_id: str = "pause",
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0:
+                raise BenchError("decision request exceeded its stage budget")
+            return value
+
+        choices = options or [
+            {
+                "id": "revise-within-grant",
+                "label": "Revise within grant",
+                "description": "Return the stated constraint to the planner without changing the granted outcome.",
+            },
+            {
+                "id": "pause",
+                "label": "Pause mission",
+                "description": "Keep the mission stopped until a Person supplies different direction.",
+            },
+        ]
+        value = self._request("/api/chat", method="POST", timeout=remaining(), payload={
+            "question": question,
             "messages": [{"role": "user", "content": context[:12000]}],
             "workMode": "normal",
             "profile": "dc13.claude",
             "mock": True,
+            "decisionRequest": {
+                "question": question,
+                "context": context[:12000],
+                "options": choices,
+                "defaultOptionId": default_option_id,
+            },
         })
+        remaining()
         job_id = require_text(value.get("jobId"), "decision job id")
-        progress = value.get("progress") if isinstance(value.get("progress"), dict) else {}
-        request = progress.get("decisionRequest") if isinstance(progress.get("decisionRequest"), dict) else {}
-        if not request:
-            polled = self._request(f"/api/chat/{job_id}")
-            progress = polled.get("progress") if isinstance(polled.get("progress"), dict) else {}
-            request = progress.get("decisionRequest") if isinstance(progress.get("decisionRequest"), dict) else {}
+        request = value.get("decisionRequest") if isinstance(value.get("decisionRequest"), dict) else {}
         if not request:
             raise BenchError("decision API did not create a pending decision")
         return {"jobId": job_id, "decisionRequest": request, "url": f"{self.base_url}/job/{job_id}"}
 
     def wait_for_answer(self, job_id: str, timeout: int) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            value = self._request(f"/api/chat/{job_id}")
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            value = self._request(f"/api/chat/{job_id}", timeout=min(15, remaining))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             progress = value.get("progress") if isinstance(value.get("progress"), dict) else {}
             events = progress.get("steeringEvents") if isinstance(progress.get("steeringEvents"), list) else []
             answers = [
@@ -1421,7 +1555,7 @@ class DecisionClient:
                 return answers[-1]
             if value.get("state") in {"cancelled", "error"}:
                 raise BenchError("decision job stopped without a Person decision")
-            time.sleep(2)
+            time.sleep(min(2, max(0, deadline - time.monotonic())))
         raise BenchError("mission decision exceeded the plan session budget")
 
 
@@ -1637,7 +1771,22 @@ class PipelineBench:
         if not authority_paths:
             return
         handle = self.decisions.request(
-            f"The mission touched human-owned paths and cannot merge them unattended: {authority_paths}\n\n{contract}"
+            f"The mission touched human-owned paths and cannot merge them unattended: {authority_paths}\n\n{contract}",
+            budget.remaining(),
+            question="How should this authority-owned change be handed off?",
+            options=[
+                {
+                    "id": "acknowledge-human-delivery",
+                    "label": "Hand off to a Person",
+                    "description": "Stop the unattended mission and leave the authority-owned change for Person review.",
+                },
+                {
+                    "id": "pause",
+                    "label": "Pause mission",
+                    "description": "Keep the mission stopped until a Person supplies different direction.",
+                },
+            ],
+            default_option_id="acknowledge-human-delivery",
         )
         pending = self._decision_pending(handle)
         self._emit(
@@ -1771,7 +1920,10 @@ class PipelineBench:
         plan = self.agents.plan(plan_prompt, worktree, plan_budget, self.session_dir)
         if plan.get("clean") is not True:
             summary = require_text(plan.get("summary"), "unclean plan summary")
-            handle = self.decisions.request(f"The granted mission plan is unclean. {summary}\n\n{contract}")
+            handle = self.decisions.request(
+                f"The granted mission plan is unclean. {summary}\n\n{contract}",
+                plan_budget.remaining(),
+            )
             pending = self._decision_pending(handle)
             self._emit(
                 "plan", "waiting-on-person", summary, plan_budget,
@@ -1890,14 +2042,16 @@ class PipelineBench:
                 "relevant tests, and create a new commit with the machine-account identity. Do not push.\n\n"
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
-            self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
+            correction_budget = CoupledStageBudget(develop_budget, review_budget)
+            self.agents.fix(fix_prompt, worktree, correction_budget, self.session_dir)
+            correction_budget.remaining()
             baseline_commit = previous_commit
             correction_commit = self.platform.assert_machine_commit(
                 self.grant, worktree, previous_commit=baseline_commit
             )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
-            self._validate_changed_paths(correction_paths, develop_budget, contract)
-            correction_gates = self._green_gates(worktree, develop_budget)
+            self._validate_changed_paths(correction_paths, correction_budget, contract)
+            correction_gates = self._green_gates(worktree, correction_budget)
             self.platform.assert_unchanged_machine_commit(
                 self.grant,
                 worktree,
@@ -1905,7 +2059,7 @@ class PipelineBench:
                 previous_commit=baseline_commit,
             )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
-            self._validate_changed_paths(correction_paths, develop_budget, contract)
+            self._validate_changed_paths(correction_paths, correction_budget, contract)
             previous_commit = correction_commit
             self.evidence["stages"].setdefault("corrections", []).append({
                 "round": round_number,
@@ -1914,8 +2068,8 @@ class PipelineBench:
             })
             self.evidence["reviewCorrectionRounds"] = corrections
             self._save_evidence()
-            self._enforce_live_issue_guards(develop_budget)
-            self.platform.push(self.grant, worktree, develop_budget.remaining())
+            self._enforce_live_issue_guards(correction_budget)
+            self.platform.push(self.grant, worktree, correction_budget.remaining())
         if clean_review is None:
             raise BenchError("Codex review loop exhausted its bounded correction rounds")
 

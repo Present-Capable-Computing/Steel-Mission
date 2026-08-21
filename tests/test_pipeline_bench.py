@@ -241,12 +241,13 @@ class FakeDecision:
     def __init__(self, answer=None):
         self.calls: list[str] = []
         self.answer = answer or {
-            "selectedOptionId": "continue-narrow",
+            "selectedOptionId": "revise-within-grant",
             "freeText": "Stay inside the grant.",
         }
 
-    def request(self, context):
+    def request(self, context, timeout=None, **_kwargs):
         self.calls.append("request")
+        assert timeout is not None
         assert "unclean" in context.lower() or "human-owned" in context.lower()
         return {
             "jobId": "JOB-decision",
@@ -789,6 +790,38 @@ def test_review_posting_cannot_complete_after_the_review_budget(tmp_path, monkey
     assert not any(call.startswith("auto-merge:") for call in platform.calls)
 
 
+def test_review_budget_expiry_during_a_correction_prevents_its_push(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    class SlowCorrectionAgents(FakeAgents):
+        def review(self, prompt, worktree, budget, session_dir):
+            value = super().review(prompt, worktree, budget, session_dir)
+            if value["verdict"] == "changes-requested":
+                clock[0] += 2
+            return value
+
+        def fix(self, prompt, worktree, budget, session_dir):
+            super().fix(prompt, worktree, budget, session_dir)
+            clock[0] += 2
+
+    value = grant()
+    value["budgets"]["review"]["elapsedSeconds"] = 3
+    platform = FakePlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=platform,
+        agents=SlowCorrectionAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="elapsed-time budget is exhausted"):
+        bench.run()
+
+    assert platform.calls.count("push") == 1
+
+
 def test_expired_acceptance_read_cannot_arm_auto_merge(tmp_path, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
@@ -1057,6 +1090,42 @@ def test_linux_untrusted_subprocess_cannot_read_a_sibling_credential_home(tmp_pa
         extra_env=environment,
         inherit_env=False,
     )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux Landlock isolation")
+def test_linux_untrusted_subprocess_cannot_scan_a_sibling_process_environment(tmp_path):
+    sibling_environment = os.environ.copy()
+    sibling_environment["SIBLING_MACHINE_TOKEN"] = "sentinel-secret"
+    sibling = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        env=sibling_environment,
+    )
+    session_dir = tmp_path / "session"
+    worktree = session_dir / "worktree"
+    worktree.mkdir(parents=True)
+    environment = mission_bench.isolated_command_env(session_dir, set())
+    script = (
+        "from pathlib import Path\n"
+        f"target = Path('/proc/{sibling.pid}/environ')\n"
+        "try:\n"
+        "    content = target.read_bytes()\n"
+        "except PermissionError:\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit(1 if b'sentinel-secret' in content else 2)\n"
+    )
+    try:
+        result = SubprocessRunner().run(
+            [sys.executable, "-c", script],
+            worktree,
+            5,
+            extra_env=environment,
+            inherit_env=False,
+        )
+    finally:
+        sibling.terminate()
+        sibling.wait(timeout=5)
 
     assert result.returncode == 0, result.stderr
 
@@ -1426,9 +1495,16 @@ def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer
     client = DecisionClient({"baseUrl": f"http://{host}:{port}"})
     handle = client.request(f"The plan is unclean.\n\n{REQUIREMENT}\n\n{ACCEPTANCE}")
     try:
+        request_payload = handle["decisionRequest"]
+        assert request_payload["question"] == "How should this mission resolve the unclean plan?"
+        assert "The plan is unclean." in request_payload["context"]
+        assert {option["id"] for option in request_payload["options"]} == {
+            "revise-within-grant",
+            "pause",
+        }
         request = Request(
             f"http://{host}:{port}/api/chat/{handle['jobId']}/decision",
-            data=json.dumps({"optionId": "continue-narrow", "freeText": "Stay inside the grant."}).encode(),
+            data=json.dumps({"optionId": "revise-within-grant", "freeText": "Stay inside the grant."}).encode(),
             headers={
                 "Content-Type": "application/json",
                 "X-Present-Role": "owner",
@@ -1440,7 +1516,7 @@ def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer
             assert response.status == 202
 
         answer = client.wait_for_answer(handle["jobId"], 5)
-        assert answer["selectedOptionId"] == "continue-narrow"
+        assert answer["selectedOptionId"] == "revise-within-grant"
         assert answer["freeText"] == "Stay inside the grant."
     finally:
         with chat["JOBS_LOCK"]:
@@ -1448,3 +1524,29 @@ def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_decision_poll_cannot_return_an_answer_after_its_budget(monkeypatch):
+    clock = [0.0]
+    timeouts = []
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    class SlowDecisionClient(DecisionClient):
+        def _request(self, path, *, method="GET", payload=None, timeout=15):
+            timeouts.append(timeout)
+            clock[0] += timeout
+            return {
+                "progress": {
+                    "steeringEvents": [{
+                        "effect": "answer-decision",
+                        "selectedOptionId": "revise-within-grant",
+                    }],
+                },
+            }
+
+    client = SlowDecisionClient({"baseUrl": "http://127.0.0.1:8765"})
+
+    with pytest.raises(BenchError, match="plan session budget"):
+        client.wait_for_answer("JOB-slow", 1)
+
+    assert timeouts == [1]
