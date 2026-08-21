@@ -368,3 +368,9 @@ def test_session_guardrails_are_recorded_on_every_surface():
     assert "implementation-grade plan" in workplan
     assert "only on a finding" in bench["requirement"]
     assert "refuses security-review" not in bench["requirement"]
+    epic = next(epic for epic in manifest["epics"] if epic["key"] == "epic-c1")
+    milestone = _load(PLAN_DIR / "MS-0014.json")
+    for evidence in (epic["done"], milestone["completionEvidence"], bench["acceptance"]):
+        assert "clean security-review-labelled rehearsal issue" in evidence
+        assert "injected security finding" in evidence
+        assert "refuses issues labelled security-review" not in evidence
