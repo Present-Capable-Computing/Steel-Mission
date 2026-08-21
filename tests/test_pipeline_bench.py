@@ -1,4 +1,5 @@
 import json
+import os
 import runpy
 import subprocess
 import sys
@@ -42,6 +43,7 @@ def grant() -> dict:
         "acceptanceEvidence": ACCEPTANCE,
         "definitionOfDone": {
             "redTest": ["python3", "-m", "pytest", "tests/test_rehearsal.py", "-q"],
+            "redFailure": {"exitCodes": [1], "outputPattern": "1 failed"},
             "test": ["make", "test"],
             "releaseCheck": ["make", "release-check"],
         },
@@ -81,12 +83,16 @@ class FakePlatform:
         *,
         issue_payload: dict | None = None,
         gate_failure: bool = False,
+        red_output: str = "1 failed",
+        arm_failure: bool = False,
         merge_failure: bool = False,
         path_batches: list[list[str]] | None = None,
     ):
         self.root = root
         self.issue_payload = issue_payload or issue()
         self.gate_failure = gate_failure
+        self.red_output = red_output
+        self.arm_failure = arm_failure
         self.merge_failure = merge_failure
         self.path_batches = list(path_batches or [])
         self.calls: list[str] = []
@@ -119,7 +125,7 @@ class FakePlatform:
         label = " ".join(argv)
         self.calls.append(f"command:{label}:{timeout}")
         if argv == grant()["definitionOfDone"]["redTest"]:
-            return CommandResult(argv, 1, "1 failed", "", 0.1)
+            return CommandResult(argv, 1, self.red_output, "", 0.1)
         if self.gate_failure and argv == grant()["definitionOfDone"]["test"]:
             return CommandResult(argv, 1, "1 failed", "", 0.1)
         return CommandResult(argv, 0, "366 passed", "", 0.1)
@@ -157,6 +163,8 @@ class FakePlatform:
 
     def arm_auto_merge(self, _grant, _pr_number):
         self.calls.append("auto-merge")
+        if self.arm_failure:
+            raise BenchError("auto-merge response was lost")
 
     def disable_auto_merge(self, _grant, _pr_number):
         self.calls.append("disable-auto-merge")
@@ -434,6 +442,22 @@ def test_a_red_full_gate_prevents_every_push(tmp_path):
     assert json.loads(bench.evidence_path.read_text())["failure"]["reason"].startswith("full test gate failed")
 
 
+def test_red_test_runner_error_is_not_accepted_as_the_granted_assertion_failure(tmp_path):
+    platform = FakePlatform(tmp_path, red_output="ERROR collecting tests/test_rehearsal.py")
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="did not match its granted failure signal"):
+        bench.run()
+
+    assert "push" not in platform.calls
+
+
 def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaustion(tmp_path):
     platform = FakePlatform(tmp_path, merge_failure=True)
     bench = PipelineBench(
@@ -451,6 +475,22 @@ def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaust
     feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
     assert feed[-1]["state"] == "budget-exhausted"
     assert feed[-1]["outcome"]["status"] == "budget-exhausted"
+
+
+def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
+    platform = FakePlatform(tmp_path, arm_failure=True)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="auto-merge response was lost"):
+        bench.run()
+
+    assert platform.calls.index("auto-merge") < platform.calls.index("disable-auto-merge")
 
 
 def test_review_correction_that_touches_authority_stops_before_another_push(tmp_path):
@@ -522,11 +562,44 @@ def test_timeout_terminates_background_descendants_before_they_can_keep_working(
     assert not marker.exists()
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc isolation")
+def test_linux_children_cannot_read_the_credential_bearing_parent_environment():
+    script = (
+        "import os, subprocess, sys\n"
+        "from pathlib import Path\n"
+        "from tooling.mission_pipeline_bench import protect_parent_credentials\n"
+        "assert b'PARENT_SECRET_TOKEN=sentinel-value' in Path('/proc/self/environ').read_bytes()\n"
+        "protect_parent_credentials()\n"
+        "path = f'/proc/{os.getpid()}/environ'\n"
+        "child = subprocess.run([sys.executable, '-c', "
+        "f\"from pathlib import Path; print(Path({path!r}).read_bytes())\"], capture_output=True)\n"
+        "raise SystemExit(1 if child.returncode == 0 and b'sentinel-value' in child.stdout else 0)\n"
+    )
+    environment = os.environ.copy()
+    environment["PARENT_SECRET_TOKEN"] = "sentinel-value"
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_claude_stages_require_reported_opus_major_version_five_or_newer():
     assert reported_opus_major('{"modelUsage":{"claude-opus-5":{}}}') == 5
     assert reported_opus_major('{"model":"claude-opus-6-1"}') == 6
     assert reported_opus_major('{"model":"claude-opus-4-1"}') == 4
     assert reported_opus_major('{"model":"opus"}') is None
+    assert reported_opus_major(
+        '{"modelUsage":{"claude-opus-4":{}},"structured_output":{"summary":"opus-5"}}'
+    ) == 4
+    assert reported_opus_major('{"modelUsage":{"claude-opus-5":{},"claude-opus-4":{}}}') == 4
+    assert reported_opus_major('{"structured_output":{"summary":"opus-5"}}') is None
 
 
 def test_model_subprocess_environment_scrubs_grant_credentials_and_git_helpers(tmp_path):
@@ -573,6 +646,23 @@ def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
 
     with pytest.raises(BenchError, match="require an approving review"):
+        platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(tmp_path):
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+        "/schemas/canonical/job-v2.json @sm-agent-claude\n"
+    )
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="final effective CODEOWNERS"):
         platform.validate_repository_wall(grant())
 
 

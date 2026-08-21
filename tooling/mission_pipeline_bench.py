@@ -9,6 +9,7 @@ an explicitly supplied state directory outside the product repository.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import re
@@ -116,6 +117,24 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
         raise BenchError("definitionOfDone must be an object")
     for key in ("redTest", "test", "releaseCheck"):
         require_argv(definition.get(key), f"definitionOfDone.{key}")
+    red_failure = definition.get("redFailure")
+    if not isinstance(red_failure, dict):
+        raise BenchError("definitionOfDone.redFailure must be an object")
+    exit_codes = red_failure.get("exitCodes")
+    if (
+        not isinstance(exit_codes, list)
+        or not exit_codes
+        or not all(isinstance(code, int) and not isinstance(code, bool) and code != 0 for code in exit_codes)
+    ):
+        raise BenchError("definitionOfDone.redFailure.exitCodes must contain nonzero integers")
+    output_pattern = require_text(
+        red_failure.get("outputPattern"),
+        "definitionOfDone.redFailure.outputPattern",
+    )
+    try:
+        re.compile(output_pattern)
+    except re.error as exc:
+        raise BenchError(f"definitionOfDone.redFailure.outputPattern is invalid: {exc}") from exc
 
     budgets = grant.get("budgets")
     if not isinstance(budgets, dict):
@@ -181,6 +200,17 @@ def issue_section(body: str, heading: str) -> str:
 def command_tail(result: CommandResult, limit: int = 4000) -> str:
     text = (result.stdout + ("\n" if result.stdout and result.stderr else "") + result.stderr).strip()
     return text[-limit:]
+
+
+def protect_parent_credentials() -> None:
+    """Deny same-UID Linux children access to this process through /proc."""
+    if not sys.platform.startswith("linux"):
+        return
+    pr_set_dumpable = 4
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(pr_set_dumpable, 0, 0, 0, 0) != 0:
+        error_number = ctypes.get_errno()
+        raise BenchError(f"cannot protect parent credential memory: {os.strerror(error_number)}")
 
 
 def isolated_command_env(
@@ -410,8 +440,9 @@ class GitHubPlatform:
             codeowners = (self.repository_root / ".github" / "CODEOWNERS").read_text().splitlines()
         except OSError as exc:
             raise BenchError(f"CODEOWNERS is unavailable: {exc}") from exc
-        default_owner = next((line for line in codeowners if line.startswith("* ") or line.startswith("*\t")), "")
-        default_owners = {token.lstrip("@") for token in default_owner.split()[1:]}
+        rules = [line.split() for line in codeowners if line.strip() and not line.lstrip().startswith("#")]
+        default_rule = next((rule for rule in reversed(rules) if rule[0] == "*"), [])
+        default_owners = {token.lstrip("@") for token in default_rule[1:]}
         if default_owners != {acceptance_login}:
             raise BenchError("Claude acceptance account must be the sole default CODEOWNER")
         authority_patterns = (
@@ -420,9 +451,10 @@ class GitHubPlatform:
             "/docs/workplan.md",
             "/.github/CODEOWNERS",
         )
-        for pattern in authority_patterns:
-            line = next((item for item in codeowners if item.split(maxsplit=1)[0:1] == [pattern]), "")
-            owners = {token.lstrip("@") for token in line.split()[1:]}
+        if [rule[0] for rule in rules[-len(authority_patterns):]] != list(authority_patterns):
+            raise BenchError("Person-owned authority rules must be the final effective CODEOWNERS rules")
+        for pattern, rule in zip(authority_patterns, rules[-len(authority_patterns):], strict=True):
+            owners = {token.lstrip("@") for token in rule[1:]}
             if not owners or acceptance_login in owners:
                 raise BenchError(f"{pattern} must remain Person-owned in CODEOWNERS")
 
@@ -626,8 +658,25 @@ class GitHubPlatform:
 
 
 def reported_opus_major(output: str) -> int | None:
-    versions = [int(value) for value in re.findall(r"\bopus[-_](\d+)", output.lower())]
-    return max(versions) if versions else None
+    try:
+        envelope = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(envelope, dict):
+        return None
+    trusted_names: list[str] = []
+    model = envelope.get("model")
+    if isinstance(model, str):
+        trusted_names.append(model)
+    usage = envelope.get("modelUsage")
+    if isinstance(usage, dict):
+        trusted_names.extend(str(name) for name in usage)
+    versions = [
+        int(match.group(1))
+        for name in trusted_names
+        if (match := re.search(r"(?:^|[-_])opus[-_](\d+)(?:[-_]|$)", name.lower()))
+    ]
+    return min(versions) if versions else None
 
 
 def structured_value(result: CommandResult) -> dict[str, Any]:
@@ -861,6 +910,7 @@ class PipelineBench:
         self.feed_path = self.state_root / "agent-session-status.jsonl"
         self.evidence_path = self.session_dir / "evidence.json"
         self.platform = platform or GitHubPlatform(self.repository_root)
+        self.requires_parent_protection = isinstance(self.platform, GitHubPlatform)
         self.credential_envs = {
             account["tokenEnv"] for account in self.grant["machineAccounts"].values()
         }
@@ -1063,6 +1113,8 @@ class PipelineBench:
 
     def run(self) -> dict[str, Any]:
         try:
+            if self.requires_parent_protection:
+                protect_parent_credentials()
             return self._run_pipeline()
         except BenchError as exc:
             final_error = self._record_failure(exc)
@@ -1168,12 +1220,18 @@ class PipelineBench:
                 scrub_all_credentials=True,
             ),
         )
-        if red_result.returncode == 0:
-            raise BenchError("the acceptance regression was not observed failing before development")
+        expected_red = self.grant["definitionOfDone"]["redFailure"]
+        red_output = command_tail(red_result, limit=20000)
+        if (
+            red_result.returncode not in expected_red["exitCodes"]
+            or re.search(expected_red["outputPattern"], red_output) is None
+        ):
+            raise BenchError("the red test did not match its granted failure signal")
         self.evidence["redTest"] = {
             "argv": red_result.argv,
             "returncode": red_result.returncode,
-            "outputTail": command_tail(red_result),
+            "outputTail": red_output,
+            "expectedFailure": expected_red,
         }
         self._save_evidence()
 
@@ -1251,8 +1309,8 @@ class PipelineBench:
         )
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
-        self.platform.arm_auto_merge(self.grant, int(pull_request["number"]))
         self.auto_merge_armed = True
+        self.platform.arm_auto_merge(self.grant, int(pull_request["number"]))
         self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
