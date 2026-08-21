@@ -24,6 +24,11 @@ import {ControlPlanePanel} from "./control-plane-panel";
 import {ModelRolesPanel} from "./model-roles-panel";
 import {AuditPanel} from "./audit-panel";
 import {WORK_MODES, type WorkMode} from "./work-mode";
+import {
+  loadConsoleStatus,
+  unavailableConsoleStatus,
+  type ConsoleStatus,
+} from "./status";
 
 
 function browserCookie(name: string): string {
@@ -56,6 +61,29 @@ function App() {
   const [selectedAssignmentUser, setSelectedAssignmentUser] = useState("");
   const [selectedAssignmentCapabilities, setSelectedAssignmentCapabilities] = useState<string[]>([]);
   const [assignmentStatus, setAssignmentStatus] = useState("");
+  const [consoleStatus, setConsoleStatus] = useState<ConsoleStatus | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    let refreshTimer: number | undefined;
+    const refresh = () => {
+      loadConsoleStatus(apiRequest)
+        .then((status) => {
+          if (current) setConsoleStatus(status);
+        })
+        .catch((error: unknown) => {
+          if (current) setConsoleStatus(unavailableConsoleStatus(error));
+        })
+        .finally(() => {
+          if (current) refreshTimer = window.setTimeout(refresh, 10000);
+        });
+    };
+    refresh();
+    return () => {
+      current = false;
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+    };
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -160,10 +188,24 @@ function App() {
           <p class="eyebrow">Agent delivery plane</p>
           <strong>Steel Mission</strong>
         </div>
-        <dl>
-          <div><dt>Server</dt><dd>Not connected</dd></div>
-          <div><dt>Authority</dt><dd>Advisory</dd></div>
+        <dl class="system-status" aria-label="Live system status" aria-live="polite">
+          <div><dt>Server</dt><dd>{consoleStatus?.server || "—"}</dd></div>
+          <div><dt>Authority</dt><dd>{consoleStatus?.authority || "—"}</dd></div>
         </dl>
+        <section class="provider-status" aria-labelledby="providerStatusTitle" aria-live="polite">
+          <p id="providerStatusTitle" class="eyebrow">Providers</p>
+          {consoleStatus?.providers.map((provider) => (
+            <article key={provider.id} data-provider={provider.id}>
+              <strong>{provider.label}</strong>
+              <p>
+                <span data-connection={provider.connection}>{provider.connection}</span>
+                {" · "}<span data-activity={provider.activity}>{provider.activity}</span>
+                {provider.thinkingTokens !== undefined && ` · ${provider.thinkingTokens.toLocaleString()} thinking tokens`}
+              </p>
+            </article>
+          ))}
+          {consoleStatus?.error && <p role="status" class="status-error">{consoleStatus.error}</p>}
+        </section>
       </aside>
 
       <section class="workspace">

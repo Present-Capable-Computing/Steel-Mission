@@ -8,6 +8,8 @@ from __future__ import annotations
 import copy
 import re
 import runpy
+import threading
+import time
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -265,6 +267,73 @@ def test_application_capability_workspace_consumes_the_server_grant():
     assert "/workspace" in html
     assert "visibleCapabilities" in source
     assert "actor.capabilities" not in source
+
+
+def test_application_statuses_are_live_instead_of_committed_literals():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    assert "Not connected" not in html
+    assert "<dd>Advisory</dd>" not in html
+    assert "/api/health" in html
+    assert "/api/control-plane/readiness" in html
+
+
+def test_health_status_strip_reflects_a_started_job(monkeypatch):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["start_job"].__globals__
+    entered = threading.Event()
+    release = threading.Event()
+
+    monkeypatch.setitem(globals_, "resolve_runtime_profile", lambda _profile=None: {
+        "runtimeProfile": {"id": "dc13.claude"},
+        "modelPolicy": {"provider": "claude", "selectedModel": "claude-sonnet-5"},
+        "snapshotPolicy": {},
+    })
+    monkeypatch.setitem(globals_, "knowledge_quality_report", lambda: {"issues": [], "status": "ready"})
+    monkeypatch.setitem(globals_, "update_mission", lambda *_args, **_kwargs: None)
+    monkeypatch.setitem(globals_, "append_mission_audit", lambda *_args, **_kwargs: None)
+    monkeypatch.setitem(globals_, "read_progress", lambda _task_id: {
+        "provider": "claude",
+        "thinkingTokens": 321,
+    })
+    monkeypatch.setitem(globals_, "worker_json_command", lambda *_args, **_kwargs: (200, {
+        "ok": True,
+        "payload": {
+            "detail": {
+                "providers": {
+                    "claude": {"installed": True, "authenticated": True, "ready": True},
+                    "codex": {"installed": True, "authenticated": True, "ready": True},
+                    "glimmer": {"installed": True, "service_running": True, "ready": True},
+                },
+            },
+        },
+    }))
+
+    def running_report(*_args, **_kwargs):
+        entered.set()
+        assert release.wait(5)
+        return {"ok": True, "exitCode": 0, "payload": {"summary": "done"}}
+
+    monkeypatch.setitem(globals_, "run_coordinator_report", running_report)
+    job_id = chat["start_job"]("Show live state", [], True, operator_role="owner")
+    assert entered.wait(5)
+    try:
+        status, payload = route_response(chat, "/api/health")
+        assert status == 200
+        claude = next(provider for provider in payload["providers"] if provider["id"] == "claude")
+        assert claude["connection"] == "connected"
+        assert claude["activity"] == "working"
+        assert claude["jobCount"] == 1
+        assert claude["tokenUsage"] == {"thinkingTokens": 321}
+    finally:
+        release.set()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            with globals_["JOBS_LOCK"]:
+                if globals_["JOBS"].get(job_id, {}).get("state") == "done":
+                    break
+            time.sleep(0.01)
 
 
 def test_application_has_an_owner_capability_assignment_interface():

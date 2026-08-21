@@ -80,6 +80,40 @@ select {
   margin: 0;
 }
 
+.provider-status {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+}
+
+.provider-status article {
+  padding: 0.75rem;
+  border: 1px solid #29323d;
+  border-radius: 0.65rem;
+  background: #10161d;
+}
+
+.provider-status article p,
+.status-error {
+  margin: 0.3rem 0 0;
+  color: #8d9aa8;
+  font-size: 0.78rem;
+}
+
+.provider-status [data-connection="connected"],
+.provider-status [data-connection="online"],
+.provider-status [data-activity="working"] {
+  color: #a7ddcf;
+}
+
+.provider-status [data-connection="disconnected"],
+.provider-status [data-connection="offline"],
+.provider-status [data-connection="unavailable"],
+.status-error {
+  color: #e5a3a3;
+}
+
 .workspace {
   min-width: 0;
 }
