@@ -223,6 +223,22 @@ machine-checkable (acceptance criteria as tests the CI scaffolding runs, not
 prose), and a mission that cannot reach it stops and reports rather than
 redefining done.
 
+**The pipeline's operating model, on the Founder's decision of 2026-08-21:**
+every issue runs through the pipeline, and the division of labour is the token
+economy. The cloud models plan and judge; the local model iterates. The plan
+stage (Claude, Opus 5 at least) reviews the issue and produces an
+implementation-grade plan: the files to touch inside the issue's path wall, the
+failing tests to write first, and the mapping from each acceptance criterion to
+the test that proves it, detailed enough that the local coder implements
+without cloud consultation. Claude appears exactly twice per mission (plan and
+acceptance), the Codex review loop stays bounded, and the local model carries
+every iteration in between. On issues labelled `security-review`, the
+acceptance stage performs the security review itself against the surfaces in
+section 4.5, and it escalates to the Founder only on a finding: an unresolved
+concern, a weakened boundary, a deviation from the plan, or uncertainty it
+cannot discharge. The label alone never routes to a human; the finding does.
+`schemas/canonical/` keeps D9's rule and always escalates.
+
 ## 6. How this is enforced
 
 Prose does not bind anyone. These do:
@@ -372,8 +388,8 @@ subprocess, matching how this suite already tests.
 8. **Pipeline authority creep.** An unattended mission that quietly widens its own
    scope is the failure mode D8 exists to prevent. Mitigated by grant-time budgets
    and abort conditions, escalation through the existing decision functionality,
-   the bench refusing security-review-labelled issues, and `schemas/canonical/`
-   staying human-owned.
+   the acceptance stage performing a security review on labelled issues with
+   escalation on findings only, and `schemas/canonical/` staying human-owned.
 
 ## 10. Changing this document
 
