@@ -35,7 +35,7 @@ DOCKER_PROVISIONER = WORKER_DIR / "bin" / "present-docker-provisioner"
 PRIVATE_RUNNER = WORKER_DIR / "bin" / "present-private-runner"
 
 sys.path.insert(0, str(WORKER_DIR))
-from adapters import claude_adapter, codex_adapter, common, schema_check, verifier  # noqa: E402
+from adapters import claude_adapter, codex_adapter, common, glimmer_adapter, schema_check, verifier  # noqa: E402
 
 sys.path.insert(0, str(TESTS_DIR))
 from support import broker_state_document  # noqa: E402
@@ -4937,6 +4937,138 @@ def test_glimmer_ready_admin_status_is_success():
     assert cli._payload_exit_code({"status": "STOPPED", "provider": "glimmer"}) == 0
 
 
+def test_glimmer_coordinator_rewarms_an_unloaded_model_before_chat(monkeypatch):
+    progress: list[dict] = []
+    posts: list[tuple[str, dict, float]] = []
+
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": True,
+        "model_loaded": False,
+        "ready": False,
+    })
+    monkeypatch.setattr(glimmer_adapter, "model_loaded", lambda _model: True)
+
+    def fake_post(path, payload, timeout):
+        posts.append((path, payload, timeout))
+        return {"done": True}
+
+    def fake_generate(_payload, timeout, progress=None):
+        assert timeout <= 120
+        if progress:
+            progress({"type": "system", "subtype": "glimmer_request_started"})
+        return ({
+            "summary": "The local model re-warmed and answered.",
+            "items": [],
+            "notChecked": [],
+            "contradictions": [],
+        }, None)
+
+    monkeypatch.setattr(glimmer_adapter, "_http_post", fake_post)
+    monkeypatch.setattr(glimmer_adapter, "_generate_streaming_json", fake_generate)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"},
+        timeout=120, progress=progress.append,
+    )
+
+    assert result["summary"] == "The local model re-warmed and answered."
+    assert posts == [(
+        "/api/generate",
+        {"model": "qwen2.5-coder:14b", "prompt": "", "stream": False, "keep_alive": "30m"},
+        90.0,
+    )]
+    assert [event["subtype"] for event in progress] == [
+        "glimmer_rewarm_started",
+        "glimmer_rewarm_completed",
+        "glimmer_request_started",
+    ]
+
+
+def test_glimmer_coordinator_reports_a_failed_rewarm_without_starting_chat(monkeypatch):
+    progress: list[dict] = []
+    generation_called = False
+
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": True,
+        "model_loaded": False,
+        "ready": False,
+    })
+    monkeypatch.setattr(glimmer_adapter, "_http_post", lambda *_args, **_kwargs: None)
+
+    def fake_generate(*_args, **_kwargs):
+        nonlocal generation_called
+        generation_called = True
+        return {}, None
+
+    monkeypatch.setattr(glimmer_adapter, "_generate_streaming_json", fake_generate)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"},
+        timeout=120, progress=progress.append,
+    )
+
+    assert result["status"] == "GLIMMER_NOT_READY"
+    assert "re-warm failed" in result["reason"]
+    assert result["retryable"] is True
+    assert generation_called is False
+    assert [event["subtype"] for event in progress] == [
+        "glimmer_rewarm_started",
+        "glimmer_rewarm_failed",
+    ]
+
+
+def test_glimmer_coordinator_still_refuses_to_cold_start_the_server(monkeypatch):
+    post_called = False
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": False,
+        "model_loaded": False,
+        "ready": False,
+    })
+
+    def fake_post(*_args, **_kwargs):
+        nonlocal post_called
+        post_called = True
+        return {"done": True}
+
+    monkeypatch.setattr(glimmer_adapter, "_http_post", fake_post)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"}, timeout=120,
+    )
+
+    assert result["status"] == "GLIMMER_NOT_READY"
+    assert "server is not running" in result["reason"]
+    assert "cold-start" in result["reason"]
+    assert post_called is False
+
+
+def test_glimmer_server_start_still_enforces_the_memory_floor(monkeypatch):
+    monkeypatch.setattr(glimmer_adapter, "installed", lambda: True)
+    monkeypatch.setattr(glimmer_adapter, "server_running", lambda: False)
+    monkeypatch.setattr(glimmer_adapter, "memory_check", lambda: {
+        "ok": True,
+        "free_gb": 3.0,
+        "min_required_gb": glimmer_adapter.MIN_FREE_GB_TO_START,
+    })
+
+    result = glimmer_adapter.start()
+
+    assert result["status"] == "GLIMMER_NOT_READY"
+    assert "insufficient free memory" in result["reason"]
+
+
 def test_model_binding_registry_validates_and_resolves_local_dc13_instance():
     code, registry = run_worker("model-roles")
     assert code == 0
@@ -6244,6 +6376,26 @@ def test_coordinator_progress_messages_show_glimmer_provider_and_model():
         assert initial["providerLabel"] == "Glimmer"
         assert initial["model"] == "qwen2.5-coder:14b"
         assert initial["phase"].startswith("Starting Glimmer")
+
+        writer({"type": "system", "subtype": "glimmer_rewarm_started"})
+        warming = json.loads((progress_dir / "progress.json").read_text())
+        assert warming["phase"].startswith("Re-warming Glimmer model qwen2.5-coder:14b")
+        assert warming["timeline"][-1]["label"] == "Re-warming local model"
+
+        writer({"type": "system", "subtype": "glimmer_rewarm_completed"})
+        warmed = json.loads((progress_dir / "progress.json").read_text())
+        assert warmed["phase"].startswith("Glimmer model qwen2.5-coder:14b re-warmed")
+        assert warmed["timeline"][-1]["label"] == "Local model ready"
+
+        writer({
+            "type": "system",
+            "subtype": "glimmer_rewarm_failed",
+            "reason": "Glimmer model re-warm failed: timed out",
+        })
+        failed = json.loads((progress_dir / "progress.json").read_text())
+        assert failed["phase"].startswith("Glimmer model qwen2.5-coder:14b re-warm failed")
+        assert failed["timeline"][-1]["label"] == "Local model re-warm failed"
+        assert failed["timeline"][-1]["detail"] == "Glimmer model re-warm failed: timed out"
 
         writer({"type": "system", "subtype": "glimmer_request_started"})
         started = json.loads((progress_dir / "progress.json").read_text())
