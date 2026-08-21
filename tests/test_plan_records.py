@@ -348,7 +348,11 @@ def test_session_guardrails_are_recorded_on_every_surface():
         "the bench must be blocked on the Founder's machine-account act, "
         "or a session starts work whose acceptance is unreachable"
     )
-    assert "2200" in bench["acceptance"], "the bench's line ceiling is printed"
+    ceiling = re.search(r"stays under (\d+) lines excluding tests", bench["acceptance"])
+    assert ceiling and ceiling.group(1) == "2200", (
+        "the active ceiling is pinned by its operative sentence, not by a "
+        "substring the history paragraph would also satisfy"
+    )
     assert "700" in bench["acceptance"], (
         "the original ceiling stays printed; a threshold history that vanishes "
         "is a threshold that was never really revised"
