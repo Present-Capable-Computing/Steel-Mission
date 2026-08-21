@@ -288,14 +288,53 @@ class ProtectionRunner:
 
 
 class DiffRunner:
-    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
+    def run(
+        self,
+        argv,
+        cwd,
+        timeout,
+        *,
+        input_text="",
+        extra_env=None,
+        inherit_env=True,
+        complete_stdout=False,
+    ):
         assert Path(argv[0]).name == "git"
         assert argv[1:4] == ["diff", "--no-ext-diff", "--no-textconv"]
+        assert "-z" in argv
+        assert inherit_env is False
+        assert complete_stdout is True
+        return CommandResult(
+            argv,
+            0,
+            "R100\0schemas/canonical/job-v2.json\0docs/job-v2.json\0"
+            "M\0tests/test_job.py\0",
+            "",
+            0.1,
+        )
+
+
+class NulDiffRunner:
+    def run(
+        self,
+        argv,
+        cwd,
+        timeout,
+        *,
+        input_text="",
+        extra_env=None,
+        inherit_env=True,
+        complete_stdout=False,
+    ):
+        assert Path(argv[0]).name == "git"
+        assert "-z" in argv
+        assert complete_stdout is True
         assert inherit_env is False
         return CommandResult(
             argv,
             0,
-            "R100\tschemas/canonical/job-v2.json\tdocs/job-v2.json\nM\ttests/test_job.py\n",
+            "M\0schemas/canonical/line\nbreak.json\0"
+            "R100\0docs/old\tname.md\0docs/new\nname.md\0",
             "",
             0.1,
         )
@@ -412,6 +451,41 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     feed = [json.loads(line) for line in Path(result["feedPath"]).read_text().splitlines()]
     assert feed[-1]["outcome"]["status"] == "succeeded"
     assert all(schema_check.validate(item, "canonical/agent-session-status-v1.json") == [] for item in feed)
+
+
+def test_pull_request_body_stays_outside_the_worker_writable_session(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("must remain unchanged\n")
+
+    class BodySymlinkPlatform(FakePlatform):
+        def prepare_worktree(self, grant_value, session_dir):
+            worktree = super().prepare_worktree(grant_value, session_dir)
+            (session_dir / "pull-request.md").symlink_to(victim)
+            self.session_dir = session_dir
+            return worktree
+
+        def create_pr(self, grant_value, worktree, body_path, timeout=None):
+            assert body_path.parent != self.session_dir
+            assert body_path.is_file()
+            assert not body_path.is_symlink()
+            return super().create_pr(grant_value, worktree, body_path, timeout)
+
+        def update_pr_body(self, grant_value, pr_number, body_path, timeout=None):
+            assert body_path.parent != self.session_dir
+            assert body_path.is_file()
+            assert not body_path.is_symlink()
+            return super().update_pr_body(grant_value, pr_number, body_path, timeout)
+
+    result = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=BodySymlinkPlatform(tmp_path),
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    ).run()
+
+    assert result["state"] == "merged"
+    assert victim.read_text() == "must remain unchanged\n"
 
 
 def test_auto_merge_cannot_be_armed_before_this_session_finishes_acceptance(tmp_path):
@@ -1596,6 +1670,19 @@ def test_changed_paths_include_both_ends_of_an_authority_file_rename(tmp_path):
         "schemas/canonical/job-v2.json",
         "docs/job-v2.json",
         "tests/test_job.py",
+    ]
+
+
+def test_changed_paths_preserve_tabs_and_newlines_without_git_quoting(tmp_path):
+    platform = GitHubPlatform(tmp_path, NulDiffRunner())
+    platform.worktree_bases[tmp_path.resolve()] = "base-commit"
+
+    paths = platform.changed_paths(grant(), tmp_path)
+
+    assert paths == [
+        "schemas/canonical/line\nbreak.json",
+        "docs/old\tname.md",
+        "docs/new\nname.md",
     ]
 
 

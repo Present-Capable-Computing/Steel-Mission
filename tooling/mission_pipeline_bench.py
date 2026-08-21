@@ -93,6 +93,25 @@ def atomic_json(path: Path, value: Any) -> None:
     os.replace(temporary, path)
 
 
+def atomic_text(path: Path, value: str, mode: int = 0o600) -> None:
+    """Replace a parent-owned text artifact without following its destination."""
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(temporary, flags, mode)
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(value)
+            os.fchmod(stream.fileno(), mode)
+        os.replace(temporary, path)
+    except OSError as exc:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise BenchError("cannot write a trusted parent text artifact") from exc
+
+
 def json_object(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text())
@@ -1122,22 +1141,30 @@ class GitHubPlatform:
         result = self._run(
             [
                 "git", "diff", "--no-ext-diff", "--no-textconv",
-                "--name-status", "--find-renames", f"{base_ref}...HEAD",
+                "--name-status", "-z", "--find-renames", f"{base_ref}...HEAD",
             ],
             cwd=worktree,
             extra_env=environment,
             inherit_env=False,
+            complete_stdout=True,
             label="changed path read",
         )
         paths: list[str] = []
-        for line in result.stdout.splitlines():
-            fields = line.split("\t")
-            if len(fields) < 2:
-                continue
-            candidates = fields[1:3] if fields[0].startswith(("R", "C")) else fields[1:2]
+        fields = result.stdout.split("\0")
+        if fields and fields[-1] == "":
+            fields.pop()
+        index = 0
+        while index < len(fields):
+            status = fields[index]
+            path_count = 2 if status.startswith(("R", "C")) else 1
+            end = index + 1 + path_count
+            if not status or end > len(fields):
+                raise BenchError("changed path read returned malformed NUL-delimited output")
+            candidates = fields[index + 1:end]
             for path in candidates:
                 if path and path not in paths:
                     paths.append(path)
+            index = end
         return paths
 
     def push(self, grant: dict[str, Any], worktree: Path, timeout: float) -> None:
@@ -2084,14 +2111,15 @@ class PipelineBench:
 
         self._enforce_live_issue_guards(develop_budget)
         self.platform.push(self.grant, worktree, develop_budget.remaining())
-        body_path = self.session_dir / "pull-request.md"
-        body_path.write_text(self._pr_body())
-        pull_request = self.platform.create_pr(
-            self.grant,
-            worktree,
-            body_path,
-            develop_budget.remaining(),
-        )
+        with tempfile.TemporaryDirectory(prefix="steel-mission-pr-body-") as directory:
+            body_path = Path(directory) / "pull-request.md"
+            atomic_text(body_path, self._pr_body())
+            pull_request = self.platform.create_pr(
+                self.grant,
+                worktree,
+                body_path,
+                develop_budget.remaining(),
+            )
         self.evidence["pullRequest"] = pull_request
         self._save_evidence()
 
@@ -2158,13 +2186,15 @@ class PipelineBench:
         if clean_review is None:
             raise BenchError("Codex review loop exhausted its bounded correction rounds")
 
-        body_path.write_text(self._pr_body())
-        self.platform.update_pr_body(
-            self.grant,
-            int(pull_request["number"]),
-            body_path,
-            review_budget.remaining(),
-        )
+        with tempfile.TemporaryDirectory(prefix="steel-mission-pr-body-") as directory:
+            body_path = Path(directory) / "pull-request.md"
+            atomic_text(body_path, self._pr_body())
+            self.platform.update_pr_body(
+                self.grant,
+                int(pull_request["number"]),
+                body_path,
+                review_budget.remaining(),
+            )
         review_budget.remaining()
         self._emit("review", "idle", require_text(clean_review.get("summary"), "review summary"), review_budget, event_kind="stage-completed")
 
