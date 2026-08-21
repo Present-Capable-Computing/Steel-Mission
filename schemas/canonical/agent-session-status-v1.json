@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://present.dev/schemas/agent-session-status-v1.json",
+  "title": "Agent session status v1",
+  "description": "One immutable JSONL record describing the latest known state of a bounded agent session. Records append by session and sequence; consumers retain the greatest valid sequence without translating the record into a bench-specific shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "recordType",
+    "eventId",
+    "sequence",
+    "sessionId",
+    "tenantId",
+    "missionId",
+    "producedAt",
+    "producer",
+    "issue",
+    "stage",
+    "state",
+    "worker",
+    "machineAccount",
+    "startedAt",
+    "lastEvent",
+    "budgetLimit",
+    "budgetSpent",
+    "outcome"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "recordType": {"const": "agent-session-status"},
+    "eventId": {"type": "string", "pattern": "^ase-[a-f0-9]{24}$"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "sessionId": {"type": "string", "pattern": "^as-[a-f0-9]{24}$"},
+    "tenantId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "missionId": {"type": "string", "pattern": "^ms-[a-f0-9]{24}$"},
+    "producedAt": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1, "maxLength": 128},
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "number", "url", "claimedAt"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+        "number": {"type": "integer", "minimum": 1},
+        "url": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "claimedAt": {"type": "string", "minLength": 1}
+      }
+    },
+    "stage": {
+      "enum": [
+        "plan",
+        "develop-and-commit",
+        "review-loop",
+        "final-review-and-merge"
+      ]
+    },
+    "state": {
+      "enum": [
+        "idle",
+        "working",
+        "waiting-on-person",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "budget-exhausted"
+      ]
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "provider", "model", "role"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 64},
+        "model": {"type": "string", "minLength": 1, "maxLength": 256},
+        "role": {"enum": ["planner", "developer", "reviewer", "acceptance"]}
+      }
+    },
+    "machineAccount": {"type": "string", "minLength": 1, "maxLength": 128},
+    "startedAt": {"type": "string", "minLength": 1},
+    "lastEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventId", "sequence", "at", "kind", "summary"],
+      "properties": {
+        "eventId": {"type": "string", "pattern": "^ase-[a-f0-9]{24}$"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "at": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1, "maxLength": 128},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 2000}
+      }
+    },
+    "budgetLimit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["elapsedSeconds", "turns"],
+      "properties": {
+        "elapsedSeconds": {"type": "integer", "minimum": 1},
+        "turns": {"type": "integer", "minimum": 1}
+      }
+    },
+    "budgetSpent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["elapsedSeconds", "turns"],
+      "properties": {
+        "elapsedSeconds": {"type": "integer", "minimum": 0},
+        "turns": {"type": "integer", "minimum": 0}
+      }
+    },
+    "pendingDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisionId", "kind", "question", "requestedAt"],
+      "properties": {
+        "decisionId": {"type": "string", "minLength": 1, "maxLength": 256},
+        "kind": {"enum": ["plan-unclean", "approval", "blocked"]},
+        "question": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "requestedAt": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary"],
+      "properties": {
+        "status": {
+          "enum": ["pending", "succeeded", "failed", "cancelled", "budget-exhausted"]
+        },
+        "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "artifactRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "uri"],
+            "properties": {
+              "kind": {"type": "string", "minLength": 1, "maxLength": 128},
+              "uri": {"type": "string", "minLength": 1, "maxLength": 4096},
+              "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"state": {"const": "waiting-on-person"}},
+        "required": ["state"]
+      },
+      "then": {"required": ["pendingDecision"]},
+      "else": {"not": {"required": ["pendingDecision"]}}
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {"enum": ["succeeded", "failed", "cancelled", "budget-exhausted"]}
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "outcome": {
+            "properties": {
+              "status": {"enum": ["succeeded", "failed", "cancelled", "budget-exhausted"]}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "outcome": {"properties": {"status": {"const": "pending"}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"state": {"const": "budget-exhausted"}},
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "outcome": {"properties": {"status": {"const": "budget-exhausted"}}}
+        }
+      }
+    }
+  ]
+}
