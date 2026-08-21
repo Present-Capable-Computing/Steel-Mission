@@ -614,11 +614,28 @@ class SubprocessRunner:
             streams.register(process.stdout, selectors.EVENT_READ, "stdout")
             streams.register(process.stderr, selectors.EVENT_READ, "stderr")
             try:
+                direct_exited = False
                 while streams.get_map():
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise subprocess.TimeoutExpired(argv, timeout)
-                    for key, _mask in streams.select(timeout=min(0.25, remaining)):
+                    if not direct_exited and process.poll() is not None:
+                        direct_exited = True
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            pass
+                        self._kill_adopted_descendants()
+                    if direct_exited:
+                        ready = streams.select(timeout=0.25)
+                        if not ready:
+                            for key in list(streams.get_map().values()):
+                                streams.unregister(key.fileobj)
+                                key.fileobj.close()
+                            break
+                    else:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(argv, timeout)
+                        ready = streams.select(timeout=min(0.25, remaining))
+                    for key, _mask in ready:
                         chunk = os.read(key.fileobj.fileno(), 65536)
                         if not chunk:
                             streams.unregister(key.fileobj)
@@ -634,25 +651,28 @@ class SubprocessRunner:
                             buffer.extend(chunk)
                             if len(buffer) > DIAGNOSTIC_TAIL_BYTES:
                                 del buffer[:-DIAGNOSTIC_TAIL_BYTES]
-                process.wait(timeout=max(0.001, deadline - time.monotonic()))
+                if direct_exited:
+                    process.wait()
+                else:
+                    process.wait(timeout=max(0.001, deadline - time.monotonic()))
             except subprocess.TimeoutExpired as exc:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     pass
                 try:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
+                    except (ProcessLookupError, PermissionError):
                         pass
                     process.wait()
                 raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}") from exc
             finally:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     pass
                 self._kill_adopted_descendants()
                 streams.close()
@@ -1551,19 +1571,30 @@ class AgentDriver:
         label: str,
     ) -> dict[str, Any]:
         timeout = budget.use_turn()
-        schema_path = session_dir / f"{label}-output-schema.json"
-        output_path = session_dir / f"{label}-output.json"
-        atomic_json(schema_path, schema)
-        result = self.runner.run([
-            "codex", "exec", "--ephemeral", "-s", "read-only", "-C", str(cwd),
-            "--output-schema", str(schema_path), "-o", str(output_path), "-",
-        ], cwd, timeout, input_text=prompt, extra_env=self._agent_env(session_dir, "codex"), inherit_env=False)
-        if result.returncode != 0:
-            raise BenchError(f"Codex {label} stage failed: {command_tail(result)}")
-        try:
-            value = json.loads(output_path.read_text())
-        except (OSError, json.JSONDecodeError) as exc:
-            raise BenchError(f"Codex {label} stage did not write valid structured output") from exc
+        environment = self._agent_env(session_dir, "codex")
+        sandbox_root = Path(environment["SM_BENCH_SANDBOX_ROOT"])
+        with tempfile.TemporaryDirectory(
+            prefix=f"{label}-structured-",
+            dir=sandbox_root,
+        ) as directory:
+            schema_path = Path(directory) / "output-schema.json"
+            output_path = Path(directory) / "output.json"
+            atomic_json(schema_path, schema)
+            result = self.runner.run([
+                "codex", "exec", "--ephemeral", "-s", "read-only", "-C", str(cwd),
+                "--output-schema", str(schema_path), "-o", str(output_path), "-",
+            ], cwd, timeout, input_text=prompt, extra_env=environment, inherit_env=False)
+            if result.returncode != 0:
+                raise BenchError(f"Codex {label} stage failed: {command_tail(result)}")
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            try:
+                descriptor = os.open(output_path, flags)
+                with os.fdopen(descriptor) as stream:
+                    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                        raise BenchError(f"Codex {label} stage returned an unsafe output artifact")
+                    value = json.load(stream)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise BenchError(f"Codex {label} stage did not write valid structured output") from exc
         if not isinstance(value, dict):
             raise BenchError(f"Codex {label} stage returned a non-object")
         return value

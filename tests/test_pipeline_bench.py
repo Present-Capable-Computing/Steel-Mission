@@ -1060,6 +1060,19 @@ def test_successful_command_reaps_background_descendants_before_returning(tmp_pa
     assert not marker.exists()
 
 
+def test_successful_command_does_not_wait_for_a_child_holding_its_pipes(tmp_path):
+    parent_code = (
+        "import subprocess, sys; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
+        "print('done')"
+    )
+
+    result = SubprocessRunner().run([sys.executable, "-c", parent_code], tmp_path, 1)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "done"
+
+
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux subreaper containment")
 def test_detached_descendants_cannot_escape_linux_subreaper_containment(tmp_path):
     marker = tmp_path / "detached-descendant-survived"
@@ -1365,6 +1378,46 @@ def test_model_subprocess_environment_allows_only_its_provider_credential(tmp_pa
     assert local_environment["ANTHROPIC_API_KEY"] == ""
     assert local_environment["GIT_CONFIG_VALUE_6"] == "sm-agent-qwen"
     assert local_environment["GIT_CONFIG_VALUE_7"] == "qwen@example.invalid"
+
+
+def test_codex_structured_artifacts_live_inside_the_worker_sandbox(tmp_path):
+    session_dir = tmp_path / "session"
+    worktree = session_dir / "worktree"
+    worktree.mkdir(parents=True)
+
+    class StructuredRunner:
+        def run(
+            self,
+            argv,
+            cwd,
+            timeout,
+            *,
+            input_text="",
+            extra_env=None,
+            inherit_env=True,
+        ):
+            schema_path = Path(argv[argv.index("--output-schema") + 1])
+            output_path = Path(argv[argv.index("-o") + 1])
+            sandbox_root = Path(extra_env["SM_BENCH_SANDBOX_ROOT"])
+            assert schema_path.is_relative_to(sandbox_root)
+            assert output_path.is_relative_to(sandbox_root)
+            output_path.write_text(json.dumps({
+                "verdict": "clean",
+                "summary": "No findings",
+                "findings": [],
+            }))
+            return CommandResult(argv, 0, "", "", 0.1)
+
+    driver = AgentDriver(runner=StructuredRunner())
+
+    review = driver.review(
+        "Review this mission.",
+        worktree,
+        mission_bench.StageBudget({"elapsedSeconds": 30, "turns": 1}),
+        session_dir,
+    )
+
+    assert review["verdict"] == "clean"
 
 
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
