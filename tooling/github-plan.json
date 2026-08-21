@@ -3073,6 +3073,52 @@
       ]
     },
     {
+      "key": "c1-bench-inactivity-timeout",
+      "title": "Time cloud-model stages out on inactivity, not on silence",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:orchestration",
+        "prj:PRJ-0001",
+        "security-review"
+      ],
+      "epic": "epic-c1",
+      "requirement": "The bench's Claude stage invocations move from single-shot print mode, which is silent until the one final JSON document, to a streaming output format, and the runner distinguishes slow from hung: a stage is killed when no stream event arrives within a declared inactivity window, while the grant's stage elapsedSeconds ceiling stays the outer wall-clock bound. The need is measured, not speculative: on 2026-08-21 a legitimate high-effort Opus acceptance review of a one-commit diff ran 25 minutes with zero output by design, indistinguishable from a hang to both the bench and the observing Person. The inactivity window enters the grant next to the existing budget fields and is validated the same way. The structured result and the model-version evidence continue to derive from the authoritative final result event alone, preserving the anti-spoof property of the envelope fix; a streamed event never satisfies the Opus gate. The bench stays under its 2200-line ceiling excluding tests.",
+      "acceptance": "A stalled stream is killed at the inactivity window and reported as an inactivity failure distinct from budget exhaustion, asserted by a test with an injected silent stream. A slow stream emitting periodic events runs past the inactivity window's length to completion, asserted by test, and is still killed at the stage's elapsedSeconds ceiling when that is exceeded. The model-version gate rejects Opus strings carried in init, assistant or model-authored events when the final result event's model usage records no Opus execution, preserved by the existing regression test. The grant schema validation rejects a missing or non-positive inactivity window with the same error discipline as the budget fields.",
+      "surface": "subprocess or container execution",
+      "dependsOn": [
+        "c1-mission-pipeline-bench"
+      ],
+      "allowedPaths": [
+        "tooling/",
+        "tests/"
+      ]
+    },
+    {
+      "key": "c1-bench-review-tiering",
+      "title": "Tier the acceptance review's effort by the diff's scope",
+      "milestone": "MS-0014",
+      "labels": [
+        "task",
+        "C1",
+        "area:orchestration",
+        "prj:PRJ-0001",
+        "security-review"
+      ],
+      "epic": "epic-c1",
+      "requirement": "The acceptance stage's review effort and prompt depth follow the diff's scope, so a docs-only change stops paying for the full security review while the merge gate's floor never moves: every tier reviews with Claude at Opus 5 or above, the model-version evidence still derives from the final result event alone, and schemas/canonical/ keeps D9's always-escalate rule untouched. The tier is decided by deterministic bench code, never by model judgment: a precommitted tier table in the grant maps changed-path classes to effort levels, and grep tripwires for new subprocess, network, credential or environment-access patterns force the top tier regardless of path. A diff crossing tiers takes the highest tier of any file it touches, and a path the table cannot classify defaults to the top tier. The chosen tier and the inputs that produced it are recorded in the evidence pack, so review strength is auditable per mission. The measured motivation stands next to the rule: on 2026-08-21 a full-effort review of a one-commit tooling diff ran 25 minutes; the cost is right for trust boundaries and wrong for plan prose. The bench stays under its 2200-line ceiling excluding tests.",
+      "acceptance": "Downgrade resistance is asserted by tests: a diff that is docs-only except for one line matching a tripwire pattern reviews at the top tier; a diff spanning a docs path and a trust-boundary path takes the trust-boundary tier; a path missing from the tier table reviews at the top tier. The evidence pack records the tier and its deciding inputs for every mission, asserted by test. The Opus major-version gate holds at every tier, covered by the existing regression. Grant validation rejects a tier table that is missing, names an unknown effort level, or omits the top-tier default, with the same error discipline as the budget fields. A security-review-labelled issue always reviews at the top tier independent of its diff.",
+      "surface": "subprocess or container execution",
+      "dependsOn": [
+        "c1-mission-pipeline-bench"
+      ],
+      "allowedPaths": [
+        "tooling/",
+        "tests/"
+      ]
+    },
+    {
       "key": "c1-progress-panel",
       "title": "Show pipeline progress in the console",
       "milestone": "MS-0014",
