@@ -54,6 +54,9 @@ PROVIDER_AUTH_ENV = {
     "codex": ("OPENAI_API_KEY",),
     "local": (),
 }
+PROVIDER_CREDENTIAL_ENVS = {
+    name for names in PROVIDER_AUTH_ENV.values() for name in names
+}
 UNTRUSTED_BASE_ENV = (
     "PATH", "USER", "LOGNAME", "SHELL", "TERM",
     "LANG", "LC_ALL", "LC_CTYPE",
@@ -204,6 +207,8 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
         token_env = require_text(account.get("tokenEnv"), f"machineAccounts.{worker}.tokenEnv")
         if not re.fullmatch(r"[A-Z][A-Z0-9_]+", token_env):
             raise BenchError(f"machineAccounts.{worker}.tokenEnv must name an environment variable")
+        if token_env in PROVIDER_CREDENTIAL_ENVS:
+            raise BenchError("GitHub token reference cannot use a provider credential variable")
         if any(key in account for key in ("token", "accessToken", "secret")):
             raise BenchError("grants carry credential references, never credential values")
         logins.append(login)
@@ -215,8 +220,12 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
         raise BenchError("decisionApi must be an object")
     require_text(decision.get("baseUrl"), "decisionApi.baseUrl")
     token_env = decision.get("tokenEnv")
-    if token_env is not None and not re.fullmatch(r"[A-Z][A-Z0-9_]+", require_text(token_env, "decisionApi.tokenEnv")):
-        raise BenchError("decisionApi.tokenEnv must name an environment variable")
+    if token_env is not None:
+        token_env = require_text(token_env, "decisionApi.tokenEnv")
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]+", token_env):
+            raise BenchError("decisionApi.tokenEnv must name an environment variable")
+        if token_env in PROVIDER_CREDENTIAL_ENVS:
+            raise BenchError("GitHub token reference cannot use a provider credential variable")
     return grant
 
 
@@ -886,6 +895,17 @@ class GitHubPlatform:
             raise BenchError("branch protection must require review conversation resolution")
         if not isinstance(required_checks, list) or not required_checks:
             raise BenchError("branch protection must require continuous-integration checks")
+        required_contexts = {
+            item.get("context")
+            for item in required_checks
+            if isinstance(item, dict) and isinstance(item.get("context"), str)
+        }
+        interpreter_checks = {
+            "Python test suite (3.11)",
+            "Python test suite (3.12)",
+        }
+        if not interpreter_checks.issubset(required_contexts):
+            raise BenchError("branch protection must require both interpreter checks")
         if not isinstance(checks, dict) or checks.get("strict") is not True:
             raise BenchError("required checks must cover the current base branch")
         acceptance_login = grant["machineAccounts"]["claude"]["login"]
@@ -1192,12 +1212,14 @@ class GitHubPlatform:
     ) -> None:
         result = self._run([
             "gh", "pr", "view", str(pr_number), "--repo", grant["repository"],
-            "--json", "headRefOid",
+            "--json", "headRefOid,baseRefName",
         ], timeout=timeout, extra_env=self._account_env(grant, "local"), complete_stdout=True,
             label="pull request head read")
         value = json.loads(result.stdout)
         if not isinstance(value, dict) or value.get("headRefOid") != expected_commit:
             raise BenchError("pull request head changed outside the granted mission")
+        if value.get("baseRefName") != grant["baseBranch"]:
+            raise BenchError("pull request base branch changed outside the granted mission")
 
     def arm_auto_merge(
         self,

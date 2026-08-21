@@ -363,7 +363,10 @@ def protected_repository():
         "required_conversation_resolution": {"enabled": True},
         "required_status_checks": {
             "strict": True,
-            "checks": [{"context": "interpreter-checks"}],
+            "checks": [
+                {"context": "Python test suite (3.11)"},
+                {"context": "Python test suite (3.12)"},
+            ],
         },
     }
 
@@ -1267,6 +1270,18 @@ def test_grant_rejects_free_form_abort_conditions():
         mission_bench.validate_grant(value)
 
 
+@pytest.mark.parametrize("target", ["machine", "decision"])
+def test_grant_rejects_github_token_refs_that_collide_with_provider_credentials(target):
+    value = grant()
+    if target == "machine":
+        value["machineAccounts"]["local"]["tokenEnv"] = "OPENAI_API_KEY"
+    else:
+        value["decisionApi"]["tokenEnv"] = "ANTHROPIC_API_KEY"
+
+    with pytest.raises(BenchError, match="provider credential variable"):
+        mission_bench.validate_grant(value)
+
+
 def test_repository_wall_requires_claude_acceptance_without_authority_ownership(tmp_path, monkeypatch):
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
@@ -1394,6 +1409,49 @@ def test_repository_wall_requires_checks_against_the_current_base(tmp_path, monk
 
     with pytest.raises(BenchError, match="current base branch"):
         platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_requires_both_interpreter_check_contexts(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+    protection = protected_repository()
+    protection["required_status_checks"]["checks"] = [
+        {"context": "Python test suite (3.11)"},
+    ]
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
+
+    with pytest.raises(BenchError, match="both interpreter checks"):
+        platform.validate_repository_wall(grant())
+
+
+def test_pull_request_validation_rejects_a_retargeted_base(tmp_path, monkeypatch):
+    value = grant()
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+
+    class RetargetedPullRequestRunner:
+        def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
+            assert Path(argv[0]).name == "gh"
+            assert "headRefOid,baseRefName" in argv
+            return CommandResult(
+                argv,
+                0,
+                json.dumps({"headRefOid": "reviewed-head", "baseRefName": "release"}),
+                "",
+                0.1,
+            )
+
+    platform = GitHubPlatform(tmp_path, RetargetedPullRequestRunner())
+
+    with pytest.raises(BenchError, match="base branch changed"):
+        platform.assert_pr_head(value, 321, "reviewed-head", 30)
 
 
 def test_machine_commit_email_must_be_verified_by_the_authenticated_account(tmp_path, monkeypatch):
