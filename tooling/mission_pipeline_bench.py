@@ -55,12 +55,11 @@ PROVIDER_AUTH_ENV = {
     "local": (),
 }
 UNTRUSTED_BASE_ENV = (
-    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM",
-    "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE",
-    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
+    "PATH", "USER", "LOGNAME", "SHELL", "TERM",
+    "LANG", "LC_ALL", "LC_CTYPE",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
     "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY",
-    "CODEX_HOME", "CLAUDE_CONFIG_DIR", "OLLAMA_HOST",
+    "OLLAMA_HOST",
 )
 DIAGNOSTIC_TAIL_BYTES = 20_000
 COMPLETE_STDOUT_BYTES = 1_000_000
@@ -254,6 +253,77 @@ def protect_parent_credentials() -> None:
     PARENT_CONTAINMENT_READY = True
 
 
+class _LandlockRulesetAttr(ctypes.Structure):
+    _fields_ = [("handled_access_fs", ctypes.c_uint64)]
+
+
+class _LandlockPathBeneathAttr(ctypes.Structure):
+    _fields_ = [
+        ("allowed_access", ctypes.c_uint64),
+        ("parent_fd", ctypes.c_int32),
+    ]
+
+
+def _landlock_abi() -> int:
+    if not sys.platform.startswith("linux"):
+        raise BenchError("untrusted filesystem isolation requires Linux Landlock")
+    machine = os.uname().machine.lower()
+    if machine not in {"x86_64", "amd64", "aarch64", "arm64", "riscv64"}:
+        raise BenchError(f"unsupported Linux architecture for Landlock isolation: {machine}")
+    libc = ctypes.CDLL(None, use_errno=True)
+    result = libc.syscall(444, None, 0, 1)
+    if result < 1:
+        error_number = ctypes.get_errno()
+        raise BenchError(f"Linux Landlock isolation is unavailable: {os.strerror(error_number)}")
+    return int(result)
+
+
+def _restrict_filesystem_with_landlock(
+    abi: int,
+    read_roots: tuple[str, ...],
+    write_roots: tuple[str, ...],
+) -> None:
+    execute = 1 << 0
+    read_file = 1 << 2
+    read_dir = 1 << 3
+    handled = (1 << 13) - 1
+    if abi >= 2:
+        handled |= 1 << 13
+    if abi >= 3:
+        handled |= 1 << 14
+    read_access = execute | read_file | read_dir
+    write_access = handled
+    libc = ctypes.CDLL(None, use_errno=True)
+    ruleset = _LandlockRulesetAttr(handled_access_fs=handled)
+    ruleset_fd = libc.syscall(444, ctypes.byref(ruleset), ctypes.sizeof(ruleset), 0)
+    if ruleset_fd < 0:
+        raise OSError(ctypes.get_errno(), "cannot create Landlock ruleset")
+    opened: list[int] = []
+    try:
+        roots = [(path, read_access) for path in read_roots]
+        roots.extend((path, write_access) for path in write_roots)
+        for value, access in roots:
+            path = Path(value)
+            if not path.exists():
+                continue
+            descriptor = os.open(path, os.O_PATH | os.O_CLOEXEC)
+            opened.append(descriptor)
+            rule = _LandlockPathBeneathAttr(
+                allowed_access=access,
+                parent_fd=descriptor,
+            )
+            if libc.syscall(445, ruleset_fd, 1, ctypes.byref(rule), 0) != 0:
+                raise OSError(ctypes.get_errno(), f"cannot add Landlock rule for {path}")
+        if libc.prctl(38, 1, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "cannot enable no-new-privileges")
+        if libc.syscall(446, ruleset_fd, 0) != 0:
+            raise OSError(ctypes.get_errno(), "cannot apply Landlock ruleset")
+    finally:
+        for descriptor in opened:
+            os.close(descriptor)
+        os.close(ruleset_fd)
+
+
 def isolated_command_env(
     session_dir: Path,
     credential_envs: set[str],
@@ -263,9 +333,33 @@ def isolated_command_env(
     """Remove GitHub authority from repository-authored and model commands."""
     gh_config = session_dir / "no-github-credentials"
     hooks = session_dir / "no-git-hooks"
-    gh_config.mkdir(parents=True, exist_ok=True)
-    hooks.mkdir(parents=True, exist_ok=True)
+    sandbox_home = session_dir / "sandbox-home"
+    sandbox_tmp = session_dir / "sandbox-tmp"
+    sandbox_directories = (
+        gh_config,
+        hooks,
+        sandbox_home,
+        sandbox_tmp,
+        sandbox_home / ".config",
+        sandbox_home / ".cache",
+        sandbox_home / ".runtime",
+        sandbox_home / ".codex",
+        sandbox_home / ".claude",
+    )
+    for directory in sandbox_directories:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
     environment = {
+        "HOME": str(sandbox_home),
+        "TMPDIR": str(sandbox_tmp),
+        "TEMP": str(sandbox_tmp),
+        "TMP": str(sandbox_tmp),
+        "XDG_CONFIG_HOME": str(sandbox_home / ".config"),
+        "XDG_CACHE_HOME": str(sandbox_home / ".cache"),
+        "XDG_RUNTIME_DIR": str(sandbox_home / ".runtime"),
+        "CODEX_HOME": str(sandbox_home / ".codex"),
+        "CLAUDE_CONFIG_DIR": str(sandbox_home / ".claude"),
+        "SM_BENCH_SANDBOX_ROOT": str(session_dir),
         "GH_CONFIG_DIR": str(gh_config),
         "GH_TOKEN": "",
         "GITHUB_TOKEN": "",
@@ -356,6 +450,38 @@ class SubprocessRunner:
         environment.pop("GITHUB_TOKEN", None)
         if extra_env:
             environment.update(extra_env)
+        execution_argv = list(argv)
+        preexec_fn = None
+        if not inherit_env and sys.platform.startswith("linux"):
+            located = execution_argv[0] if os.path.isabs(execution_argv[0]) else shutil.which(
+                execution_argv[0],
+                path=environment.get("PATH"),
+            )
+            if not located:
+                raise BenchError(f"untrusted executable is unavailable: {execution_argv[0]}")
+            executable = Path(located).resolve()
+            execution_argv[0] = str(executable)
+            sandbox_root = environment.pop("SM_BENCH_SANDBOX_ROOT", "")
+            extra_read_roots = environment.pop("SM_BENCH_SANDBOX_READ_ROOTS", "")
+            read_roots = [
+                path for path in (
+                    "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt",
+                    "/nix/store", "/proc", "/sys", str(executable.parent),
+                )
+                if Path(path).exists()
+            ]
+            read_roots.extend(
+                path for path in extra_read_roots.split(os.pathsep) if path
+            )
+            write_roots = [str(cwd), "/dev"]
+            if sandbox_root:
+                write_roots.append(sandbox_root)
+            abi = _landlock_abi()
+            preexec_fn = lambda: _restrict_filesystem_with_landlock(
+                abi,
+                tuple(dict.fromkeys(read_roots)),
+                tuple(dict.fromkeys(write_roots)),
+            )
         started = time.monotonic()
         if timeout <= 0:
             raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}")
@@ -364,15 +490,16 @@ class SubprocessRunner:
             stdin.seek(0)
             try:
                 process = subprocess.Popen(
-                    argv,
+                    execution_argv,
                     cwd=cwd,
                     stdin=stdin,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     env=environment,
                     start_new_session=True,
+                    preexec_fn=preexec_fn,
                 )
-            except OSError as exc:
+            except (OSError, subprocess.SubprocessError) as exc:
                 raise BenchError(f"command failed to start: {argv[0]}: {exc}") from exc
             deadline = started + timeout
             streams = selectors.DefaultSelector()
@@ -744,9 +871,17 @@ class GitHubPlatform:
         validated_base = self.validated_base_oids.get(grant["baseBranch"])
         if validated_base is not None and fetched_base != validated_base:
             raise BenchError("fetched base branch changed after repository-wall validation")
-        self._run([
-            "git", "worktree", "add", "-b", grant["branch"], str(worktree), base_ref,
-        ], timeout=120, label="isolated worktree creation")
+        self._run(
+            ["git", "clone", "--no-hardlinks", "--no-checkout", str(self.repository_root), str(worktree)],
+            timeout=180,
+            label="isolated repository creation",
+        )
+        self._run(
+            ["git", "checkout", "-b", grant["branch"], fetched_base],
+            cwd=worktree,
+            timeout=120,
+            label="isolated branch creation",
+        )
         self.worktree_bases[worktree.resolve()] = self._run(
             ["git", "rev-parse", "HEAD"],
             cwd=worktree,
@@ -842,6 +977,14 @@ class GitHubPlatform:
         return paths
 
     def push(self, grant: dict[str, Any], worktree: Path, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0:
+                raise BenchError("machine-account push exceeded the develop budget")
+            return value
+
         token_env = grant["machineAccounts"]["local"]["tokenEnv"]
         token = os.environ.get(token_env)
         if not token:
@@ -855,21 +998,41 @@ class GitHubPlatform:
             "esac\n"
         )
         askpass.chmod(0o700)
-        environment = isolated_command_env(
+        preparation_environment = isolated_command_env(
             worktree.parent,
             self._credential_envs(grant),
             scrub_all_credentials=True,
         )
+        environment = dict(preparation_environment)
         environment.update({
             "GIT_ASKPASS": str(askpass),
             "GIT_TERMINAL_PROMPT": "0",
             "SM_BENCH_PUSH_TOKEN": token,
         })
-        self._run([
-            "git", "push", f"https://github.com/{grant['repository']}.git",
-            f"HEAD:refs/heads/{grant['branch']}",
-        ], cwd=worktree, timeout=timeout, extra_env=environment, inherit_env=False,
-            label="machine-account push")
+        with tempfile.TemporaryDirectory(prefix="clean-push-", dir=worktree.parent) as directory:
+            clean_git_dir = Path(directory)
+            self._run(
+                ["git", "init", "--bare", str(clean_git_dir)],
+                cwd=worktree.parent,
+                timeout=remaining(),
+                extra_env=preparation_environment,
+                inherit_env=False,
+                label="clean push repository creation",
+            )
+            self._run(
+                ["git", "--git-dir", str(clean_git_dir), "fetch", "--no-tags", str(worktree), "HEAD"],
+                cwd=worktree.parent,
+                timeout=remaining(),
+                extra_env=preparation_environment,
+                inherit_env=False,
+                label="reviewed commit import",
+            )
+            self._run([
+                "git", "--git-dir", str(clean_git_dir), "push",
+                f"https://github.com/{grant['repository']}.git",
+                f"FETCH_HEAD:refs/heads/{grant['branch']}",
+            ], cwd=worktree.parent, timeout=remaining(), extra_env=environment, inherit_env=False,
+                label="machine-account push")
 
     def create_pr(
         self,
@@ -884,7 +1047,7 @@ class GitHubPlatform:
             "--base", grant["baseBranch"], "--head", grant["branch"],
             "--title", f"Mission #{grant['issueNumber']}: {grant['branch'].split('/', 1)[-1].replace('-', ' ')}",
             "--body-file", str(body_path),
-        ], cwd=worktree, timeout=timeout, extra_env=self._account_env(grant, "local"),
+        ], cwd=self.repository_root, timeout=timeout, extra_env=self._account_env(grant, "local"),
             label="pull request creation")
         url = result.stdout.strip().splitlines()[-1]
         remaining = deadline - time.monotonic()
@@ -1778,15 +1941,7 @@ class PipelineBench:
             previous_commit,
             acceptance_budget.remaining(),
         )
-        arm_timeout = acceptance_budget.remaining()
-        self.auto_merge_armed = True
-        self.platform.arm_auto_merge(
-            self.grant,
-            int(pull_request["number"]),
-            previous_commit,
-            arm_timeout,
-        )
-        self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
+        self._emit("acceptance", "working", "Required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
@@ -1808,6 +1963,10 @@ class PipelineBench:
             raise BenchError(f"Claude acceptance rejected the mission: {acceptance.get('summary')}")
         summary = require_text(acceptance.get("summary"), "acceptance summary")
         self._enforce_live_issue_guards(acceptance_budget)
+        self.platform.validate_repository_wall(
+            self.grant,
+            acceptance_budget.remaining(),
+        )
         self.platform.assert_pr_head(
             self.grant,
             int(pull_request["number"]),
@@ -1820,6 +1979,14 @@ class PipelineBench:
             summary,
             previous_commit,
             acceptance_budget.remaining(),
+        )
+        arm_timeout = acceptance_budget.remaining()
+        self.auto_merge_armed = True
+        self.platform.arm_auto_merge(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+            arm_timeout,
         )
         merged = self.platform.wait_for_merge(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()

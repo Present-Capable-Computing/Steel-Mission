@@ -320,11 +320,15 @@ class AccountRunner:
 class PushRunner:
     def __init__(self, expected_blank):
         self.expected_blank = expected_blank
+        self.commands = []
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
+        self.commands.append((argv, cwd, extra_env, inherit_env))
         assert Path(argv[0]).name == "git"
-        assert argv[1] == "push"
         assert inherit_env is False
+        if "push" not in argv:
+            assert "SM_BENCH_PUSH_TOKEN" not in extra_env
+            return CommandResult(argv, 0, "prepared", "", 0.1)
         assert all(extra_env[name] == "" for name in self.expected_blank)
         assert extra_env["SM_BENCH_PUSH_TOKEN"] == "local-token"
         assert extra_env["GIT_CONFIG_GLOBAL"] == os.devnull
@@ -384,8 +388,8 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     first_push = platform.calls.index("push")
     assert any(call.startswith("command:make test") for call in platform.calls[:first_push])
     assert any(call.startswith("command:make release-check") for call in platform.calls[:first_push])
-    assert next(index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")) < next(
-        index for index, call in enumerate(platform.calls) if call.startswith("approve:")
+    assert next(index for index, call in enumerate(platform.calls) if call.startswith("approve:")) < next(
+        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
     )
     acceptance_calls = [
         call for call in platform.calls
@@ -404,6 +408,30 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     feed = [json.loads(line) for line in Path(result["feedPath"]).read_text().splitlines()]
     assert feed[-1]["outcome"]["status"] == "succeeded"
     assert all(schema_check.validate(item, "canonical/agent-session-status-v1.json") == [] for item in feed)
+
+
+def test_auto_merge_cannot_be_armed_before_this_session_finishes_acceptance(tmp_path):
+    events = []
+
+    class TrackingPlatform(FakePlatform):
+        def arm_auto_merge(self, grant_value, pr_number, head_commit, timeout=None):
+            events.append("auto-merge")
+            super().arm_auto_merge(grant_value, pr_number, head_commit, timeout)
+
+    class TrackingAgents(FakeAgents):
+        def accept(self, prompt, worktree, budget, session_dir):
+            events.append("final-acceptance")
+            return super().accept(prompt, worktree, budget, session_dir)
+
+    PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=TrackingPlatform(tmp_path),
+        agents=TrackingAgents(),
+        decisions=FakeDecision(),
+    ).run()
+
+    assert events.index("final-acceptance") < events.index("auto-merge")
 
 
 def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):
@@ -659,7 +687,7 @@ def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
     ) < platform.calls.index("disable-auto-merge")
 
 
-def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tmp_path):
+def test_pull_request_head_change_after_ci_stops_before_approval_or_auto_merge(tmp_path):
     platform = FakePlatform(tmp_path, head_changes_after_ci=True)
     bench = PipelineBench(
         write_grant(tmp_path / "grant.json"),
@@ -672,8 +700,9 @@ def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tm
     with pytest.raises(BenchError, match="pull request head changed"):
         bench.run()
 
-    assert "disable-auto-merge" in platform.calls
+    assert "disable-auto-merge" not in platform.calls
     assert not any(call.startswith("approve:") for call in platform.calls)
+    assert not any(call.startswith("auto-merge:") for call in platform.calls)
 
 
 def test_branch_wall_is_revalidated_before_auto_merge_is_armed(tmp_path):
@@ -981,6 +1010,57 @@ def test_untrusted_subprocess_inherits_only_allowlisted_parent_environment(tmp_p
     assert environment["ANTHROPIC_API_KEY"] == "provider-only"
 
 
+def test_untrusted_subprocess_uses_a_clean_session_home(tmp_path, monkeypatch):
+    original_home = tmp_path / "credential-bearing-home"
+    original_home.mkdir()
+    monkeypatch.setenv("HOME", str(original_home))
+    session_dir = tmp_path / "session"
+    environment = mission_bench.isolated_command_env(session_dir, set())
+
+    result = SubprocessRunner().run(
+        [sys.executable, "-c", "import os; print(os.environ['HOME'])"],
+        tmp_path,
+        5,
+        extra_env=environment,
+        inherit_env=False,
+    )
+
+    sandbox_home = Path(result.stdout.strip())
+    assert sandbox_home != original_home
+    assert sandbox_home.is_relative_to(session_dir)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux Landlock isolation")
+def test_linux_untrusted_subprocess_cannot_read_a_sibling_credential_home(tmp_path):
+    credential_home = tmp_path / "credential-home"
+    credential_home.mkdir()
+    secret = credential_home / "cloud-credentials"
+    secret.write_text("sentinel-secret")
+    session_dir = tmp_path / "session"
+    worktree = session_dir / "worktree"
+    worktree.mkdir(parents=True)
+    environment = mission_bench.isolated_command_env(session_dir, set())
+    script = (
+        "from pathlib import Path\n"
+        f"secret = Path({str(secret)!r})\n"
+        "try:\n"
+        "    secret.read_text()\n"
+        "except PermissionError:\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit(1)\n"
+    )
+
+    result = SubprocessRunner().run(
+        [sys.executable, "-c", script],
+        worktree,
+        5,
+        extra_env=environment,
+        inherit_env=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_privileged_commands_stay_pinned_after_untrusted_path_shadowing(tmp_path, monkeypatch):
     trusted = tmp_path / "trusted"
     attacker = tmp_path / "attacker"
@@ -1273,12 +1353,20 @@ def test_authenticated_push_disables_hooks_and_scrubs_every_unrelated_credential
     monkeypatch.setenv("UNRELATED_API_TOKEN", "also-secret")
     worktree = tmp_path / "session" / "worktree"
     worktree.mkdir(parents=True)
-    platform = GitHubPlatform(
-        tmp_path,
-        PushRunner(credential_names | {"UNRELATED_API_TOKEN"}),
+    (worktree / ".git").mkdir()
+    (worktree / ".git" / "config").write_text(
+        "[url \"https://attacker.invalid/\"]\n"
+        "\tinsteadOf = https://github.com/\n"
     )
+    runner = PushRunner(credential_names | {"UNRELATED_API_TOKEN"})
+    platform = GitHubPlatform(tmp_path, runner)
 
     platform.push(value, worktree, 30)
+
+    push_argv = runner.commands[-1][0]
+    assert "--git-dir" in push_argv
+    push_git_dir = Path(push_argv[push_argv.index("--git-dir") + 1])
+    assert push_git_dir != worktree / ".git"
 
 
 def test_merge_poll_and_sleep_never_exceed_the_remaining_acceptance_budget(tmp_path, monkeypatch):
