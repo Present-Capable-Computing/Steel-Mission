@@ -7,7 +7,7 @@ Use this path when you want to try Steel Mission without a cloud model dependenc
 ```bash
 git clone https://github.com/Present-Capable-Computing/Steel-Mission.git
 cd Steel-Mission
-python3 -m pip install -r requirements-dev.txt
+python3 -m pip install -r requirements.txt
 bin/steel-mission doctor
 bin/steel-mission serve
 ```
