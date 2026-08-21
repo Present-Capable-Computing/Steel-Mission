@@ -251,6 +251,23 @@ only once there is a second reviewer. Every other gate in the table above applie
 everyone, including the maintainer: the status checks, the conversation resolution
 and the templates do not have a bypass in normal use.
 
+### Branch protection record
+
+Changes to the protection settings on `main` are recorded here, with reasoning, in
+the same pull request that documents them (#214).
+
+- **2026-08-21.** Required approving reviews raised from zero to one, and code
+  owner review enabled. Before this change the review wall in the table above was
+  written down but not enforced: the live settings required no approval at all, so
+  an approval on a mission pull request proved nothing. With one required approval
+  from a code owner, and `sm-agent-claude` named in `CODEOWNERS` for the
+  non-authority paths only, the acceptance account's approval becomes the event
+  that lands a mission, and a change to `schemas/canonical/` or any trust boundary
+  still waits for the maintainer. Admin enforcement stays off deliberately, per the
+  caveat above: while one human owns every authority path, that person's own
+  changes can only land through the admin bypass. Required status checks,
+  conversation resolution and every other setting are unchanged.
+
 ## 7. Working agreement
 
 - **Branches** are named `<milestone>/<short-slug>`, for example `ms-0002/store-interface`.
