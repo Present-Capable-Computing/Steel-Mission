@@ -261,9 +261,11 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
             raise BenchError(f"machineAccounts.{worker}.tokenEnv must name an environment variable")
         if any(key in account for key in ("token", "accessToken", "secret")):
             raise BenchError("grants carry credential references, never credential values")
-        logins.append(login)
+        logins.append(login.lower())
     if len(set(logins)) != len(logins):
         raise BenchError("each model worker requires a distinct machine account")
+    if granted_by.lower() in logins:
+        raise BenchError("grantedBy must be distinct from every machine account")
 
     decision = grant.get("decisionApi")
     if not isinstance(decision, dict):
@@ -696,8 +698,9 @@ class GitHubPlatform:
         rules = [line.split() for line in codeowners if line.strip() and not line.lstrip().startswith("#")]
         default_rule = next((rule for rule in reversed(rules) if rule[0] == "*"), [])
         default_owners = {token.lstrip("@").lower() for token in default_rule[1:]}
+        person_login = grant["grantedBy"].lower()
         expected_non_authority_owners = {
-            grant["grantedBy"].lower(),
+            person_login,
             acceptance_login.lower(),
         }
         if default_owners != expected_non_authority_owners:
@@ -707,7 +710,7 @@ class GitHubPlatform:
             owners = {token.lstrip("@").lower() for token in rule[1:]}
             if owners != expected_non_authority_owners:
                 raise BenchError(f"Founder and Claude acceptance must co-own {pattern}")
-        person_only_patterns = (
+        registered_person_only_patterns = (
             "/schemas/",
             "/schemas/canonical/",
             "/schemas/schema-registry.json",
@@ -723,14 +726,19 @@ class GitHubPlatform:
             "/plan/",
             "/docs/workplan.md",
         )
+        person_only_patterns = tuple(
+            rule[0] for rule in rules
+            if {token.lstrip("@").lower() for token in rule[1:]} == {person_login}
+        )
+        if set(person_only_patterns) - set(registered_person_only_patterns):
+            raise BenchError("Founder-only CODEOWNERS patterns changed")
         authority_witnesses = {
             pattern: pattern.removeprefix("/") + "__steel_mission_wall_probe__"
             if pattern.endswith("/")
             else pattern.removeprefix("/")
-            for pattern in person_only_patterns
+            for pattern in registered_person_only_patterns
         }
-        person_login = grant["grantedBy"].lower()
-        for pattern in person_only_patterns:
+        for pattern in registered_person_only_patterns:
             exact_index = next((
                 index for index in range(len(rules) - 1, -1, -1)
                 if rules[index][0] == pattern

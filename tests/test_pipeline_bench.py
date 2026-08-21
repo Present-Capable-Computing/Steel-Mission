@@ -868,6 +868,15 @@ def test_grant_requires_granted_by_to_be_a_github_login(granted_by):
         mission_bench.validate_grant(value)
 
 
+@pytest.mark.parametrize("granted_by", ["sm-agent-claude", "SM-AGENT-CODEX", "sm-agent-qwen"])
+def test_grant_requires_a_person_distinct_from_every_machine_account(granted_by):
+    value = grant()
+    value["grantedBy"] = granted_by
+
+    with pytest.raises(BenchError, match="distinct from every machine account"):
+        mission_bench.validate_grant(value)
+
+
 def test_plan_outside_the_allowed_path_wall_stops_before_development(tmp_path):
     agents = FakeAgents(plans=[{
         "clean": True,
@@ -1428,15 +1437,17 @@ def test_local_developer_parks_the_platform_sandbox_inside_the_isolated_worktree
         runner=runner,
         developer_identity=("sm-agent-qwen", "qwen@example.invalid"),
     )
+    worktree = tmp_path / "worktree"
+    session_dir = tmp_path / "session"
 
-    driver.develop("Implement and commit.", tmp_path, mission_bench.StageBudget({
+    driver.develop("Implement and commit.", worktree, mission_bench.StageBudget({
         "elapsedSeconds": 30,
         "turns": 1,
-    }), tmp_path)
+    }), session_dir)
 
     assert runner.argv[runner.argv.index("-m") + 1] == "qwen3-coder:30b"
     assert runner.argv[runner.argv.index("-s") + 1] == "workspace-write"
-    assert runner.argv[runner.argv.index("-C") + 1] == str(tmp_path)
+    assert runner.argv[runner.argv.index("-C") + 1] == str(worktree)
 
 
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
@@ -1664,6 +1675,17 @@ def test_repository_wall_rejects_every_machine_account_as_authority_owner(
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     with pytest.raises(BenchError, match="Founder"):
+        platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_rejects_unregistered_person_only_paths(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(protected_codeowners() + "/new-authority/ @andrewHermann\n")
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="Founder-only CODEOWNERS patterns changed"):
         platform.validate_repository_wall(grant())
 
 
