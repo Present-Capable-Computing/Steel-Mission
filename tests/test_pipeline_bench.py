@@ -41,6 +41,12 @@ def grant() -> dict:
         "grantedBy": "andrewHermann",
         "requirement": REQUIREMENT,
         "acceptanceEvidence": ACCEPTANCE,
+        "surfaces": {
+            "authentication": False,
+            "networkService": False,
+            "subprocessExecution": False,
+            "authoritySchemas": False,
+        },
         "definitionOfDone": {
             "redTest": ["python3", "-m", "pytest", "tests/test_rehearsal.py", "-q"],
             "redFailure": {"exitCodes": [1], "outputPattern": "1 failed"},
@@ -360,7 +366,10 @@ def protected_repository():
         "required_conversation_resolution": {"enabled": True},
         "required_status_checks": {
             "strict": True,
-            "checks": [{"context": "interpreter-checks"}],
+            "checks": [
+                {"context": "Python test suite (3.11)"},
+                {"context": "Python test suite (3.12)"},
+            ],
         },
     }
 
@@ -381,14 +390,15 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
         decisions=FakeDecision(),
     ).run()
 
-    assert result["state"] == "merged"
+    assert result["state"] == "queued"
     assert result["reviewCorrectionRounds"] == 1
     first_push = platform.calls.index("push")
     assert any(call.startswith("command:make test") for call in platform.calls[:first_push])
     assert any(call.startswith("command:make release-check") for call in platform.calls[:first_push])
-    assert next(index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")) < next(
-        index for index, call in enumerate(platform.calls) if call.startswith("approve:")
+    assert next(index for index, call in enumerate(platform.calls) if call.startswith("approve:")) < next(
+        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
     )
+    assert not any(call.startswith("merged:") for call in platform.calls)
     acceptance_calls = [
         call for call in platform.calls
         if call.startswith(("pr-head:", "auto-merge:", "approve:"))
@@ -431,7 +441,7 @@ def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch)
         decisions=FakeDecision(),
     ).run()
 
-    assert result["state"] == "merged"
+    assert result["state"] == "queued"
 
 
 def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
@@ -448,6 +458,24 @@ def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
         bench.run()
 
     assert platform.calls == ["issue"]
+
+
+def test_declared_security_surface_is_refused_before_claim_or_execution(tmp_path):
+    value = grant()
+    value["surfaces"]["subprocessExecution"] = True
+    platform = FakePlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="security-review surface"):
+        bench.run()
+
+    assert platform.calls == []
 
 
 def test_partial_claim_failure_is_recorded_after_assignment(tmp_path):
@@ -545,7 +573,7 @@ def test_unclean_plan_waits_on_existing_decision_flow_then_replans_inside_grant(
         decisions=decisions,
     ).run()
 
-    assert result["state"] == "merged"
+    assert result["state"] == "queued"
     assert decisions.calls[0] == "request"
     assert decisions.calls[1].startswith("wait:JOB-decision:")
     assert platform.calls.index("worktree") < platform.calls.index("commit:commit-1")
@@ -677,25 +705,19 @@ def test_grant_drift_abort_rechecks_the_issue_contract_before_push(tmp_path):
     assert "push" not in platform.calls
 
 
-def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaustion(tmp_path):
+def test_pipeline_returns_truthful_queued_state_without_waiting_for_merge(tmp_path):
     platform = FakePlatform(tmp_path, merge_failure=True)
-    bench = PipelineBench(
+    result = PipelineBench(
         write_grant(tmp_path / "grant.json"),
         tmp_path / "state",
         platform=platform,
         agents=FakeAgents(),
         decisions=FakeDecision(),
-    )
+    ).run()
 
-    with pytest.raises(BenchError, match="acceptance budget"):
-        bench.run()
-
-    assert next(
-        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
-    ) < platform.calls.index("disable-auto-merge")
-    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
-    assert feed[-1]["state"] == "budget-exhausted"
-    assert feed[-1]["outcome"]["status"] == "budget-exhausted"
+    assert result["state"] == "queued"
+    assert any(call.startswith("auto-merge:") for call in platform.calls)
+    assert not any(call.startswith("merged:") for call in platform.calls)
 
 
 def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
@@ -716,7 +738,7 @@ def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
     ) < platform.calls.index("disable-auto-merge")
 
 
-def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tmp_path):
+def test_pull_request_head_change_after_ci_stops_before_approval_or_auto_merge(tmp_path):
     platform = FakePlatform(tmp_path, head_changes_after_ci=True)
     bench = PipelineBench(
         write_grant(tmp_path / "grant.json"),
@@ -729,7 +751,7 @@ def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tm
     with pytest.raises(BenchError, match="pull request head changed"):
         bench.run()
 
-    assert "disable-auto-merge" in platform.calls
+    assert not any(call.startswith("auto-merge:") for call in platform.calls)
     assert not any(call.startswith("approve:") for call in platform.calls)
 
 
@@ -777,7 +799,7 @@ def test_frozen_base_is_revalidated_after_ci_before_acceptance(tmp_path):
 
     assert any(call.startswith("ci:") for call in platform.calls)
     assert not any(kind == "acceptance" for kind, _prompt in agents.prompts)
-    assert "disable-auto-merge" in platform.calls
+    assert not any(call.startswith("auto-merge:") for call in platform.calls)
 
 
 def test_develop_budget_expiry_after_push_prevents_pr_creation(tmp_path, monkeypatch):
@@ -1089,6 +1111,32 @@ def test_grant_rejects_free_form_abort_conditions():
         mission_bench.validate_grant(value)
 
 
+def test_grant_requires_machine_checkable_security_surfaces():
+    value = grant()
+    value.pop("surfaces")
+
+    with pytest.raises(BenchError, match="surfaces must declare exactly"):
+        mission_bench.validate_grant(value)
+
+
+def test_pr_body_renders_granted_security_surface_checkboxes(tmp_path):
+    value = grant()
+    value["surfaces"]["subprocessExecution"] = True
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=FakePlatform(tmp_path),
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    body = bench._pr_body()
+
+    assert "- [x] Subprocess or container execution" in body
+    assert "- [ ] A network-listening service, or its bind address" in body
+    assert "- [ ] None of the above" in body
+
+
 def test_repository_wall_requires_claude_acceptance_without_authority_ownership(tmp_path, monkeypatch):
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
@@ -1249,6 +1297,26 @@ def test_repository_wall_requires_checks_against_the_current_base(tmp_path, monk
 
     with pytest.raises(BenchError, match="current base branch"):
         platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_requires_both_interpreter_checks(tmp_path, monkeypatch):
+    value = grant()
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+    protection = protected_repository()
+    protection["required_status_checks"]["checks"].pop()
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
+
+    with pytest.raises(BenchError, match="Python 3.11 and 3.12"):
+        platform.validate_repository_wall(value)
 
 
 def test_machine_commit_email_must_be_verified_by_the_authenticated_account(tmp_path, monkeypatch):

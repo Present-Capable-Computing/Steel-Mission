@@ -130,6 +130,21 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
     require_text(grant.get("requirement"), "requirement")
     require_text(grant.get("acceptanceEvidence"), "acceptanceEvidence")
 
+    surfaces = grant.get("surfaces")
+    surface_names = {
+        "authentication",
+        "networkService",
+        "subprocessExecution",
+        "authoritySchemas",
+    }
+    if not isinstance(surfaces, dict) or set(surfaces) != surface_names:
+        raise BenchError(
+            "surfaces must declare exactly authentication, networkService, "
+            "subprocessExecution, and authoritySchemas"
+        )
+    if not all(isinstance(surfaces[name], bool) for name in surface_names):
+        raise BenchError("surfaces declarations must be booleans")
+
     definition = grant.get("definitionOfDone")
     if not isinstance(definition, dict):
         raise BenchError("definitionOfDone must be an object")
@@ -614,6 +629,17 @@ class GitHubPlatform:
             raise BenchError("branch protection must require review conversation resolution")
         if not isinstance(required_checks, list) or not required_checks:
             raise BenchError("branch protection must require continuous-integration checks")
+        check_names = {
+            str(check.get("context"))
+            for check in required_checks
+            if isinstance(check, dict) and check.get("context")
+        }
+        required_interpreters = {
+            "Python test suite (3.11)",
+            "Python test suite (3.12)",
+        }
+        if not required_interpreters.issubset(check_names):
+            raise BenchError("branch protection must require the Python 3.11 and 3.12 test suites")
         if not isinstance(checks, dict) or checks.get("strict") is not True:
             raise BenchError("required checks must cover the current base branch")
         acceptance_login = grant["machineAccounts"]["claude"]["login"]
@@ -1369,6 +1395,22 @@ class PipelineBench:
         red = self.evidence.get("redTest", {})
         gates = self.evidence.get("stages", {}).get("develop", {}).get("gates", {})
         corrections = self.evidence.get("stages", {}).get("corrections", [])
+        surfaces = self.grant["surfaces"]
+
+        def surface_checkbox(name: str, label: str) -> str:
+            mark = "x" if surfaces[name] else " "
+            return f"- [{mark}] {label}"
+
+        surface_lines = "\n".join((
+            surface_checkbox("authentication", "Authentication, authorization, or session handling"),
+            surface_checkbox("networkService", "A network-listening service, or its bind address"),
+            surface_checkbox("subprocessExecution", "Subprocess or container execution"),
+            surface_checkbox(
+                "authoritySchemas",
+                "Authority-owned schemas (`schemas/canonical/`, `schemas/schema-registry.json`)",
+            ),
+            f"- [{'x' if not any(surfaces.values()) else ' '}] None of the above",
+        ))
         commits = [self.evidence.get("stages", {}).get("develop", {}).get("commit")]
         commits.extend(
             item.get("commit") for item in corrections
@@ -1396,8 +1438,9 @@ class PipelineBench:
             f"- Codex correction rounds: {self.evidence.get('reviewCorrectionRounds', 0)}\n"
             f"{correction_lines}\n\n"
             "## Surfaces touched\n\n"
-            "The granted issue defines the touched surface. The bench refuses security-review-labelled issues "
-            "and stops authority-owned paths for human review.\n\n"
+            f"{surface_lines}\n\n"
+            "These machine-checkable declarations are part of the mission grant. Anything ticked above requires "
+            "the repository's security-review path before merge; authority-owned paths also stop for Person delivery.\n\n"
             "## Reversibility\n\n"
             "Revert the mission commit or close this pull request without merging. The bench does not mutate main directly.\n"
         )
@@ -1525,6 +1568,8 @@ class PipelineBench:
         return error
 
     def _run_pipeline(self) -> dict[str, Any]:
+        if any(self.grant["surfaces"].values()):
+            raise BenchError("mission bench refuses grants declaring a security-review surface")
         issue = self.platform.issue(self.grant)
         self.issue_payload = issue
         labels = {
@@ -1754,15 +1799,7 @@ class PipelineBench:
             previous_commit,
             acceptance_budget.remaining(),
         )
-        arm_timeout = acceptance_budget.remaining()
-        self.auto_merge_armed = True
-        self.platform.arm_auto_merge(
-            self.grant,
-            int(pull_request["number"]),
-            previous_commit,
-            arm_timeout,
-        )
-        self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
+        self._emit("acceptance", "working", "Required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
@@ -1805,12 +1842,25 @@ class PipelineBench:
             previous_commit,
             acceptance_budget.remaining(),
         )
-        merged = self.platform.wait_for_merge(
-            self.grant, int(pull_request["number"]), acceptance_budget.remaining()
+        arm_timeout = acceptance_budget.remaining()
+        self.auto_merge_armed = True
+        self.platform.arm_auto_merge(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+            arm_timeout,
         )
-        self.auto_merge_armed = False
-        self.evidence["stages"]["acceptance"] = {"ci": ci, "review": acceptance, "merge": merged}
-        self.evidence["state"] = "merged"
+        queued = {
+            "state": "queued",
+            "armedAt": utc_now(),
+            "headCommit": previous_commit,
+        }
+        self.evidence["stages"]["acceptance"] = {
+            "ci": ci,
+            "review": acceptance,
+            "autoMerge": queued,
+        }
+        self.evidence["state"] = "queued"
         self.evidence["completedAt"] = utc_now()
         self._save_evidence()
         artifacts = [
@@ -1818,12 +1868,12 @@ class PipelineBench:
             {"kind": "pull-request", "uri": str(pull_request["url"])},
         ]
         self._emit(
-            "acceptance", "succeeded", summary, acceptance_budget,
+            "acceptance", "succeeded", f"{summary} Auto-merge is queued.", acceptance_budget,
             event_kind="session-completed", outcome_status="succeeded", artifact_refs=artifacts,
         )
         return {
             "ok": True,
-            "state": "merged",
+            "state": "queued",
             "missionId": self.grant["missionId"],
             "sessionId": self.session_id,
             "pullRequest": pull_request,
