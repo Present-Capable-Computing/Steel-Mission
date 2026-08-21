@@ -306,6 +306,13 @@ def test_work_modes_render_distinct_surfaces_and_a_live_model_picker():
     assert "disabled" not in parser.nodes["coordinatorModel"]["attrs"]
 
 
+def test_normal_chat_stays_mounted_when_another_surface_is_visible():
+    source = (WORKER_DIR / "steel-mission-ui" / "src" / "app.tsx").read_text()
+
+    assert re.search(r'data-work-surface="normal-chat"\s+hidden=', source)
+    assert '!settingsOpen && workMode === "normal"' not in source
+
+
 def test_runtime_profile_resolution_endpoint_uses_the_worker_registry(monkeypatch):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["Handler"].do_GET.__globals__

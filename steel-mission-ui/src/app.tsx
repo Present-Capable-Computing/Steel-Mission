@@ -389,11 +389,13 @@ function App() {
           </section>
         )}
 
-        {!settingsOpen && workMode === "normal" && (
-          <section class="work-surface" data-work-surface="normal-chat">
-            <ChatPanel request={apiRequest} workMode={workMode} profile={coordinatorProfile} />
-          </section>
-        )}
+        <section
+          class="work-surface"
+          data-work-surface="normal-chat"
+          hidden={settingsOpen || workMode !== "normal"}
+        >
+          <ChatPanel request={apiRequest} workMode="normal" profile={coordinatorProfile} />
+        </section>
         {!settingsOpen && workMode === "domain-capabilities" && (
           <section class="work-surface" data-work-surface="domain-capabilities">
             <p
