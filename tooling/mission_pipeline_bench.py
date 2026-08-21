@@ -980,25 +980,33 @@ class GitHubPlatform:
         raise BenchError("auto-merge did not land within the acceptance budget")
 
 
+def _result_envelope(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return next((
+            item
+            for item in reversed(value)
+            if isinstance(item, dict) and item.get("type") == "result"
+        ), None)
+    return None
+
+
 def reported_opus_major(output: str) -> int | None:
     try:
         value = json.loads(output)
     except json.JSONDecodeError:
         return None
-    if isinstance(value, dict):
-        envelopes = [value]
-    elif isinstance(value, list):
-        envelopes = [item for item in value if isinstance(item, dict)]
-    else:
+    envelope = _result_envelope(value)
+    if envelope is None:
         return None
     trusted_names: list[str] = []
-    for envelope in envelopes:
-        model = envelope.get("model")
-        if isinstance(model, str):
-            trusted_names.append(model)
-        usage = envelope.get("modelUsage")
-        if isinstance(usage, dict):
-            trusted_names.extend(str(name) for name in usage)
+    model = envelope.get("model")
+    if isinstance(model, str):
+        trusted_names.append(model)
+    usage = envelope.get("modelUsage")
+    if isinstance(usage, dict):
+        trusted_names.extend(str(name) for name in usage)
     versions = [
         int(match.group(1))
         for name in trusted_names
@@ -1009,27 +1017,20 @@ def reported_opus_major(output: str) -> int | None:
 
 def structured_value(result: CommandResult) -> dict[str, Any]:
     try:
-        envelope = json.loads(result.stdout)
+        value = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise BenchError(f"model returned non-JSON output: {result.stdout[-1000:]}") from exc
-    if isinstance(envelope, list):
-        result_events = [
-            item
-            for item in envelope
-            if isinstance(item, dict) and item.get("type") == "result"
-        ]
-        if not result_events:
-            result_events = [
-                item
-                for item in envelope
-                if isinstance(item, dict)
-                and ("structured_output" in item or "result" in item)
-            ]
-        if not result_events:
+    envelope = _result_envelope(value)
+    if envelope is None:
+        if isinstance(value, list):
             raise BenchError("model returned no result object")
-        envelope = result_events[-1]
-    if not isinstance(envelope, dict):
         raise BenchError("model returned a non-object")
+    if envelope.get("type") == "result" and (
+        envelope.get("is_error") is True
+        or envelope.get("api_error_status") is not None
+        or envelope.get("subtype") not in (None, "success")
+    ):
+        raise BenchError("model result reported an error")
     structured = envelope.get("structured_output")
     if isinstance(structured, dict):
         return structured

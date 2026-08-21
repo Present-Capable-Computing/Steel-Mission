@@ -1073,10 +1073,24 @@ def test_claude_stages_require_reported_opus_major_version_five_or_newer():
 def test_claude_stages_accept_the_current_json_event_array():
     structured = {"clean": True, "summary": "runtime preflight", "steps": [], "touchedPaths": []}
     events = [
-        {"type": "system", "model": "claude-opus-5"},
+        {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed"}},
+        {"type": "system", "subtype": "init", "model": "claude-opus-5"},
+        {
+            "type": "assistant",
+            "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "Planning"}]},
+        },
+        {"type": "user", "message": {"role": "user", "content": []}},
         {
             "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "api_error_status": None,
+            "result": json.dumps(structured),
             "structured_output": structured,
+            "usage": {"input_tokens": 2, "output_tokens": 1},
+            "permission_denials": [],
+            "session_id": "session-1",
+            "uuid": "result-1",
             "modelUsage": {
                 "claude-haiku-4-5-20251001": {},
                 "claude-opus-5": {},
@@ -1087,6 +1101,42 @@ def test_claude_stages_accept_the_current_json_event_array():
 
     assert structured_value(result) == structured
     assert reported_opus_major(result.stdout) == 5
+
+
+def test_claude_event_array_does_not_trust_configured_or_model_authored_opus_names():
+    structured = {"summary": "model-authored claude-opus-5 text is not execution evidence"}
+    events = [
+        {"type": "system", "subtype": "init", "model": "claude-opus-5"},
+        {
+            "type": "assistant",
+            "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "opus-5"}]},
+        },
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": json.dumps(structured),
+            "structured_output": structured,
+            "modelUsage": {"claude-sonnet-5": {}},
+        },
+    ]
+    result = CommandResult(["claude"], 0, json.dumps(events), "", 0.1)
+
+    assert structured_value(result) == structured
+    assert reported_opus_major(result.stdout) is None
+
+
+def test_claude_error_result_event_fails_before_structured_output_is_used():
+    events = [{
+        "type": "result",
+        "subtype": "error_during_execution",
+        "is_error": True,
+        "result": "claude-opus-5",
+        "modelUsage": {"claude-opus-5": {}},
+    }]
+
+    with pytest.raises(BenchError, match="model result reported an error"):
+        structured_value(CommandResult(["claude"], 0, json.dumps(events), "", 0.1))
 
 
 def test_model_subprocess_environment_allows_only_its_provider_credential(tmp_path, monkeypatch):
