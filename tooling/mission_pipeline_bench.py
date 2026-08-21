@@ -26,7 +26,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -644,13 +644,20 @@ class GitHubPlatform:
             if {owner.lower() for owner in owners} & machine_logins:
                 raise BenchError("machine accounts cannot own authority paths in CODEOWNERS")
 
-    def claim_issue(self, grant: dict[str, Any], session_id: str) -> None:
+    def claim_issue(
+        self,
+        grant: dict[str, Any],
+        session_id: str,
+        on_assigned: Callable[[], None] | None = None,
+    ) -> None:
         account = grant["machineAccounts"]["local"]
         environment = self._account_env(grant, "local")
         self._run([
             "gh", "issue", "edit", str(grant["issueNumber"]),
             "--repo", grant["repository"], "--add-assignee", account["login"],
         ], extra_env=environment, label="issue assignment")
+        if on_assigned:
+            on_assigned()
         self._run([
             "gh", "issue", "comment", str(grant["issueNumber"]),
             "--repo", grant["repository"],
@@ -1240,7 +1247,7 @@ class PipelineBench:
         )
         self.decisions = decisions or DecisionClient(self.grant["decisionApi"])
         self.sequence = 0
-        self.claimed_at = utc_now()
+        self.claimed_at: str | None = None
         self.issue_payload: dict[str, Any] = {}
         self.stage_started: dict[str, str] = {}
         self.active_stage: str | None = None
@@ -1254,6 +1261,7 @@ class PipelineBench:
             "startedAt": utc_now(),
             "stages": {},
             "reviewCorrectionRounds": 0,
+            "claim": {"status": "unclaimed"},
         }
 
     def _save_evidence(self) -> None:
@@ -1299,7 +1307,7 @@ class PipelineBench:
                 "repository": self.grant["repository"],
                 "number": self.grant["issueNumber"],
                 "url": str(self.issue_payload.get("url") or f"https://github.com/{self.grant['repository']}/issues/{self.grant['issueNumber']}"),
-                "claimedAt": self.claimed_at,
+                "claimedAt": require_text(self.claimed_at, "issue claim timestamp"),
             },
             "stage": stage_name,
             "state": state,
@@ -1497,8 +1505,6 @@ class PipelineBench:
                 self.auto_merge_armed = False
             except BenchError as cancel_error:
                 error = BenchError(f"{error}; auto-merge cancellation also failed: {cancel_error}")
-        if self.active_stage is None or self.active_budget is None:
-            return error
         reason = str(error)[:2000] or "mission bench stopped"
         exhausted = "budget" in reason.lower() or "exceeded its" in reason.lower()
         state = "budget-exhausted" if exhausted else "failed"
@@ -1506,6 +1512,8 @@ class PipelineBench:
         self.evidence["failure"] = {"reason": reason}
         self.evidence["completedAt"] = utc_now()
         self._save_evidence()
+        if self.active_stage is None or self.active_budget is None:
+            return error
         self._emit(
             self.active_stage,
             state,
@@ -1535,15 +1543,28 @@ class PipelineBench:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self._save_evidence()
         plan_budget = StageBudget(self.grant["budgets"]["plan"])
-        self._emit(
-            "plan",
-            "working",
-            "The granted mission is claiming its issue under the validated repository wall.",
-            plan_budget,
-            event_kind="stage-started",
+
+        def record_assignment() -> None:
+            self.claimed_at = utc_now()
+            self.evidence["claim"] = {
+                "status": "assigned",
+                "claimedAt": self.claimed_at,
+            }
+            self._save_evidence()
+            self._emit(
+                "plan",
+                "working",
+                "The granted mission assigned its issue under the validated repository wall.",
+                plan_budget,
+                event_kind="stage-started",
+            )
+
+        self.platform.claim_issue(
+            self.grant,
+            self.session_id,
+            on_assigned=record_assignment,
         )
-        self.platform.claim_issue(self.grant, self.session_id)
-        self.claimed_at = utc_now()
+        self.evidence["claim"]["status"] = "claimed"
         self._save_evidence()
         self._emit(
             "plan",
@@ -1745,6 +1766,10 @@ class PipelineBench:
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
+        self.platform.validate_repository_wall(
+            self.grant,
+            acceptance_budget.remaining(),
+        )
         self.platform.assert_pr_head(
             self.grant,
             int(pull_request["number"]),
@@ -1763,6 +1788,10 @@ class PipelineBench:
             raise BenchError(f"Claude acceptance rejected the mission: {acceptance.get('summary')}")
         summary = require_text(acceptance.get("summary"), "acceptance summary")
         self._enforce_live_issue_guards(acceptance_budget)
+        self.platform.validate_repository_wall(
+            self.grant,
+            acceptance_budget.remaining(),
+        )
         self.platform.assert_pr_head(
             self.grant,
             int(pull_request["number"]),

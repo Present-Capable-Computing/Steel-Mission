@@ -114,8 +114,10 @@ class FakePlatform:
         self.calls.append("branch-protection")
         self.remote_timeouts.append(("branch-protection", timeout))
 
-    def claim_issue(self, _grant, session_id):
+    def claim_issue(self, _grant, session_id, on_assigned=None):
         self.calls.append(f"claim:{session_id}")
+        if on_assigned:
+            on_assigned()
 
     def prepare_worktree(self, _grant, session_dir):
         self.calls.append("worktree")
@@ -450,8 +452,10 @@ def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
 
 def test_partial_claim_failure_is_recorded_after_assignment(tmp_path):
     class PartialClaimPlatform(FakePlatform):
-        def claim_issue(self, _grant, _session_id):
+        def claim_issue(self, _grant, _session_id, on_assigned=None):
             self.calls.append("assignment-succeeded")
+            if on_assigned:
+                on_assigned()
             raise BenchError("issue claim comment failed: comment failed")
 
     state_root = tmp_path / "state"
@@ -475,6 +479,30 @@ def test_partial_claim_failure_is_recorded_after_assignment(tmp_path):
     assert evidence["failure"]["reason"] == "issue claim comment failed: comment failed"
     assert feed[-1]["stage"] == "plan"
     assert feed[-1]["lastEvent"]["kind"] == "session-stopped"
+
+
+def test_assignment_failure_does_not_emit_a_false_claim_timestamp(tmp_path):
+    class AssignmentFailurePlatform(FakePlatform):
+        def claim_issue(self, _grant, _session_id, on_assigned=None):
+            self.calls.append("assignment-failed")
+            raise BenchError("issue assignment failed: assignment failed")
+
+    state_root = tmp_path / "state"
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        state_root,
+        platform=AssignmentFailurePlatform(tmp_path),
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="issue assignment failed"):
+        bench.run()
+
+    evidence = json.loads((bench.session_dir / "evidence.json").read_text())
+    assert evidence["state"] == "failed"
+    assert evidence["failure"]["reason"] == "issue assignment failed: assignment failed"
+    assert not (state_root / "agent-session-status.jsonl").exists()
 
 
 def test_security_review_label_added_during_execution_stops_before_push(tmp_path):
@@ -725,6 +753,31 @@ def test_branch_wall_is_revalidated_before_auto_merge_is_armed(tmp_path):
         bench.run()
 
     assert not any(call.startswith("auto-merge:") for call in platform.calls)
+
+
+def test_frozen_base_is_revalidated_after_ci_before_acceptance(tmp_path):
+    class BaseAdvancesDuringCIPlatform(FakePlatform):
+        def validate_repository_wall(self, grant_value, timeout=None):
+            super().validate_repository_wall(grant_value, timeout)
+            if self.calls.count("branch-protection") == 3:
+                raise BenchError("base branch advanced after mission validation")
+
+    platform = BaseAdvancesDuringCIPlatform(tmp_path)
+    agents = FakeAgents()
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="base branch advanced"):
+        bench.run()
+
+    assert any(call.startswith("ci:") for call in platform.calls)
+    assert not any(kind == "acceptance" for kind, _prompt in agents.prompts)
+    assert "disable-auto-merge" in platform.calls
 
 
 def test_develop_budget_expiry_after_push_prevents_pr_creation(tmp_path, monkeypatch):
