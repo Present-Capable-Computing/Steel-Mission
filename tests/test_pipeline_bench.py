@@ -1070,6 +1070,25 @@ def test_claude_stages_require_reported_opus_major_version_five_or_newer():
     assert reported_opus_major('{"structured_output":{"summary":"opus-5"}}') is None
 
 
+def test_claude_stages_preserve_single_result_object_compatibility():
+    structured = {"clean": True, "summary": "single result", "steps": [], "touchedPaths": []}
+    success = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "api_error_status": None,
+        "structured_output": structured,
+        "modelUsage": {"claude-opus-5": {}},
+    }
+
+    assert structured_value(CommandResult(["claude"], 0, json.dumps(success), "", 0.1)) == structured
+    assert reported_opus_major(json.dumps(success)) == 5
+
+    failure = dict(success, subtype="error_during_execution", is_error=True)
+    with pytest.raises(BenchError, match="model result reported an error"):
+        structured_value(CommandResult(["claude"], 0, json.dumps(failure), "", 0.1))
+
+
 def test_claude_stages_accept_the_current_json_event_array():
     structured = {"clean": True, "summary": "runtime preflight", "steps": [], "touchedPaths": []}
     events = [
