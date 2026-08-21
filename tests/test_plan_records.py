@@ -360,3 +360,11 @@ def test_session_guardrails_are_recorded_on_every_surface():
     assert set(bench["allowedPaths"]) == {"tooling/", "tests/"}, (
         "the bench never enters product code; that is the D7 boundary"
     )
+    # The Founder's operating model of 2026-08-21: every issue runs the
+    # pipeline; a security-review label routes the acceptance stage into a
+    # security review, and only a finding reaches the Founder.
+    workplan = WORKPLAN.read_text()
+    assert "escalates to the Founder only on a finding" in workplan
+    assert "implementation-grade plan" in workplan
+    assert "only on a finding" in bench["requirement"]
+    assert "refuses security-review" not in bench["requirement"]
