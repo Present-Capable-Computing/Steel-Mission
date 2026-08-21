@@ -59,6 +59,19 @@ def _coordinator_output_schema() -> dict[str, Any]:
     return schema
 
 
+def _jsonl_events(output: str) -> list[dict[str, Any]]:
+    """Return the structured events from Codex's ``exec --json`` stream."""
+    events = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
 def model_binding_error(model: str, effort: str | None = None) -> str | None:
     """Return a named configuration error before an unsupported call is attempted."""
     if model not in SUPPORTED_MODELS:
@@ -285,6 +298,7 @@ def coordinator_report(
             BINARY,
             "--ask-for-approval", "never",
             "exec",
+            "--json",
             "--ephemeral",
             "--model", model,
             "--config", f'model_reasoning_effort="{effort}"',
@@ -303,6 +317,9 @@ def coordinator_report(
             result = common.run(command, timeout=timeout, input=prompt, cwd=common.WORKER_DIR)
         except Exception as exc:  # noqa: BLE001
             return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": str(exc), "retryable": True}
+        if progress is not None:
+            for event in _jsonl_events(result.stdout):
+                progress(event)
         if result.returncode != 0 or not output_path.exists():
             reason = (result.stderr or result.stdout).strip()[-1000:] or "Codex produced no final message"
             return {"status": "PROVIDER_ERROR", "provider": "codex", "reason": reason, "retryable": True}

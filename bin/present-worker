@@ -3152,6 +3152,73 @@ def _coordinator_progress_scope(snapshot: dict) -> str:
     return _coordinator_join_phrases(parts)
 
 
+def _coordinator_token_count(source: dict, *names: str) -> int | None:
+    for name in names:
+        value = source.get(name)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+    return None
+
+
+def _coordinator_token_usage_from_event(provider: str, event: dict) -> dict | None:
+    """Normalize native provider usage without turning absence into zero."""
+    nested = next((
+        event.get(name) for name in ("usage", "token_usage", "tokenUsage")
+        if isinstance(event.get(name), dict)
+    ), None)
+    source = nested if isinstance(nested, dict) else event
+    aliases = {
+        "inputTokens": ("input_tokens", "inputTokens", "prompt_eval_count", "promptEvalCount"),
+        "outputTokens": ("output_tokens", "outputTokens", "eval_count", "evalCount"),
+        "cachedInputTokens": ("cached_input_tokens", "cachedInputTokens"),
+        "cacheCreationInputTokens": ("cache_creation_input_tokens", "cacheCreationInputTokens"),
+        "cacheReadInputTokens": ("cache_read_input_tokens", "cacheReadInputTokens"),
+        "totalTokens": ("total_tokens", "totalTokens"),
+    }
+    counts = {
+        target: count
+        for target, names in aliases.items()
+        if (count := _coordinator_token_count(source, *names)) is not None
+    }
+    if not counts:
+        return None
+    if "totalTokens" not in counts:
+        total_fields = ["inputTokens", "outputTokens"]
+        if provider == "claude":
+            total_fields += ["cacheCreationInputTokens", "cacheReadInputTokens"]
+        counted = [counts[name] for name in total_fields if name in counts]
+        if counted:
+            counts["totalTokens"] = sum(counted)
+    return {"status": "reported", **counts}
+
+
+def _coordinator_merge_token_usage(current: dict, reported: dict) -> dict:
+    if current.get("status") != "reported":
+        return dict(reported)
+    numeric_fields = set(current) | set(reported)
+    numeric_fields.discard("status")
+    return {
+        "status": "reported",
+        **{
+            field: int(current.get(field) or 0) + int(reported.get(field) or 0)
+            for field in numeric_fields
+        },
+    }
+
+
+def _coordinator_invocation_token_usage(task_id: str, mocked: bool) -> dict:
+    if mocked:
+        return {"status": "unknown"}
+    try:
+        progress = json.loads((common.TASKS_DIR / task_id / "progress.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"status": "unknown"}
+    usage = progress.get("tokenUsage") if isinstance(progress, dict) else None
+    if not isinstance(usage, dict) or usage.get("status") not in {"reported", "unknown"}:
+        return {"status": "unknown"}
+    return dict(usage)
+
+
 def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: dict | None = None, *,
                          provider: str = "claude", model: str | None = None,
                          effort: str | None = None):
@@ -3198,6 +3265,7 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
         "model": active_model,
         **({"effort": effort} if effort else {}),
         "thinkingTokens": 0,
+        "tokenUsage": {"status": "unknown"},
         "events": 0,
         "startedAt": common.utc_now(),
         "elapsedSeconds": 0,
@@ -3262,6 +3330,9 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
     def on_event(event: dict) -> None:
         state["events"] += 1
         kind, subtype = event.get("type"), event.get("subtype")
+        reported_usage = _coordinator_token_usage_from_event(provider, event)
+        if reported_usage is not None:
+            state["tokenUsage"] = _coordinator_merge_token_usage(state["tokenUsage"], reported_usage)
         if isinstance(event.get("pid"), int):
             state["modelPid"] = event["pid"]
         if isinstance(event.get("pgid"), int):
@@ -3404,7 +3475,12 @@ def cmd_coordinator_report(args) -> int:
         role = "claude"
     if result.get("schemaVersion") == 1:
         common.write_task_artifact(args.task_id, "coordination-report", result)
-    invocation = {"provider": provider, "model": model, **({"effort": effort} if effort else {})}
+    invocation = {
+        "provider": provider,
+        "model": model,
+        **({"effort": effort} if effort else {}),
+        "tokenUsage": _coordinator_invocation_token_usage(args.task_id, args.mock),
+    }
     common.record_stage(args.task_id, "coordination-report", result, role=role, **invocation)
     return emit(result)
 

@@ -546,6 +546,7 @@ def test_codex_live_fix_uses_supported_noninteractive_approval_config(tmp_path):
 
 def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical():
     captured = {}
+    progress = []
     original_auth = codex_adapter.authenticated
     original_run = codex_adapter.common.run
     try:
@@ -571,7 +572,16 @@ def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical(
                 "contradictions": [],
                 "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE,
             }))
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    '{"type":"thread.started","thread_id":"thread-1"}\n'
+                    '{"type":"turn.completed","usage":{"input_tokens":120,'
+                    '"cached_input_tokens":20,"output_tokens":30}}\n'
+                ),
+                stderr="",
+            )
 
         codex_adapter.common.run = fake_run
         payload = codex_adapter.coordinator_report(
@@ -582,6 +592,7 @@ def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical(
             {"probe": "ok", "packageId": "DC13", "corpusGeneration": 1, "currentThrough": "today"},
             model="gpt-5.6-terra",
             effort="high",
+            progress=progress.append,
         )
 
         command = captured["command"]
@@ -589,6 +600,7 @@ def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical(
         assert command[command.index("--model") + 1] == "gpt-5.6-terra"
         assert command[command.index("--config") + 1] == 'model_reasoning_effort="high"'
         assert command[command.index("--sandbox") + 1] == "read-only"
+        assert "--json" in command
         assert "--output-schema" in command
         item_schema = captured["schema"]["properties"]["items"]["items"]
         assert item_schema["required"] == ["subject", "status", "stateClass", "source", "freshness", "note"]
@@ -598,6 +610,10 @@ def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical(
         assert payload["mock"] is False
         assert payload["packIdentity"]["probe"] == "ok"
         assert "note" not in payload["items"][0]
+        assert progress[-2] == {
+            "type": "turn.completed",
+            "usage": {"input_tokens": 120, "cached_input_tokens": 20, "output_tokens": 30},
+        }
         assert schema_check.validate(payload, "canonical/coordination-report-v1.json") == []
     finally:
         codex_adapter.authenticated = original_auth
@@ -4988,6 +5004,41 @@ def test_glimmer_coordinator_rewarms_an_unloaded_model_before_chat(monkeypatch):
     ]
 
 
+def test_glimmer_stream_reports_native_ollama_evaluation_counts(monkeypatch):
+    report = {"summary": "Local answer", "items": [], "notChecked": [], "contradictions": []}
+    events = [
+        {"response": json.dumps(report), "done": False},
+        {"response": "", "done": True, "prompt_eval_count": 144, "eval_count": 21},
+    ]
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def __iter__(self):
+            return iter([json.dumps(event).encode() + b"\n" for event in events])
+
+    monkeypatch.setattr(glimmer_adapter.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    progress: list[dict] = []
+
+    output, error = glimmer_adapter._generate_streaming_json(
+        {"model": "qwen2.5-coder:14b", "prompt": "status"},
+        timeout=30,
+        progress=progress.append,
+    )
+
+    assert error is None
+    assert output == report
+    assert progress[-1] == {
+        "type": "result",
+        "subtype": "success",
+        "usage": {"input_tokens": 144, "output_tokens": 21},
+    }
+
+
 def test_glimmer_coordinator_reports_a_failed_rewarm_without_starting_chat(monkeypatch):
     progress: list[dict] = []
     generation_called = False
@@ -5366,6 +5417,7 @@ def test_changing_registry_model_changes_coordinator_invocation_and_record(monke
         "provider": "codex",
         "model": "gpt-5.6-terra",
         "effort": "high",
+        "tokenUsage": {"status": "unknown"},
     }
 
 
@@ -6332,6 +6384,7 @@ def test_coordinator_progress_messages_name_the_question_and_snapshot_context():
         assert initial["phase"].startswith("Starting Claude")
         assert initial["provider"] == "claude"
         assert initial["model"] == cli.claude_adapter.COORDINATOR_MODEL
+        assert initial["tokenUsage"] == {"status": "unknown"}
         assert initial["timeline"][0]["label"] == "Snapshot ready"
         assert "30 of 47 tasks" in initial["timeline"][0]["detail"]
         assert initial["timeline"][1]["label"] == "Context checkpoint"
@@ -6387,12 +6440,28 @@ def test_coordinator_progress_messages_name_the_question_and_snapshot_context():
         assert writing["timeline"][-2]["label"] == "Writing findings"
         assert writing["timeline"][-1]["label"] == "Context checkpoint"
 
-        writer({"type": "result"})
+        writer({
+            "type": "result",
+            "usage": {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 20,
+                "cache_read_input_tokens": 30,
+                "output_tokens": 11,
+            },
+        })
         finishing = json.loads((progress_dir / "progress.json").read_text())
         assert finishing["phase"].startswith("Finalizing the reconciled report")
         assert finishing["events"] == 6
         assert finishing["resultSeconds"] >= started["firstEventSeconds"]
         assert finishing["timeline"][-1]["label"] == "Result received"
+        assert finishing["tokenUsage"] == {
+            "status": "reported",
+            "inputTokens": 10,
+            "outputTokens": 11,
+            "cacheCreationInputTokens": 20,
+            "cacheReadInputTokens": 30,
+            "totalTokens": 71,
+        }
     finally:
         purge_task(task_id)
 
@@ -6486,6 +6555,101 @@ def test_coordinator_progress_messages_show_codex_provider_and_model():
         assert initial["providerLabel"] == "Codex"
         assert initial["model"] == "codex-cli-default"
         assert initial["phase"].startswith("Starting Codex")
+    finally:
+        purge_task(task_id)
+
+
+@pytest.mark.parametrize(("provider", "event", "expected"), [
+    (
+        "claude",
+        {"usage": {"inputTokens": 8, "cacheCreationInputTokens": 12,
+                   "cacheReadInputTokens": 20, "outputTokens": 5}},
+        {"status": "reported", "inputTokens": 8, "outputTokens": 5,
+         "cacheCreationInputTokens": 12, "cacheReadInputTokens": 20, "totalTokens": 45},
+    ),
+    (
+        "codex",
+        {"type": "turn.completed", "usage": {
+            "input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 25,
+        }},
+        {"status": "reported", "inputTokens": 100, "outputTokens": 25,
+         "cachedInputTokens": 40, "totalTokens": 125},
+    ),
+    (
+        "glimmer",
+        {"prompt_eval_count": 144, "eval_count": 21},
+        {"status": "reported", "inputTokens": 144, "outputTokens": 21, "totalTokens": 165},
+    ),
+])
+def test_coordinator_token_usage_normalizes_provider_native_counts(provider, event, expected):
+    cli = _load_cli_module()
+    assert cli._coordinator_token_usage_from_event(provider, event) == expected
+
+
+def test_coordinator_token_usage_missing_or_invalid_is_unknown():
+    cli = _load_cli_module()
+    assert cli._coordinator_token_usage_from_event("claude", {"type": "result"}) is None
+    assert cli._coordinator_token_usage_from_event(
+        "codex", {"usage": {"input_tokens": -1, "output_tokens": True}}
+    ) is None
+
+
+def test_coordinator_invocation_record_uses_the_same_reported_usage_as_progress(monkeypatch):
+    cli = _load_cli_module()
+    task_id = "DEV-900191"
+    captured: dict = {}
+    purge_task(task_id)
+    try:
+        (common.TASKS_DIR / task_id).mkdir(parents=True)
+
+        class Args:
+            mock = False
+            timeout_seconds = 42
+            profile = None
+            role = None
+            provider = None
+
+        Args.task_id = task_id
+
+        def fake_report(*_args, progress=None, **_kwargs):
+            assert progress is not None
+            progress({
+                "type": "turn.completed",
+                "usage": {"input_tokens": 120, "cached_input_tokens": 20, "output_tokens": 30},
+            })
+            return {"status": "OK"}
+
+        def fake_record(_task_id, _stage, _fields=None, **extra):
+            captured["record"] = extra
+            return extra
+
+        monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+        monkeypatch.setattr(cli, "_effective_coordinator_runtime_profile", lambda *_args: None)
+        monkeypatch.setattr(cli, "_effective_coordinator_model_policy", lambda *_args: {
+            "role": "dc13.coordination-report",
+            "provider": "codex",
+            "selectedModel": "gpt-5.6-sol",
+            "nativeCapabilities": ["provider-native-cli", "reasoning-effort:xhigh"],
+        })
+        monkeypatch.setattr(cli, "_effective_coordinator_snapshot_policy", lambda *_args: {})
+        monkeypatch.setattr(cli, "_coordinator_state_snapshot", lambda *_args: {})
+        monkeypatch.setattr(cli, "_coordinator_pack_identity", lambda: {"probe": "ok"})
+        monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+        monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Where are we?")
+        monkeypatch.setattr(cli.common, "record_stage", fake_record)
+        monkeypatch.setattr(cli.codex_adapter, "coordinator_report", fake_report)
+        monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+        assert cli.cmd_coordinator_report(Args()) == 0
+        progress = json.loads((common.TASKS_DIR / task_id / "progress.json").read_text())
+        assert progress["tokenUsage"] == {
+            "status": "reported",
+            "inputTokens": 120,
+            "outputTokens": 30,
+            "cachedInputTokens": 20,
+            "totalTokens": 150,
+        }
+        assert captured["record"]["tokenUsage"] == progress["tokenUsage"]
     finally:
         purge_task(task_id)
 

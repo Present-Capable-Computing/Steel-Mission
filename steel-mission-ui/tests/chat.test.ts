@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   answerDecision,
   chatAnswerText,
+  chatTokenUsageLabel,
   pollChatJob,
   sendFollowUp,
   startChat,
@@ -57,4 +58,28 @@ test("follow-ups and decisions use the active chat job", async () => {
     {path: "/api/chat/JOB1/follow-up", body: {content: "Focus on blockers."}},
     {path: "/api/chat/JOB1/decision", body: {optionId: "continue", freeText: "Use the safe default."}},
   ]);
+});
+
+
+test("chat token usage names the provider-reported total", () => {
+  assert.equal(chatTokenUsageLabel({
+    provider: "glimmer",
+    providerLabel: "Glimmer",
+    tokenUsage: {
+      status: "reported",
+      inputTokens: 144,
+      outputTokens: 21,
+      totalTokens: 165,
+    },
+  }), "165 tokens reported by Glimmer");
+});
+
+
+test("chat token usage is unknown when the provider reports nothing", () => {
+  assert.equal(chatTokenUsageLabel({
+    provider: "codex",
+    providerLabel: "Codex",
+    tokenUsage: {status: "unknown"},
+  }), "Token usage unknown for Codex");
+  assert.equal(chatTokenUsageLabel(undefined), "Token usage unknown");
 });
