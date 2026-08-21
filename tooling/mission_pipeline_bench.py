@@ -534,34 +534,33 @@ class GitHubPlatform:
             expected = account["login"]
             environment = self._account_env(grant, worker)
             result = self._run(
-                ["gh", "api", "user", "--jq", ".login"],
+                ["gh", "api", "user"],
                 extra_env=environment,
+                complete_stdout=True,
                 label=f"{worker} machine-account check",
             )
-            actual = result.stdout.strip()
+            try:
+                identity = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                raise BenchError(f"{worker} machine-account check returned invalid JSON") from exc
+            if not isinstance(identity, dict):
+                raise BenchError(f"{worker} machine-account check returned a non-object")
+            actual = identity.get("login")
+            account_id = identity.get("id")
+            if not isinstance(actual, str) or not actual:
+                raise BenchError(f"{worker} machine-account check omitted its login")
+            if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
+                raise BenchError(f"{worker} machine-account check omitted its numeric account id")
             if actual != expected:
                 raise BenchError(f"{worker} credential belongs to {actual!r}, expected {expected!r}")
             if actual in seen:
                 raise BenchError("machine-account credentials resolve to duplicate GitHub users")
             seen.add(actual)
-            email_result = self._run(
-                ["gh", "api", "user/emails"],
-                extra_env=environment,
-                complete_stdout=True,
-                label=f"{worker} verified-email check",
-            )
-            try:
-                emails = json.loads(email_result.stdout)
-            except json.JSONDecodeError as exc:
-                raise BenchError(f"{worker} verified-email check returned invalid JSON") from exc
-            verified = {
-                str(item.get("email", "")).lower()
-                for item in emails
-                if isinstance(item, dict) and item.get("verified") is True
-            } if isinstance(emails, list) else set()
-            if account["email"].lower() not in verified:
+            expected_email = f"{account_id}+{actual}@users.noreply.github.com"
+            if account["email"].lower() != expected_email.lower():
                 raise BenchError(
-                    f"{worker} commit email is not verified by its authenticated GitHub account"
+                    f"{worker} commit email must match its authenticated GitHub account's "
+                    "canonical no-reply identity"
                 )
 
     def validate_repository_wall(self, grant: dict[str, Any], timeout: float = 120) -> None:
