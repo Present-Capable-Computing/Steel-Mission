@@ -24,6 +24,7 @@
 /adapters/                      @andrewHermann
 
 # Supply chain and release surface. Human-owned.
+/.github/CODEOWNERS              @andrewHermann
 /.github/workflows/             @andrewHermann
 /Dockerfile.private-runner      @andrewHermann
 /requirements-dev.txt           @andrewHermann
