@@ -3322,7 +3322,15 @@ select {
             section.id
           )) })
         ] }),
-        !settingsOpen && workMode === "normal" && /* @__PURE__ */ u3("section", { class: "work-surface", "data-work-surface": "normal-chat", children: /* @__PURE__ */ u3(ChatPanel, { request: apiRequest, workMode, profile: coordinatorProfile }) }),
+        /* @__PURE__ */ u3(
+          "section",
+          {
+            class: "work-surface",
+            "data-work-surface": "normal-chat",
+            hidden: settingsOpen || workMode !== "normal",
+            children: /* @__PURE__ */ u3(ChatPanel, { request: apiRequest, workMode: "normal", profile: coordinatorProfile })
+          }
+        ),
         !settingsOpen && workMode === "domain-capabilities" && /* @__PURE__ */ u3("section", { class: "work-surface", "data-work-surface": "domain-capabilities", children: [
           /* @__PURE__ */ u3(
             "p",
