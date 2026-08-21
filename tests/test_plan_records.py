@@ -314,3 +314,41 @@ def test_prj_0001_mission_pipeline_is_recorded_on_every_surface():
     manifest = _load(MANIFEST)
     bench = next(i for i in manifest["issues"] if i["key"] == "c1-mission-pipeline-bench")
     assert "security-review" in bench["labels"]
+
+
+def test_session_guardrails_are_recorded_on_every_surface():
+    # The #185 spiral: a session found its blocker, kept building for five
+    # hours, crossed a trust boundary, and grew a thin bench past four thousand
+    # lines. Each guardrail below exists because prose alone did not stop it.
+    workplan = WORKPLAN.read_text()
+    for phrase in (
+        "Reachability before work",
+        "Session ceilings end the session",
+        "An issue names its paths",
+        "Reviews converge or escalate",
+        "Acceptance runs where the code runs",
+    ):
+        assert phrase in workplan, f"working agreement lost the rule: {phrase}"
+
+    manifest = _load(MANIFEST)
+    by_key = {issue["key"]: issue for issue in manifest["issues"]}
+
+    # Every task issue carries a wall, not a hand-picked subset: the rule says
+    # "each agent-workable issue", and a wall that exists only where someone
+    # remembered to add one is not a wall. Walls are refined per issue at claim
+    # time through a manifest change, never silently widened by a session.
+    for key, issue in by_key.items():
+        if "epic" in issue["labels"]:
+            continue
+        wall = issue.get("allowedPaths")
+        assert isinstance(wall, list) and wall, f"{key}: no path wall declared"
+
+    bench = by_key["c1-mission-pipeline-bench"]
+    assert "c1-founder-machine-accounts" in bench["dependsOn"], (
+        "the bench must be blocked on the Founder's machine-account act, "
+        "or a session starts work whose acceptance is unreachable"
+    )
+    assert "700" in bench["acceptance"], "the bench's line ceiling is printed"
+    assert set(bench["allowedPaths"]) == {"tooling/", "tests/"}, (
+        "the bench never enters product code; that is the D7 boundary"
+    )
