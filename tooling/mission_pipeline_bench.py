@@ -42,9 +42,10 @@ AUTHORITY_PATHS = (
     "docs/workplan.md",
     ".github/CODEOWNERS",
 )
+LOCAL_DEVELOPER_MODEL = "qwen3-coder:30b"
 STAGE_DETAILS = {
     "plan": ("plan", "claude", "planner", "opus"),
-    "develop": ("develop-and-commit", "local", "developer", "qwen2.5-coder:14b"),
+    "develop": ("develop-and-commit", "local", "developer", LOCAL_DEVELOPER_MODEL),
     "review": ("review-loop", "codex", "reviewer", "codex"),
     "acceptance": ("final-review-and-merge", "claude", "acceptance", "opus"),
 }
@@ -129,6 +130,13 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
     require_text(grant.get("grantedBy"), "grantedBy")
     require_text(grant.get("requirement"), "requirement")
     require_text(grant.get("acceptanceEvidence"), "acceptanceEvidence")
+    allowed_paths = grant.get("allowedPaths")
+    if not isinstance(allowed_paths, list) or not allowed_paths:
+        raise BenchError("allowedPaths must be a non-empty array")
+    for path in allowed_paths:
+        normalized = require_text(path, "allowedPaths entry")
+        if normalized.startswith(("/", "../")) or "/../" in normalized or normalized == "..":
+            raise BenchError("allowedPaths entries must be repository-relative")
 
     surfaces = grant.get("surfaces")
     surface_names = {
@@ -508,6 +516,11 @@ class GitHubPlatform:
             names.add(decision_token_env)
         return names
 
+    @classmethod
+    def _operator_env(cls, grant: dict[str, Any]) -> dict[str, str]:
+        """Use the operator's ambient gh session without exposing machine tokens."""
+        return {name: "" for name in cls._credential_envs(grant)}
+
     def _untrusted_git_env(self, grant: dict[str, Any], worktree: Path) -> dict[str, str]:
         return isolated_command_env(
             worktree.parent,
@@ -563,7 +576,7 @@ class GitHubPlatform:
                     "canonical no-reply identity"
                 )
 
-    def validate_repository_wall(self, grant: dict[str, Any], timeout: float = 120) -> None:
+    def validate_repository_wall(self, grant: dict[str, Any], timeout: float = 120) -> dict[str, str]:
         deadline = time.monotonic() + timeout
 
         def remaining() -> float:
@@ -574,13 +587,14 @@ class GitHubPlatform:
 
         encoded_branch = urllib.parse.quote(grant["baseBranch"], safe="")
         ref_endpoint = f"repos/{grant['repository']}/git/ref/heads/{encoded_branch}"
-        environment = self._account_env(grant, "local")
+        environment = self._operator_env(grant)
 
         def live_base_oid() -> str:
             result = self._run(
                 ["gh", "api", ref_endpoint],
                 timeout=remaining(),
                 extra_env=environment,
+                inherit_env=False,
                 complete_stdout=True,
                 label="base branch revision read",
             )
@@ -600,12 +614,12 @@ class GitHubPlatform:
         codeowners_result = self._run([
             "gh", "api", "-H", "Accept: application/vnd.github.raw+json",
             f"repos/{grant['repository']}/contents/.github/CODEOWNERS?ref={base_oid}",
-        ], timeout=remaining(), extra_env=environment, complete_stdout=True,
+        ], timeout=remaining(), extra_env=environment, inherit_env=False, complete_stdout=True,
             label="live-base CODEOWNERS read")
         result = self._run([
             "gh", "api",
             f"repos/{grant['repository']}/branches/{grant['baseBranch']}/protection",
-        ], timeout=remaining(), extra_env=environment, complete_stdout=True,
+        ], timeout=remaining(), extra_env=environment, inherit_env=False, complete_stdout=True,
             label="branch protection read")
         try:
             protection = json.loads(result.stdout)
@@ -651,23 +665,52 @@ class GitHubPlatform:
         self.validated_base_oids[grant["baseBranch"]] = base_oid
         rules = [line.split() for line in codeowners if line.strip() and not line.lstrip().startswith("#")]
         default_rule = next((rule for rule in reversed(rules) if rule[0] == "*"), [])
-        default_owners = {token.lstrip("@") for token in default_rule[1:]}
-        if {owner.lower() for owner in default_owners} != {acceptance_login.lower()}:
-            raise BenchError("Claude acceptance account must be the sole default CODEOWNER")
-        authority_patterns = (
+        default_owners = {token.lstrip("@").lower() for token in default_rule[1:]}
+        expected_non_authority_owners = {
+            grant["grantedBy"].lower(),
+            acceptance_login.lower(),
+        }
+        if default_owners != expected_non_authority_owners:
+            raise BenchError("Founder and Claude acceptance must co-own default non-authority paths")
+        for pattern in ("/steel_core/", "/tooling/"):
+            rule = next((candidate for candidate in reversed(rules) if candidate[0] == pattern), [])
+            owners = {token.lstrip("@").lower() for token in rule[1:]}
+            if owners != expected_non_authority_owners:
+                raise BenchError(f"Founder and Claude acceptance must co-own {pattern}")
+        person_only_patterns = (
+            "/schemas/",
             "/schemas/canonical/",
             "/schemas/schema-registry.json",
+            "/bin/",
+            "/steel-mission-chat/",
+            "/adapters/",
+            "/.github/workflows/",
+            "/Dockerfile.private-runner",
+            "/requirements-dev.txt",
+            "/package.json",
+            "/package-lock.json",
+            "/plan/",
             "/docs/workplan.md",
-            "/.github/CODEOWNERS",
         )
-        if [rule[0] for rule in rules[-len(authority_patterns):]] != list(authority_patterns):
-            raise BenchError("Person-owned authority rules must be the final effective CODEOWNERS rules")
-        for pattern, rule in zip(authority_patterns, rules[-len(authority_patterns):], strict=True):
-            owners = {token.lstrip("@") for token in rule[1:]}
-            if not owners:
-                raise BenchError(f"{pattern} must remain Person-owned in CODEOWNERS")
-            if {owner.lower() for owner in owners} & machine_logins:
+        person_login = grant["grantedBy"].lower()
+        for pattern in person_only_patterns:
+            matching = [
+                rule for rule in rules
+                if rule[0] == pattern or rule[0].startswith(pattern)
+            ]
+            exact_rule = next((rule for rule in reversed(matching) if rule[0] == pattern), [])
+            exact_owners = {token.lstrip("@").lower() for token in exact_rule[1:]}
+            if exact_owners != {person_login}:
+                raise BenchError(f"{pattern} must remain Founder-owned in CODEOWNERS")
+            if any(
+                {token.lstrip("@").lower() for token in rule[1:]} & machine_logins
+                for rule in matching
+            ):
                 raise BenchError("machine accounts cannot own authority paths in CODEOWNERS")
+        return {
+            "credentialBoundary": "operator-ambient",
+            "baseCommit": base_oid,
+        }
 
     def claim_issue(
         self,
@@ -756,6 +799,8 @@ class GitHubPlatform:
             inherit_env=False,
             label="new commit read",
         ).stdout.splitlines()
+        if not commits:
+            raise BenchError("local developer did not create an attributable commit")
         if len(commits) != 1:
             raise BenchError("local developer must create exactly one attributable commit per turn")
         head = commits[0]
@@ -935,6 +980,32 @@ class GitHubPlatform:
             "--match-head-commit", head_commit,
         ], timeout=timeout, extra_env=self._account_env(grant, "local"), label="auto-merge arming")
 
+    def assert_auto_merge_waiting(
+        self,
+        grant: dict[str, Any],
+        pr_number: int,
+        expected_commit: str,
+        timeout: float,
+    ) -> dict[str, Any]:
+        result = self._run([
+            "gh", "pr", "view", str(pr_number), "--repo", grant["repository"],
+            "--json", "state,headRefOid,reviewDecision,autoMergeRequest",
+        ], timeout=timeout, extra_env=self._account_env(grant, "local"), complete_stdout=True,
+            label="armed auto-merge read")
+        try:
+            value = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise BenchError("armed auto-merge read returned invalid JSON") from exc
+        if not isinstance(value, dict):
+            raise BenchError("armed auto-merge read returned a non-object")
+        if value.get("state") != "OPEN" or value.get("headRefOid") != expected_commit:
+            raise BenchError("auto-merge is not waiting on the granted pull request head")
+        if value.get("reviewDecision") != "REVIEW_REQUIRED":
+            raise BenchError("auto-merge was not held by the required approval wall")
+        if not isinstance(value.get("autoMergeRequest"), dict):
+            raise BenchError("auto-merge is not armed")
+        return value
+
     def disable_auto_merge(self, grant: dict[str, Any], pr_number: int) -> None:
         self._run([
             "gh", "pr", "merge", str(pr_number), "--repo", grant["repository"], "--disable-auto",
@@ -1083,10 +1154,22 @@ class AgentDriver:
     ACCEPT_SCHEMA = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["verdict", "summary"],
+        "required": ["verdict", "summary", "securityFindings"],
         "properties": {
             "verdict": {"type": "string", "enum": ["approve", "reject"]},
             "summary": {"type": "string"},
+            "securityFindings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["priority", "body"],
+                    "properties": {
+                        "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
+                        "body": {"type": "string"},
+                    },
+                },
+            },
         },
     }
 
@@ -1179,7 +1262,7 @@ class AgentDriver:
         timeout = budget.use_turn()
         result = self.runner.run([
             "codex", "exec", "--oss", "--local-provider", "ollama",
-            "-m", "qwen2.5-coder:14b", "--ephemeral", "-s", "workspace-write",
+            "-m", LOCAL_DEVELOPER_MODEL, "--ephemeral", "-s", "danger-full-access",
             "-C", str(worktree), "-",
         ], worktree, timeout, input_text=prompt, extra_env=self._agent_env(_session_dir, "local"), inherit_env=False)
         if result.returncode != 0:
@@ -1300,6 +1383,7 @@ class PipelineBench:
         self.active_stage: str | None = None
         self.active_budget: StageBudget | None = None
         self.auto_merge_armed = False
+        self.security_review_required = any(self.grant["surfaces"].values())
         self.evidence: dict[str, Any] = {
             "schemaVersion": 1,
             "missionId": self.grant["missionId"],
@@ -1334,6 +1418,7 @@ class PipelineBench:
     ) -> None:
         self.active_stage = stage
         self.active_budget = budget
+        feed_summary = summary if len(summary) <= 2000 else summary[:1997] + "..."
         self.sequence += 1
         event_id = "ase-" + secrets.token_hex(12)
         stage_name, worker_key, role, model = STAGE_DETAILS[stage]
@@ -1371,13 +1456,13 @@ class PipelineBench:
                 "sequence": self.sequence,
                 "at": produced_at,
                 "kind": event_kind,
-                "summary": summary,
+                "summary": feed_summary,
             },
             "budgetLimit": budget.limit(),
             "budgetSpent": budget.spent(),
             "outcome": {
                 "status": outcome_status,
-                "summary": summary,
+                "summary": feed_summary,
                 **({"artifactRefs": artifact_refs} if artifact_refs else {}),
             },
         }
@@ -1466,11 +1551,15 @@ class PipelineBench:
             "Revert the mission commit or close this pull request without merging. The bench does not mutate main directly.\n"
         )
 
-    def _decision_pending(self, handle: dict[str, Any]) -> dict[str, Any]:
+    def _decision_pending(
+        self,
+        handle: dict[str, Any],
+        kind: str = "plan-unclean",
+    ) -> dict[str, Any]:
         request = handle.get("decisionRequest") if isinstance(handle.get("decisionRequest"), dict) else {}
         return {
             "decisionId": require_text(request.get("id"), "decision request id"),
-            "kind": "plan-unclean",
+            "kind": kind,
             "question": require_text(request.get("question"), "decision request question"),
             "requestedAt": str(request.get("requestedAt") or utc_now()),
             "url": require_text(handle.get("url"), "decision URL"),
@@ -1520,14 +1609,25 @@ class PipelineBench:
                     f"abort condition matched changed repository paths: {matched}"
                 )
 
+    def _enforce_allowed_paths(self, paths: list[str]) -> None:
+        outside = [
+            path for path in paths
+            if not any(
+                path == prefix.rstrip("/")
+                or path.startswith(prefix.rstrip("/") + "/")
+                for prefix in self.grant["allowedPaths"]
+            )
+        ]
+        if outside:
+            raise BenchError(f"repository paths are outside the granted path wall: {outside}")
+
     def _enforce_live_issue_guards(self, budget: StageBudget) -> None:
         issue = self.platform.issue(self.grant, budget.remaining())
         labels = {
             str(item.get("name")) for item in issue.get("labels", [])
             if isinstance(item, dict) and item.get("name")
         }
-        if "security-review" in labels:
-            raise BenchError("mission bench refuses issues labelled security-review")
+        self.security_review_required = self.security_review_required or "security-review" in labels
         if not any(
             condition["kind"] == "grant-drift"
             for condition in self.grant["abortConditions"]
@@ -1547,8 +1647,9 @@ class PipelineBench:
         budget: StageBudget,
         contract: str,
     ) -> None:
-        self._enforce_path_abort_conditions(paths)
         self._stop_for_authority_paths(paths, budget, contract)
+        self._enforce_allowed_paths(paths)
+        self._enforce_path_abort_conditions(paths)
 
     def run(self) -> dict[str, Any]:
         try:
@@ -1589,16 +1690,13 @@ class PipelineBench:
         return error
 
     def _run_pipeline(self) -> dict[str, Any]:
-        if any(self.grant["surfaces"].values()):
-            raise BenchError("mission bench refuses grants declaring a security-review surface")
         issue = self.platform.issue(self.grant)
         self.issue_payload = issue
         labels = {
             str(item.get("name")) for item in issue.get("labels", [])
             if isinstance(item, dict) and item.get("name")
         }
-        if "security-review" in labels:
-            raise BenchError("mission bench refuses issues labelled security-review")
+        self.security_review_required = self.security_review_required or "security-review" in labels
         requirement = issue_section(str(issue.get("body") or ""), "Requirement")
         acceptance = issue_section(str(issue.get("body") or ""), "Acceptance evidence")
         if requirement != self.grant["requirement"] or acceptance != self.grant["acceptanceEvidence"]:
@@ -1644,8 +1742,11 @@ class PipelineBench:
         self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget)
         plan_prompt = (
             "Plan this granted mission. Do not change its requirement, acceptance evidence, budgets, or authority. "
-            "Return clean=false when any assumption, scope boundary, or acceptance command is unresolved.\n\n"
-            f"{contract}\n\nAbort conditions: {json.dumps(self.grant['abortConditions'])}"
+            "Return clean=false when any assumption, scope boundary, or acceptance command is unresolved. "
+            "Every touchedPaths entry must stay inside the granted path wall.\n\n"
+            f"{contract}\n\nAllowed paths: {json.dumps(self.grant['allowedPaths'])}\n\n"
+            f"Definition of done: {json.dumps(self.grant['definitionOfDone'], sort_keys=True)}\n\n"
+            f"Abort conditions: {json.dumps(self.grant['abortConditions'])}"
         )
         plan = self.agents.plan(plan_prompt, worktree, plan_budget, self.session_dir)
         if plan.get("clean") is not True:
@@ -1671,6 +1772,10 @@ class PipelineBench:
             )
             if plan.get("clean") is not True:
                 raise BenchError("plan remained unclean after the Person decision")
+        plan_paths = plan.get("touchedPaths")
+        if not isinstance(plan_paths, list) or not all(isinstance(path, str) for path in plan_paths):
+            raise BenchError("plan touchedPaths must be an array of repository paths")
+        self._enforce_allowed_paths(plan_paths)
         self.evidence["stages"]["plan"] = plan
         self._save_evidence()
         self._emit("plan", "idle", require_text(plan.get("summary"), "plan summary"), plan_budget, event_kind="stage-completed")
@@ -1705,11 +1810,37 @@ class PipelineBench:
         develop_prompt = (
             "Implement the granted mission in this isolated worktree. The configured focused regression has already "
             "been observed failing. Make it pass, keep the full suite green, and commit all changes using the existing "
-            "machine-account git identity. Do not push or create a pull request.\n\n"
-            f"{contract}\n\nApproved plan: {json.dumps(plan, sort_keys=True)}"
+            "machine-account git identity. For file edits, invoke the apply_patch executable through the shell; the "
+            "local-provider router does not support a direct apply_patch tool call. Do not push or create a pull "
+            "request. Stay inside the granted path wall: "
+            f"{json.dumps(self.grant['allowedPaths'])}.\n\n"
+            f"{contract}\n\nDefinition of done: "
+            f"{json.dumps(self.grant['definitionOfDone'], sort_keys=True)}\n\n"
+            f"Approved plan: {json.dumps(plan, sort_keys=True)}"
         )
-        self.agents.develop(develop_prompt, worktree, develop_budget, self.session_dir)
-        commit = self.platform.assert_machine_commit(self.grant, worktree)
+        for attempt in range(develop_budget.limit_turns):
+            prompt = develop_prompt
+            if attempt:
+                prompt = (
+                    "Continue the same granted implementation now. The previous local turn returned without a "
+                    "commit; preserve its valid in-wall edits, finish every remaining plan step, run the required "
+                    "checks, and create exactly one commit. Use the apply_patch executable through the shell for "
+                    "all file edits.\n\n" + develop_prompt
+                )
+            self.agents.develop(prompt, worktree, develop_budget, self.session_dir)
+            try:
+                commit = self.platform.assert_machine_commit(self.grant, worktree)
+                break
+            except BenchError as exc:
+                if str(exc) != "local developer did not create an attributable commit":
+                    raise
+                if attempt + 1 >= develop_budget.limit_turns:
+                    raise
+                self._emit(
+                    "develop", "working",
+                    "The local developer returned without a commit; the bounded develop stage is retrying.",
+                    develop_budget,
+                )
         paths = self.platform.changed_paths(self.grant, worktree)
         self._validate_changed_paths(paths, develop_budget, contract)
         gates = self._green_gates(worktree, develop_budget)
@@ -1810,7 +1941,7 @@ class PipelineBench:
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
         self._enforce_live_issue_guards(acceptance_budget)
-        self.platform.validate_repository_wall(
+        repository_wall = self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
         )
@@ -1824,7 +1955,7 @@ class PipelineBench:
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
-        self.platform.validate_repository_wall(
+        repository_wall = self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
         )
@@ -1834,23 +1965,92 @@ class PipelineBench:
             previous_commit,
             acceptance_budget.remaining(),
         )
+        security_review_requested = self.security_review_required
+        declared_surfaces = [
+            name for name, declared in self.grant["surfaces"].items() if declared
+        ]
+        security_instruction = (
+            "This acceptance is also the required security review against workplan section 4.5. "
+            f"Declared surfaces: {json.dumps(declared_surfaces)}. Return every actionable security finding in "
+            "securityFindings and reject when that array is non-empty. Return an empty array only after finding "
+            "the labelled and declared surfaces clean."
+            if security_review_requested
+            else "No security review is required for this mission; return securityFindings as an empty array."
+        )
         acceptance_prompt = (
             "Perform the final read-only acceptance review. Approve only if the committed diff, failing-test evidence, "
             "green release gates, Codex correction loop, and CI satisfy the unchanged grant.\n\n"
-            f"{contract}\n\nCI evidence: {ci}\n\nCodex review: {json.dumps(clean_review, sort_keys=True)}"
+            f"{security_instruction}\n\n{contract}\n\nCI evidence: {ci}\n\n"
+            f"Codex review: {json.dumps(clean_review, sort_keys=True)}"
         )
         acceptance = self.agents.accept(
             acceptance_prompt, worktree, acceptance_budget, self.session_dir
         )
-        if acceptance.get("verdict") != "approve":
-            raise BenchError(f"Claude acceptance rejected the mission: {acceptance.get('summary')}")
         summary = require_text(acceptance.get("summary"), "acceptance summary")
+        security_findings = acceptance.get("securityFindings")
+        if not isinstance(security_findings, list) or not all(
+            isinstance(item, dict)
+            and isinstance(item.get("priority"), str)
+            and isinstance(item.get("body"), str)
+            and item["body"].strip()
+            for item in security_findings
+        ):
+            raise BenchError("Claude acceptance returned invalid security findings")
+        security_review = {
+            "required": security_review_requested,
+            "status": "clean" if not security_findings else "escalated",
+            "findings": security_findings,
+        }
+        self.evidence["stages"]["acceptance"] = {
+            "ci": ci,
+            "review": acceptance,
+            "securityReview": security_review,
+        }
+        self._save_evidence()
+        if security_findings:
+            handle = self.decisions.request(
+                "The final acceptance security finding requires Founder resolution: "
+                f"{json.dumps(security_findings, sort_keys=True)}\n\n{contract}"
+            )
+            pending = self._decision_pending(handle, "blocked")
+            security_review["decision"] = {"request": handle}
+            self._save_evidence()
+            self._emit(
+                "acceptance",
+                "waiting-on-person",
+                summary,
+                acceptance_budget,
+                event_kind="decision-requested",
+                pending_decision=pending,
+            )
+            answer = self.decisions.wait_for_answer(handle["jobId"], acceptance_budget.remaining())
+            security_review["decision"]["answer"] = answer
+            self._save_evidence()
+            raise BenchError("security finding requires Founder resolution outside the mission bench")
+        if acceptance.get("verdict") != "approve":
+            raise BenchError(f"Claude acceptance rejected the mission: {summary}")
         self._enforce_live_issue_guards(acceptance_budget)
-        self.platform.validate_repository_wall(
+        if self.security_review_required and not security_review_requested:
+            raise BenchError("security review became required after final acceptance")
+        repository_wall = self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
         )
         self.platform.assert_pr_head(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+            acceptance_budget.remaining(),
+        )
+        arm_timeout = acceptance_budget.remaining()
+        self.auto_merge_armed = True
+        self.platform.arm_auto_merge(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+            arm_timeout,
+        )
+        waiting = self.platform.assert_auto_merge_waiting(
             self.grant,
             int(pull_request["number"]),
             previous_commit,
@@ -1863,22 +2063,17 @@ class PipelineBench:
             previous_commit,
             acceptance_budget.remaining(),
         )
-        arm_timeout = acceptance_budget.remaining()
-        self.auto_merge_armed = True
-        self.platform.arm_auto_merge(
-            self.grant,
-            int(pull_request["number"]),
-            previous_commit,
-            arm_timeout,
-        )
         queued = {
             "state": "queued",
             "armedAt": utc_now(),
             "headCommit": previous_commit,
+            "waitingBeforeApproval": waiting,
         }
         self.evidence["stages"]["acceptance"] = {
             "ci": ci,
             "review": acceptance,
+            "securityReview": security_review,
+            "repositoryWall": repository_wall,
             "autoMerge": queued,
         }
         self.evidence["state"] = "queued"

@@ -42,6 +42,7 @@ def grant() -> dict:
         "grantedBy": "andrewHermann",
         "requirement": REQUIREMENT,
         "acceptanceEvidence": ACCEPTANCE,
+        "allowedPaths": ["tooling/", "tests/"],
         "surfaces": {
             "authentication": False,
             "networkService": False,
@@ -96,6 +97,7 @@ class FakePlatform:
         gate_mutates: bool = False,
         head_changes_after_ci: bool = False,
         path_batches: list[list[str]] | None = None,
+        zero_commit_failures: int = 0,
     ):
         self.root = root
         self.issue_payload = issue_payload or issue()
@@ -106,6 +108,7 @@ class FakePlatform:
         self.gate_mutates = gate_mutates
         self.head_changes_after_ci = head_changes_after_ci
         self.path_batches = list(path_batches or [])
+        self.zero_commit_failures = zero_commit_failures
         self.calls: list[str] = []
         self.remote_timeouts: list[tuple[str, int | None]] = []
         self.commit = 0
@@ -120,6 +123,7 @@ class FakePlatform:
     def validate_repository_wall(self, _grant, timeout=None):
         self.calls.append("branch-protection")
         self.remote_timeouts.append(("branch-protection", timeout))
+        return {"credentialBoundary": "operator-ambient", "baseCommit": "a" * 40}
 
     def claim_issue(self, _grant, session_id, on_assigned=None):
         self.calls.append(f"claim:{session_id}")
@@ -146,6 +150,10 @@ class FakePlatform:
         return CommandResult(argv, 0, "366 passed", "", 0.1)
 
     def assert_machine_commit(self, _grant, _worktree, previous_commit=None):
+        if self.zero_commit_failures:
+            self.zero_commit_failures -= 1
+            self.calls.append("commit:none")
+            raise BenchError("local developer did not create an attributable commit")
         self.commit += 1
         value = f"commit-{self.commit}"
         self.calls.append(f"commit:{value}")
@@ -201,6 +209,15 @@ class FakePlatform:
         if self.arm_failure:
             raise BenchError("auto-merge response was lost")
 
+    def assert_auto_merge_waiting(self, _grant, _pr_number, head_commit, timeout=None):
+        self.calls.append(f"auto-merge-waiting:{head_commit}:{timeout}")
+        return {
+            "state": "OPEN",
+            "headRefOid": head_commit,
+            "reviewDecision": "REVIEW_REQUIRED",
+            "autoMergeRequest": {"enabledAt": "2026-08-21T09:00:00Z"},
+        }
+
     def disable_auto_merge(self, _grant, _pr_number):
         self.calls.append("disable-auto-merge")
 
@@ -219,12 +236,17 @@ class FakePlatform:
 
 
 class FakeAgents:
-    def __init__(self, plans=None, reviews=None):
+    def __init__(self, plans=None, reviews=None, acceptances=None):
         self.plans = list(plans or [{"clean": True, "summary": "Clean plan", "steps": ["Add the test", "Make it pass"], "touchedPaths": ["tests/test_rehearsal.py"]}])
         self.reviews = list(reviews or [
             {"verdict": "changes-requested", "summary": "One correction", "findings": [{"priority": "P1", "body": "Cover the empty case."}]},
             {"verdict": "clean", "summary": "Correction verified", "findings": []},
         ])
+        self.acceptances = list(acceptances or [{
+            "verdict": "approve",
+            "summary": "Definition of done verified.",
+            "securityFindings": [],
+        }])
         self.prompts: list[tuple[str, str]] = []
 
     def plan(self, prompt, _worktree, _budget, _session_dir):
@@ -243,7 +265,7 @@ class FakeAgents:
 
     def accept(self, prompt, _worktree, _budget, _session_dir):
         self.prompts.append(("acceptance", prompt))
-        return {"verdict": "approve", "summary": "Definition of done verified."}
+        return self.acceptances.pop(0)
 
 
 class FakeDecision:
@@ -256,7 +278,7 @@ class FakeDecision:
 
     def request(self, context):
         self.calls.append("request")
-        assert "unclean" in context.lower() or "human-owned" in context.lower()
+        assert any(term in context.lower() for term in ("unclean", "human-owned", "security finding"))
         return {
             "jobId": "JOB-decision",
             "decisionRequest": {
@@ -277,10 +299,18 @@ class ProtectionRunner:
         self.protection = protection
         self.codeowners = codeowners
 
-    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
+    def run(
+        self, argv, cwd, timeout, *, input_text="", extra_env=None,
+        inherit_env=True, complete_stdout=False,
+    ):
         assert Path(argv[0]).name == "gh"
         assert argv[1] == "api"
-        assert extra_env["GH_TOKEN"] == "local-token"
+        assert inherit_env is False
+        assert "GH_TOKEN" not in extra_env
+        assert all(
+            extra_env[account["tokenEnv"]] == ""
+            for account in grant()["machineAccounts"].values()
+        )
         assert extra_env["PATH"]
         assert complete_stdout is True
         endpoint = argv[-1]
@@ -355,6 +385,19 @@ class MergePollRunner:
         return CommandResult(argv, 0, '{"state":"OPEN"}', "", 0.1)
 
 
+class AutoMergeWaitingRunner:
+    def __init__(self, value):
+        self.value = value
+
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
+        assert Path(argv[0]).name == "gh"
+        assert argv[1:3] == ["pr", "view"]
+        assert argv[-2:] == ["--json", "state,headRefOid,reviewDecision,autoMergeRequest"]
+        assert extra_env["GH_TOKEN"] == "local-token"
+        assert complete_stdout is True
+        return CommandResult(argv, 0, json.dumps(self.value), "", 0.1)
+
+
 def protected_repository():
     return {
         "required_pull_request_reviews": {
@@ -371,6 +414,27 @@ def protected_repository():
             ],
         },
     }
+
+
+def protected_codeowners() -> str:
+    return (
+        "* @andrewHermann @sm-agent-claude\n"
+        "/schemas/ @andrewHermann\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/bin/ @andrewHermann\n"
+        "/steel-mission-chat/ @andrewHermann\n"
+        "/adapters/ @andrewHermann\n"
+        "/.github/workflows/ @andrewHermann\n"
+        "/Dockerfile.private-runner @andrewHermann\n"
+        "/requirements-dev.txt @andrewHermann\n"
+        "/package.json @andrewHermann\n"
+        "/package-lock.json @andrewHermann\n"
+        "/steel_core/ @andrewHermann @sm-agent-claude\n"
+        "/plan/ @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/tooling/ @andrewHermann @sm-agent-claude\n"
+    )
 
 
 def write_grant(path: Path, value: dict | None = None) -> Path:
@@ -394,13 +458,15 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     first_push = platform.calls.index("push")
     assert any(call.startswith("command:make test") for call in platform.calls[:first_push])
     assert any(call.startswith("command:make release-check") for call in platform.calls[:first_push])
-    assert next(index for index, call in enumerate(platform.calls) if call.startswith("approve:")) < next(
-        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
+    assert next(index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")) < next(
+        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge-waiting:")
+    ) < next(
+        index for index, call in enumerate(platform.calls) if call.startswith("approve:")
     )
     assert not any(call.startswith("merged:") for call in platform.calls)
     acceptance_calls = [
         call for call in platform.calls
-        if call.startswith(("pr-head:", "auto-merge:", "approve:"))
+        if call.startswith(("pr-head:", "auto-merge:", "auto-merge-waiting:", "approve:"))
     ]
     assert acceptance_calls
     assert all(not call.endswith(":None") for call in acceptance_calls)
@@ -411,10 +477,60 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     )
     assert "update-pr-body" in platform.calls
     assert all(REQUIREMENT in prompt and ACCEPTANCE in prompt for _, prompt in agents.prompts)
+    develop_prompt = next(prompt for kind, prompt in agents.prompts if kind == "develop")
+    assert "invoke the apply_patch executable through the shell" in develop_prompt
+    assert "does not support a direct apply_patch tool call" in develop_prompt
 
     feed = [json.loads(line) for line in Path(result["feedPath"]).read_text().splitlines()]
     assert feed[-1]["outcome"]["status"] == "succeeded"
     assert all(schema_check.validate(item, "canonical/agent-session-status-v1.json") == [] for item in feed)
+
+
+def test_status_feed_bounds_model_summary_without_truncating_evidence(tmp_path):
+    long_summary = "implementation detail " * 110
+    agents = FakeAgents(plans=[{
+        "clean": True,
+        "summary": long_summary,
+        "steps": ["Implement the granted change."],
+        "touchedPaths": ["tests/test_rehearsal.py"],
+    }])
+
+    result = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=FakePlatform(tmp_path),
+        agents=agents,
+        decisions=FakeDecision(),
+    ).run()
+
+    evidence = json.loads(Path(result["evidencePath"]).read_text())
+    feed = [json.loads(line) for line in Path(result["feedPath"]).read_text().splitlines()]
+    plan_complete = next(
+        item for item in feed
+        if item["stage"] == "plan" and item["lastEvent"]["kind"] == "stage-completed"
+    )
+    assert evidence["stages"]["plan"]["summary"] == long_summary
+    assert len(plan_complete["lastEvent"]["summary"]) == 2000
+    assert plan_complete["lastEvent"]["summary"].endswith("...")
+
+
+def test_develop_stage_retries_a_zero_commit_turn_within_its_budget(tmp_path):
+    platform = FakePlatform(tmp_path, zero_commit_failures=1)
+    agents = FakeAgents()
+
+    result = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    ).run()
+
+    develop_prompts = [prompt for kind, prompt in agents.prompts if kind == "develop"]
+    assert result["state"] == "queued"
+    assert len(develop_prompts) == 2
+    assert "previous local turn returned without a commit" in develop_prompts[1]
+    assert platform.calls.index("commit:none") < platform.calls.index("commit:commit-1")
 
 
 def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):
@@ -443,38 +559,47 @@ def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch)
     assert result["state"] == "queued"
 
 
-def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
+def test_clean_security_review_issue_reaches_acceptance_without_escalation(tmp_path):
     platform = FakePlatform(tmp_path, issue_payload=issue(labels=["task", "security-review"]))
-    bench = PipelineBench(
+    agents = FakeAgents()
+    decisions = FakeDecision()
+    result = PipelineBench(
         write_grant(tmp_path / "grant.json"),
         tmp_path / "state",
         platform=platform,
-        agents=FakeAgents(),
-        decisions=FakeDecision(),
-    )
+        agents=agents,
+        decisions=decisions,
+    ).run()
 
-    with pytest.raises(BenchError, match="security-review"):
-        bench.run()
+    assert result["state"] == "queued"
+    assert decisions.calls == []
+    acceptance_prompt = next(prompt for kind, prompt in agents.prompts if kind == "acceptance")
+    assert "security review" in acceptance_prompt.lower()
+    assert "section 4.5" in acceptance_prompt
+    evidence = json.loads(Path(result["evidencePath"]).read_text())
+    assert evidence["stages"]["acceptance"]["securityReview"] == {
+        "required": True,
+        "status": "clean",
+        "findings": [],
+    }
 
-    assert platform.calls == ["issue"]
 
-
-def test_declared_security_surface_is_refused_before_claim_or_execution(tmp_path):
+def test_declared_security_surface_requires_acceptance_security_review(tmp_path):
     value = grant()
     value["surfaces"]["subprocessExecution"] = True
+    agents = FakeAgents()
     platform = FakePlatform(tmp_path)
-    bench = PipelineBench(
+    result = PipelineBench(
         write_grant(tmp_path / "grant.json", value),
         tmp_path / "state",
         platform=platform,
-        agents=FakeAgents(),
+        agents=agents,
         decisions=FakeDecision(),
-    )
+    ).run()
 
-    with pytest.raises(BenchError, match="security-review surface"):
-        bench.run()
-
-    assert platform.calls == []
+    assert result["state"] == "queued"
+    acceptance_prompt = next(prompt for kind, prompt in agents.prompts if kind == "acceptance")
+    assert "subprocessExecution" in acceptance_prompt
 
 
 def test_partial_claim_failure_is_recorded_after_assignment(tmp_path):
@@ -532,7 +657,7 @@ def test_assignment_failure_does_not_emit_a_false_claim_timestamp(tmp_path):
     assert not (state_root / "agent-session-status.jsonl").exists()
 
 
-def test_security_review_label_added_during_execution_stops_before_push(tmp_path):
+def test_security_review_label_added_during_execution_is_reviewed_before_approval(tmp_path):
     changed_issue = issue(labels=["task", "security-review"])
 
     class RelabelledPlatform(FakePlatform):
@@ -542,18 +667,54 @@ def test_security_review_label_added_during_execution_stops_before_push(tmp_path
             return super().issue(grant_value, timeout)
 
     platform = RelabelledPlatform(tmp_path)
+    agents = FakeAgents()
+    result = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    ).run()
+
+    assert result["state"] == "queued"
+    assert "push" in platform.calls
+    acceptance_prompt = next(prompt for kind, prompt in agents.prompts if kind == "acceptance")
+    assert "security review" in acceptance_prompt.lower()
+
+
+def test_security_finding_escalates_and_blocks_approval(tmp_path):
+    platform = FakePlatform(tmp_path, issue_payload=issue(labels=["task", "security-review"]))
+    findings = [{
+        "priority": "P1",
+        "body": "Validate subprocess arguments before execution.",
+    }]
+    agents = FakeAgents(acceptances=[{
+        "verdict": "reject",
+        "summary": "Subprocess arguments cross the grant boundary unchecked.",
+        "securityFindings": findings,
+    }])
+    decisions = FakeDecision()
     bench = PipelineBench(
         write_grant(tmp_path / "grant.json"),
         tmp_path / "state",
         platform=platform,
-        agents=FakeAgents(),
-        decisions=FakeDecision(),
+        agents=agents,
+        decisions=decisions,
     )
 
-    with pytest.raises(BenchError, match="security-review"):
+    with pytest.raises(BenchError, match="security finding requires Founder resolution"):
         bench.run()
 
-    assert "push" not in platform.calls
+    assert decisions.calls[0] == "request"
+    assert decisions.calls[1].startswith("wait:JOB-decision:")
+    assert not any(call.startswith(("approve:", "auto-merge:")) for call in platform.calls)
+    evidence = json.loads(bench.evidence_path.read_text())
+    security = evidence["stages"]["acceptance"]["securityReview"]
+    assert security["status"] == "escalated"
+    assert security["findings"] == findings
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    waiting = next(item for item in feed if item["state"] == "waiting-on-person")
+    assert waiting["pendingDecision"]["kind"] == "blocked"
 
 
 def test_unclean_plan_waits_on_existing_decision_flow_then_replans_inside_grant(tmp_path):
@@ -677,6 +838,56 @@ def test_machine_checkable_path_abort_stops_before_every_push(tmp_path):
     assert "push" not in platform.calls
 
 
+def test_grant_requires_a_repository_relative_allowed_path_wall():
+    value = grant()
+    value.pop("allowedPaths")
+    with pytest.raises(BenchError, match="allowedPaths"):
+        mission_bench.validate_grant(value)
+
+    value = grant()
+    value["allowedPaths"] = ["../outside"]
+    with pytest.raises(BenchError, match="repository-relative"):
+        mission_bench.validate_grant(value)
+
+
+def test_plan_outside_the_allowed_path_wall_stops_before_development(tmp_path):
+    agents = FakeAgents(plans=[{
+        "clean": True,
+        "summary": "Touch an ungranted product path.",
+        "steps": ["Edit the server."],
+        "touchedPaths": ["steel-mission-chat/server.py"],
+    }])
+    platform = FakePlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="outside the granted path wall"):
+        bench.run()
+
+    assert not any(call.startswith("commit:") for call in platform.calls)
+
+
+def test_committed_path_outside_the_allowed_wall_stops_before_push(tmp_path):
+    platform = FakePlatform(tmp_path, path_batches=[["README.md"]])
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="outside the granted path wall"):
+        bench.run()
+
+    assert "push" not in platform.calls
+
+
 def test_grant_drift_abort_rechecks_the_issue_contract_before_push(tmp_path):
     changed_issue = issue()
     changed_issue["body"] = changed_issue["body"].replace(REQUIREMENT, "A changed requirement.")
@@ -735,6 +946,7 @@ def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
     assert next(
         index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
     ) < platform.calls.index("disable-auto-merge")
+    assert not any(call.startswith("approve:") for call in platform.calls)
 
 
 def test_pull_request_head_change_after_ci_stops_before_approval_or_auto_merge(tmp_path):
@@ -1181,6 +1393,30 @@ def test_model_subprocess_environment_allows_only_its_provider_credential(tmp_pa
     assert local_environment["GIT_CONFIG_VALUE_7"] == "qwen@example.invalid"
 
 
+def test_local_developer_parks_the_platform_sandbox_inside_the_isolated_worktree(tmp_path):
+    class RecordingRunner:
+        def __init__(self):
+            self.argv = []
+
+        def run(self, argv, _cwd, _timeout, **_kwargs):
+            self.argv = argv
+            return CommandResult(argv, 0, "done", "", 0.1)
+
+    runner = RecordingRunner()
+    driver = AgentDriver(
+        runner=runner,
+        developer_identity=("sm-agent-qwen", "qwen@example.invalid"),
+    )
+
+    driver.develop("Implement and commit.", tmp_path, mission_bench.StageBudget({
+        "elapsedSeconds": 30,
+        "turns": 1,
+    }), tmp_path)
+
+    assert runner.argv[runner.argv.index("-m") + 1] == "qwen3-coder:30b"
+    assert runner.argv[runner.argv.index("-s") + 1] == "danger-full-access"
+
+
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
     repository = tmp_path / "repository"
     repository.mkdir()
@@ -1228,29 +1464,37 @@ def test_repository_wall_requires_claude_acceptance_without_authority_ownership(
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
+    codeowners.write_text(protected_codeowners())
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_uses_operator_credentials_not_non_admin_machine_token(
+    tmp_path, monkeypatch
+):
+    for account in grant()["machineAccounts"].values():
+        monkeypatch.setenv(account["tokenEnv"], f"secret-{account['login']}")
+    monkeypatch.setenv("GH_TOKEN", "must-not-reach-trusted-wall-check")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(protected_codeowners())
+
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    evidence = platform.validate_repository_wall(grant())
+
+    assert evidence == {
+        "credentialBoundary": "operator-ambient",
+        "baseCommit": "a" * 40,
+    }
 
 
 def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_path, monkeypatch):
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
+    codeowners.write_text(protected_codeowners())
     remote_codeowners = codeowners.read_text().replace(
         "/schemas/canonical/ @andrewHermann",
         "/schemas/canonical/ @sm-agent-codex",
@@ -1271,13 +1515,7 @@ def test_repository_wall_rejects_a_base_advance_after_initial_validation(
     monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
+    codeowners.write_text(protected_codeowners())
 
     class AdvancingBaseRunner(ProtectionRunner):
         def __init__(self):
@@ -1314,13 +1552,7 @@ def test_repository_wall_refuses_more_approvals_than_the_pipeline_produces(tmp_p
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
+    codeowners.write_text(protected_codeowners())
     protection = protected_repository()
     protection["required_pull_request_reviews"]["required_approving_review_count"] = 2
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
@@ -1334,16 +1566,11 @@ def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(t
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-        "/schemas/canonical/job-v2.json @sm-agent-claude\n"
+        protected_codeowners() + "/schemas/canonical/job-v2.json @sm-agent-claude\n"
     )
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
-    with pytest.raises(BenchError, match="final effective CODEOWNERS"):
+    with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
         platform.validate_repository_wall(grant())
 
 
@@ -1355,11 +1582,10 @@ def test_repository_wall_rejects_every_machine_account_as_authority_owner(
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_text(
-        "* @sm-agent-claude\n"
-        f"/schemas/canonical/ @{machine_login}\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
+        protected_codeowners().replace(
+            "/schemas/canonical/ @andrewHermann",
+            f"/schemas/canonical/ @{machine_login}",
+        )
     )
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
@@ -1371,13 +1597,7 @@ def test_repository_wall_requires_checks_against_the_current_base(tmp_path, monk
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
+    codeowners.write_text(protected_codeowners())
     protection = protected_repository()
     protection["required_status_checks"]["strict"] = False
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
@@ -1391,13 +1611,7 @@ def test_repository_wall_requires_both_interpreter_checks(tmp_path, monkeypatch)
     monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
+    codeowners.write_text(protected_codeowners())
     protection = protected_repository()
     protection["required_status_checks"]["checks"].pop()
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
@@ -1453,6 +1667,42 @@ def test_authenticated_push_disables_hooks_and_scrubs_every_unrelated_credential
     )
 
     platform.push(value, worktree, 30)
+
+
+def test_auto_merge_must_be_armed_and_waiting_on_approval_before_claude_approves(
+    tmp_path, monkeypatch
+):
+    value = grant()
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    head = "a" * 40
+    waiting = {
+        "state": "OPEN",
+        "headRefOid": head,
+        "reviewDecision": "REVIEW_REQUIRED",
+        "autoMergeRequest": {"enabledAt": "2026-08-21T09:00:00Z"},
+    }
+    platform = GitHubPlatform(tmp_path, AutoMergeWaitingRunner(waiting))
+
+    assert platform.assert_auto_merge_waiting(value, 321, head, 30) == waiting
+
+
+def test_auto_merge_refuses_to_approve_when_the_review_wall_is_not_holding(
+    tmp_path, monkeypatch
+):
+    value = grant()
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    platform = GitHubPlatform(
+        tmp_path,
+        AutoMergeWaitingRunner({
+            "state": "OPEN",
+            "headRefOid": "a" * 40,
+            "reviewDecision": "APPROVED",
+            "autoMergeRequest": {"enabledAt": "2026-08-21T09:00:00Z"},
+        }),
+    )
+
+    with pytest.raises(BenchError, match="held by the required approval wall"):
+        platform.assert_auto_merge_waiting(value, 321, "a" * 40, 30)
 
 
 def test_merge_poll_and_sleep_never_exceed_the_remaining_acceptance_budget(tmp_path, monkeypatch):
