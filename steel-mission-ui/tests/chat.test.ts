@@ -24,6 +24,7 @@ test("chat start and polling consume the existing pipeline endpoints", async () 
     question: "What needs my attention?",
     messages: [{role: "user", content: "Earlier context"}],
     workMode: "normal",
+    profile: "dc13.local",
   });
   const completed = await pollChatJob(request, started.jobId);
 
@@ -35,6 +36,7 @@ test("chat start and polling consume the existing pipeline endpoints", async () 
     question: "What needs my attention?",
     messages: [{role: "user", content: "Earlier context"}],
     workMode: "normal",
+    profile: "dc13.local",
   });
   assert.equal(calls[1].path, "/api/chat/JOB1");
   assert.equal(chatAnswerText(completed), "The answer.");

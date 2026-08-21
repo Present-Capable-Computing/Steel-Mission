@@ -185,6 +185,21 @@ select {
   color: #8d9aa8;
   font-size: 0.88rem;
 }
+.work-surface {
+  min-width: 0;
+}
+.delivery-setup {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.25rem clamp(1.25rem, 4vw, 4rem) 4rem;
+  padding: 1.25rem;
+  border: 1px solid #34404c;
+  border-radius: 1rem;
+  background: rgba(20, 27, 35, 0.8);
+}
+.delivery-setup h2 {
+  margin: 0;
+}
 .capability-workspace {
   display: grid;
   gap: 1.25rem;
@@ -564,8 +579,8 @@ select {
         <header class="toolbar">
           <div>
             <label id="coordinatorModelLabel" for="coordinatorModel">Coordinator model</label>
-            <select id="coordinatorModel" aria-describedby="coordinatorModelDescription" disabled>
-              <option>Delivery Coordinator</option>
+            <select id="coordinatorModel" aria-describedby="coordinatorModelDescription">
+              <option>Loading registered models…</option>
             </select>
             <p id="coordinatorModelDescription">Selects the model configuration that executes the Delivery Coordinator.</p>
           </div>
@@ -580,16 +595,6 @@ select {
           </div>
           <button id="openSettings" class="settings-trigger" type="button" aria-controls="settingsPanel" aria-expanded="false">Settings</button>
         </header>
-        <p id="domainCapabilityDefinition" class="definition" data-vocabulary-term="domain-capability">
-          Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
-        </p>
-        <section id="capabilityWorkspace" class="capability-workspace" aria-labelledby="capabilityWorkspaceTitle">
-          <div>
-            <p class="eyebrow">Capability workspace</p>
-            <h2 id="capabilityWorkspaceTitle">Your Domain Capabilities</h2>
-          </div>
-          <p id="capabilityEmptyState" class="capability-empty">No Domain Capabilities are assigned yet. Ask an organization owner or admin to assign one in Settings → Users.</p>
-        </section>
         <section id="settingsPanel" class="settings-panel" aria-label="Settings" hidden>
           <nav class="settings-nav" aria-label="Settings sections">
             <button id="settingsNav-organizations" type="button" data-settings-target="organizations" aria-controls="settingsSection-organizations" aria-current="page"><strong>Organizations</strong><span>Identity, knowledge bindings, and capability sets</span></button>
@@ -612,20 +617,39 @@ select {
             <section id="settingsSection-audit" class="settings-section" aria-labelledby="settingsNav-audit" hidden><p class="eyebrow">Settings</p><h2>Audit</h2><p>Configuration mutations</p></section>
           </div>
         </section>
-        <section class="chat-panel" aria-labelledby="chatTitle">
-          <header>
-            <p class="eyebrow">Delivery Coordinator</p>
-            <h1 id="chatTitle">Ask Steel Mission</h1>
-            <p>Ask a question, add context while the answer is running, or respond when the coordinator needs a decision.</p>
-          </header>
-          <div id="chatConversation" class="chat-conversation" aria-live="polite">
-            <p class="chat-empty">Loading the live conversation…</p>
-          </div>
-          <form id="chatComposer" class="chat-composer">
-            <label for="chatQuestion">Message Delivery Coordinator</label>
-            <textarea id="chatQuestion" placeholder="Where are we, what is unverified, and what needs my attention?" required></textarea>
-            <button id="chatSend" type="submit">Ask Delivery Coordinator</button>
-          </form>
+        <section class="work-surface" data-work-surface="normal-chat">
+          <section class="chat-panel" aria-labelledby="chatTitle">
+            <header>
+              <p class="eyebrow">Delivery Coordinator</p>
+              <h1 id="chatTitle">Ask Steel Mission</h1>
+              <p>Ask a question, add context while the answer is running, or respond when the coordinator needs a decision.</p>
+            </header>
+            <div id="chatConversation" class="chat-conversation" aria-live="polite">
+              <p class="chat-empty">Loading the live conversation…</p>
+            </div>
+            <form id="chatComposer" class="chat-composer">
+              <label for="chatQuestion">Message Delivery Coordinator</label>
+              <textarea id="chatQuestion" placeholder="Where are we, what is unverified, and what needs my attention?" required></textarea>
+              <button id="chatSend" type="submit">Ask Delivery Coordinator</button>
+            </form>
+          </section>
+        </section>
+        <section class="work-surface" data-work-surface="domain-capabilities" hidden>
+          <p id="domainCapabilityDefinition" class="definition" data-vocabulary-term="domain-capability">
+            Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
+          </p>
+          <section id="capabilityWorkspace" class="capability-workspace" aria-labelledby="capabilityWorkspaceTitle">
+            <div>
+              <p class="eyebrow">Capability workspace</p>
+              <h2 id="capabilityWorkspaceTitle">Your Domain Capabilities</h2>
+            </div>
+            <p id="capabilityEmptyState" class="capability-empty">No Domain Capabilities are assigned yet. Ask an organization owner or admin to assign one in Settings → Users.</p>
+          </section>
+          <section id="deliverySetup" class="delivery-setup" aria-labelledby="deliverySetupTitle">
+            <p class="eyebrow">Delivery setup</p>
+            <h2 id="deliverySetupTitle">Prepare a mission</h2>
+            <p>Loading delivery setup…</p>
+          </section>
         </section>
       </section>
     </main>
@@ -2771,7 +2795,7 @@ select {
   function delay(milliseconds) {
     return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
   }
-  function ChatPanel({ request, workMode }) {
+  function ChatPanel({ request, workMode, profile }) {
     const [messages, setMessages] = d2([]);
     const [draft, setDraft] = d2("");
     const [job, setJob] = d2(null);
@@ -2841,7 +2865,8 @@ select {
         const started = await startChat(request, {
           question: content,
           messages,
-          workMode
+          workMode,
+          ...profile ? { profile } : {}
         });
         setJob(started);
         void watchJob(started.jobId);
@@ -2941,6 +2966,54 @@ select {
     ] });
   }
 
+  // steel-mission-ui/src/coordinator-models.ts
+  function title(value) {
+    return value ? value[0].toUpperCase() + value.slice(1) : "Provider";
+  }
+  async function resolveProfile(request, profile) {
+    const profileId = String(profile.id || "");
+    const response = await request(`/api/runtime-profiles/resolve?profile=${encodeURIComponent(profileId)}`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.ok || !result.payload || typeof result.payload !== "object") return null;
+    const payload = result.payload;
+    const policy = payload.modelPolicy && typeof payload.modelPolicy === "object" ? payload.modelPolicy : {};
+    const provider = typeof policy.provider === "string" ? policy.provider : "";
+    const model = typeof policy.selectedModel === "string" ? policy.selectedModel : "";
+    if (!provider || !model) return null;
+    const profileLabel = typeof profile.label === "string" ? profile.label : profileId;
+    return {
+      profileId,
+      profileLabel,
+      provider,
+      model,
+      label: `${title(provider)} \xB7 ${model}`
+    };
+  }
+  async function loadCoordinatorModels(request) {
+    const response = await request("/api/runtime-profiles", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || "Coordinator models are unavailable");
+    const profiles = Array.isArray(payload.registry?.profiles) ? payload.registry.profiles.filter((item) => Boolean(item) && typeof item === "object" && item.status === "active" && item.modelRole === "dc13.coordination-report" && typeof item.id === "string") : [];
+    const resolved = (await Promise.all(profiles.map((profile) => resolveProfile(request, profile)))).filter((model) => Boolean(model));
+    const byProvider = /* @__PURE__ */ new Map();
+    for (const model of resolved) {
+      const profile = profiles.find((item) => item.id === model.profileId);
+      const explicit = profile?.modelProvider === model.provider;
+      const current = byProvider.get(model.provider);
+      if (!current || explicit && !current.explicit) byProvider.set(model.provider, { model, explicit });
+    }
+    const activeProfile = typeof payload.activeProfile === "string" ? payload.activeProfile : "";
+    const models = [...byProvider.values()].map((item) => item.model).sort((left, right) => {
+      if (left.profileId === activeProfile) return -1;
+      if (right.profileId === activeProfile) return 1;
+      return left.label.localeCompare(right.label);
+    });
+    return {
+      models,
+      selectedProfileId: models.some((model) => model.profileId === activeProfile) ? activeProfile : models[0]?.profileId || ""
+    };
+  }
+
   // steel-mission-ui/src/app.tsx
   function browserCookie(name) {
     return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1) || "";
@@ -2969,6 +3042,24 @@ select {
     const [selectedAssignmentCapabilities, setSelectedAssignmentCapabilities] = d2([]);
     const [assignmentStatus, setAssignmentStatus] = d2("");
     const [consoleStatus, setConsoleStatus] = d2(null);
+    const [coordinatorModels, setCoordinatorModels] = d2([]);
+    const [coordinatorProfile, setCoordinatorProfile] = d2("");
+    const [coordinatorModelError, setCoordinatorModelError] = d2("");
+    h2(() => {
+      let current = true;
+      loadCoordinatorModels(apiRequest).then((loaded) => {
+        if (!current) return;
+        setCoordinatorModels(loaded.models);
+        setCoordinatorProfile(loaded.selectedProfileId);
+        setCoordinatorModelError(loaded.models.length ? "" : "No coordinator model is currently routable.");
+      }).catch((error) => {
+        if (!current) return;
+        setCoordinatorModelError(error instanceof Error ? error.message : "Coordinator models are unavailable.");
+      });
+      return () => {
+        current = false;
+      };
+    }, []);
     h2(() => {
       let current = true;
       let refreshTimer;
@@ -3089,10 +3180,23 @@ select {
       ] }),
       /* @__PURE__ */ u3("section", { class: "workspace", children: [
         /* @__PURE__ */ u3("header", { class: "toolbar", children: [
-          /* @__PURE__ */ u3("div", { children: [
+          workMode === "normal" && /* @__PURE__ */ u3("div", { children: [
             /* @__PURE__ */ u3("label", { id: "coordinatorModelLabel", for: "coordinatorModel", children: "Coordinator model" }),
-            /* @__PURE__ */ u3("select", { id: "coordinatorModel", "aria-describedby": "coordinatorModelDescription", disabled: true, children: /* @__PURE__ */ u3("option", { children: "Delivery Coordinator" }) }),
-            /* @__PURE__ */ u3("p", { id: "coordinatorModelDescription", children: "Selects the model configuration that executes the Delivery Coordinator." })
+            /* @__PURE__ */ u3(
+              "select",
+              {
+                id: "coordinatorModel",
+                "aria-describedby": "coordinatorModelDescription",
+                value: coordinatorProfile,
+                onChange: (event) => setCoordinatorProfile(event.currentTarget.value),
+                children: [
+                  coordinatorModels.length === 0 && /* @__PURE__ */ u3("option", { value: "", children: "Loading registered models\u2026" }),
+                  coordinatorModels.map((model) => /* @__PURE__ */ u3("option", { value: model.profileId, children: model.label }, model.profileId))
+                ]
+              }
+            ),
+            /* @__PURE__ */ u3("p", { id: "coordinatorModelDescription", children: "Selects the model configuration that executes the Delivery Coordinator." }),
+            coordinatorModelError && /* @__PURE__ */ u3("p", { role: "status", children: coordinatorModelError })
           ] }),
           /* @__PURE__ */ u3("div", { class: "mode-control", children: [
             /* @__PURE__ */ u3("span", { id: "workModeLabel", children: "Work mode" }),
@@ -3132,33 +3236,6 @@ select {
               children: settingsOpen ? "Close settings" : "Settings"
             }
           )
-        ] }),
-        /* @__PURE__ */ u3(
-          "p",
-          {
-            id: "domainCapabilityDefinition",
-            class: "definition",
-            "data-vocabulary-term": "domain-capability",
-            children: "Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge."
-          }
-        ),
-        /* @__PURE__ */ u3("section", { id: "capabilityWorkspace", class: "capability-workspace", "aria-labelledby": "capabilityWorkspaceTitle", children: [
-          /* @__PURE__ */ u3("div", { children: [
-            /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Capability workspace" }),
-            /* @__PURE__ */ u3("h2", { id: "capabilityWorkspaceTitle", children: "Your Domain Capabilities" }),
-            capabilityState.view && /* @__PURE__ */ u3("p", { class: "workspace-identity", children: [
-              capabilityState.view.actorId,
-              " \xB7 ",
-              capabilityState.view.accessLevel
-            ] })
-          ] }),
-          capabilityState.status === "loading" && /* @__PURE__ */ u3("p", { children: "Loading assigned capabilities\u2026" }),
-          capabilityState.status === "error" && /* @__PURE__ */ u3("p", { role: "alert", children: capabilityState.error }),
-          capabilityState.status === "ready" && capabilityState.view?.capabilities.length === 0 && /* @__PURE__ */ u3("p", { id: "capabilityEmptyState", class: "capability-empty", children: CAPABILITY_EMPTY_STATE }),
-          capabilityState.status === "ready" && Boolean(capabilityState.view?.capabilities.length) && /* @__PURE__ */ u3("div", { class: "capability-grid", children: capabilityState.view?.capabilities.map((capability) => /* @__PURE__ */ u3("article", { class: "capability-card", children: [
-            /* @__PURE__ */ u3("strong", { children: capability.label }),
-            /* @__PURE__ */ u3("p", { children: "Assigned to your workspace" })
-          ] }, capability.capabilityKey)) })
         ] }),
         settingsOpen && /* @__PURE__ */ u3("section", { id: "settingsPanel", class: "settings-panel", "aria-label": "Settings", children: [
           /* @__PURE__ */ u3("nav", { class: "settings-nav", "aria-label": "Settings sections", children: SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ u3(
@@ -3245,7 +3322,41 @@ select {
             section.id
           )) })
         ] }),
-        !settingsOpen && /* @__PURE__ */ u3(ChatPanel, { request: apiRequest, workMode })
+        !settingsOpen && workMode === "normal" && /* @__PURE__ */ u3("section", { class: "work-surface", "data-work-surface": "normal-chat", children: /* @__PURE__ */ u3(ChatPanel, { request: apiRequest, workMode, profile: coordinatorProfile }) }),
+        !settingsOpen && workMode === "domain-capabilities" && /* @__PURE__ */ u3("section", { class: "work-surface", "data-work-surface": "domain-capabilities", children: [
+          /* @__PURE__ */ u3(
+            "p",
+            {
+              id: "domainCapabilityDefinition",
+              class: "definition",
+              "data-vocabulary-term": "domain-capability",
+              children: "Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge."
+            }
+          ),
+          /* @__PURE__ */ u3("section", { id: "capabilityWorkspace", class: "capability-workspace", "aria-labelledby": "capabilityWorkspaceTitle", children: [
+            /* @__PURE__ */ u3("div", { children: [
+              /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Capability workspace" }),
+              /* @__PURE__ */ u3("h2", { id: "capabilityWorkspaceTitle", children: "Your Domain Capabilities" }),
+              capabilityState.view && /* @__PURE__ */ u3("p", { class: "workspace-identity", children: [
+                capabilityState.view.actorId,
+                " \xB7 ",
+                capabilityState.view.accessLevel
+              ] })
+            ] }),
+            capabilityState.status === "loading" && /* @__PURE__ */ u3("p", { children: "Loading assigned capabilities\u2026" }),
+            capabilityState.status === "error" && /* @__PURE__ */ u3("p", { role: "alert", children: capabilityState.error }),
+            capabilityState.status === "ready" && capabilityState.view?.capabilities.length === 0 && /* @__PURE__ */ u3("p", { id: "capabilityEmptyState", class: "capability-empty", children: CAPABILITY_EMPTY_STATE }),
+            capabilityState.status === "ready" && Boolean(capabilityState.view?.capabilities.length) && /* @__PURE__ */ u3("div", { class: "capability-grid", children: capabilityState.view?.capabilities.map((capability) => /* @__PURE__ */ u3("article", { class: "capability-card", children: [
+              /* @__PURE__ */ u3("strong", { children: capability.label }),
+              /* @__PURE__ */ u3("p", { children: "Assigned to your workspace" })
+            ] }, capability.capabilityKey)) })
+          ] }),
+          /* @__PURE__ */ u3("section", { id: "deliverySetup", class: "delivery-setup", "aria-labelledby": "deliverySetupTitle", children: [
+            /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Delivery setup" }),
+            /* @__PURE__ */ u3("h2", { id: "deliverySetupTitle", children: "Prepare a mission" }),
+            capabilityState.view ? /* @__PURE__ */ u3(MissionsPanel, { accessLevel: capabilityState.view.accessLevel, request: apiRequest }) : /* @__PURE__ */ u3("p", { children: "Loading delivery setup\u2026" })
+          ] })
+        ] })
       ] })
     ] });
   }

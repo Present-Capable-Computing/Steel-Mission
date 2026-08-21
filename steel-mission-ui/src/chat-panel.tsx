@@ -17,6 +17,7 @@ import type {WorkMode} from "./work-mode";
 interface ChatPanelProps {
   request: ChatRequester;
   workMode: WorkMode;
+  profile: string;
 }
 
 const POLL_INTERVAL_MS = 1200;
@@ -25,7 +26,7 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-export function ChatPanel({request, workMode}: ChatPanelProps) {
+export function ChatPanel({request, workMode, profile}: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [job, setJob] = useState<ChatJob | null>(null);
@@ -100,6 +101,7 @@ export function ChatPanel({request, workMode}: ChatPanelProps) {
         question: content,
         messages,
         workMode,
+        ...(profile ? {profile} : {}),
       });
       setJob(started);
       void watchJob(started.jobId);

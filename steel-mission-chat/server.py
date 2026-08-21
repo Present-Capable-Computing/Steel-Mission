@@ -9390,6 +9390,14 @@ class Handler(BaseHTTPRequestHandler):
                 "providers": provider_status_strip(),
             })
             return
+        if path == "/api/runtime-profiles/resolve":
+            profile = (parse_qs(urlparse(self.path).query).get("profile") or [""])[0].strip()
+            if not profile:
+                json_response(self, 400, {"ok": False, "error": "profile is required"})
+                return
+            status, payload = worker_json_command(["runtime-profile-resolve", profile])
+            json_response(self, status, payload)
+            return
         if path == "/api/runtime-profiles":
             json_response(self, 200, {
                 "ok": True,
