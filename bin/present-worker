@@ -3299,6 +3299,30 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
         elif subtype == "api_retry":
             state["phase"] = f"Provider retrying the model request for {subject}"
             append_timeline("Provider retry", f"{provider_label} reported a retry; waiting for the next stream event")
+        elif subtype == "glimmer_rewarm_started":
+            state["phase"] = f"Re-warming Glimmer model {active_model} for {subject}"
+            append_timeline(
+                "Re-warming local model",
+                f"Ollama is already running; loading {active_model} after keep-alive expiry.",
+            )
+        elif subtype == "glimmer_rewarm_completed":
+            state["phase"] = f"Glimmer model {active_model} re-warmed for {subject}"
+            append_timeline(
+                "Local model ready",
+                f"Glimmer model {active_model} is loaded; starting the advisory request.",
+            )
+        elif subtype == "glimmer_rewarm_failed":
+            state["phase"] = f"Glimmer model {active_model} re-warm failed for {subject}"
+            append_timeline(
+                "Local model re-warm failed",
+                str(event.get("reason") or "Ollama did not confirm the model load."),
+            )
+        elif subtype == "glimmer_request_budget_exhausted":
+            state["phase"] = f"Glimmer request budget exhausted after re-warm for {subject}"
+            append_timeline(
+                "Local model request timed out",
+                str(event.get("reason") or "No caller timeout remained after model re-warm."),
+            )
         elif subtype == "glimmer_request_started":
             state["phase"] = f"Glimmer request started for {subject}"
             append_timeline("Glimmer request started", f"Glimmer model {active_model} is loaded; waiting for stream chunks")

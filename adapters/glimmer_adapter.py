@@ -37,6 +37,7 @@ PORT = 11434
 BASE_URL = os.environ.get("STEEL_MISSION_OLLAMA_BASE_URL", f"http://{HOST}:{PORT}").rstrip("/")
 DEFAULT_MODEL = "qwen2.5-coder:14b"
 KEEP_ALIVE = "30m"
+REWARM_TIMEOUT_SECONDS = 90.0
 PID_FILE = common.LOGS_DIR / "glimmer.pid"
 SERVE_LOG = common.LOGS_DIR / "glimmer-serve.log"
 
@@ -206,6 +207,52 @@ def status(model: str = DEFAULT_MODEL) -> dict[str, Any]:
     }
 
 
+def rewarm(model: str = DEFAULT_MODEL, *,
+           progress: Callable[[dict[str, Any]], None] | None = None,
+           timeout: float = REWARM_TIMEOUT_SECONDS) -> dict[str, Any]:
+    """Reload an installed model into an already-running Ollama server."""
+    st = status(model)
+    if st["ready"]:
+        return {"status": "READY", "provider": "glimmer", "model": model, "rewarmed": False}
+    if not st.get("service_running"):
+        return common.glimmer_not_ready(
+            "Ollama server is not running; refusing to cold-start it for a chat. "
+            "Run the explicit Glimmer start command first."
+        )
+    if not st.get("model_available"):
+        return common.glimmer_not_ready(
+            f"model {model!r} is not present in the local Ollama library "
+            "(WAITING_FOR_MODEL -- not substituting another model silently)"
+        )
+
+    if progress is not None:
+        progress({"type": "system", "subtype": "glimmer_rewarm_started", "model": model})
+    loaded = _http_post(
+        "/api/generate",
+        {"model": model, "prompt": "", "stream": False, "keep_alive": KEEP_ALIVE},
+        timeout=max(0.1, min(float(timeout), REWARM_TIMEOUT_SECONDS)),
+    )
+    if loaded is None or not model_loaded(model):
+        reason = "Glimmer model re-warm failed: Ollama did not confirm the model load"
+        if progress is not None:
+            progress({
+                "type": "system",
+                "subtype": "glimmer_rewarm_failed",
+                "model": model,
+                "reason": reason,
+            })
+        return common.glimmer_not_ready(reason)
+    if progress is not None:
+        progress({"type": "system", "subtype": "glimmer_rewarm_completed", "model": model})
+    return {
+        "status": "READY",
+        "provider": "glimmer",
+        "model": model,
+        "rewarmed": True,
+        "keep_alive": KEEP_ALIVE,
+    }
+
+
 def start(model: str = DEFAULT_MODEL) -> dict[str, Any]:
     if not installed():
         return common.glimmer_not_ready("ollama binary not found on PATH")
@@ -299,7 +346,9 @@ def build(task_id: str, mode: str, prompt: str, model: str = DEFAULT_MODEL) -> d
 
     st = status(model)
     if not st["ready"]:
-        return common.glimmer_not_ready(f"glimmer not ready: {st}")
+        warmed = rewarm(model)
+        if warmed.get("status") != "READY":
+            return warmed
 
     result = _http_post(
         "/api/generate",
@@ -341,7 +390,31 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
                 "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE}
     st = status(model)
     if not st["ready"]:
-        return common.glimmer_not_ready(f"glimmer not ready: {st}")
+        caller_timeout = float(timeout)
+        started = time.monotonic()
+        warmed = rewarm(model, progress=progress, timeout=min(caller_timeout, REWARM_TIMEOUT_SECONDS))
+        if warmed.get("status") != "READY":
+            return warmed
+        remaining = caller_timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            reason = (
+                f"Glimmer re-warm exhausted the {caller_timeout:g}s caller timeout "
+                "before advisory generation"
+            )
+            if progress is not None:
+                progress({
+                    "type": "system",
+                    "subtype": "glimmer_request_budget_exhausted",
+                    "model": model,
+                    "reason": reason,
+                })
+            return {
+                "status": "PROVIDER_ERROR",
+                "provider": "glimmer",
+                "reason": reason,
+                "retryable": True,
+            }
+        timeout = remaining
 
     prompt = (
         "You are DC13 Delivery Coordinator answering 'Where are we?' for this worker-visible snapshot. "
