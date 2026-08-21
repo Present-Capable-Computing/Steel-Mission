@@ -46,6 +46,15 @@ SERVE_LOG = common.LOGS_DIR / "glimmer-serve.log"
 MIN_FREE_GB_TO_START = 11.0
 
 
+def model_binding_error(model: str, effort: str | None = None) -> str | None:
+    """Validate the Ollama model reference without requiring its server to be running."""
+    if not model or any(char.isspace() or ord(char) < 32 for char in model):
+        return f"provider 'glimmer' does not recognize model {model!r}"
+    if effort is not None:
+        return f"provider 'glimmer' does not support reasoning effort {effort!r}"
+    return None
+
+
 def _ollama_path() -> str | None:
     found = common.which(BINARY)
     if found:

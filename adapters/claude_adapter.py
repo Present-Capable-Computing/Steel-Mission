@@ -70,6 +70,8 @@ TURN_LIMIT_HINT = (
 # Medium is the only setting that is both truthful and comfortably in budget.
 COORDINATOR_MODEL = "claude-sonnet-5"
 COORDINATOR_EFFORT = "medium"
+SUPPORTED_MODELS = frozenset({"claude-fable-5", "claude-opus-5", "claude-sonnet-5"})
+SUPPORTED_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 # Raised from 270s not because runs need longer -- measured 2026-08-17, no
 # successful run exceeded 194s -- but because 270s was truncating the CLI's
 # own retry loop and reporting it as a timeout. Every "timeout" at 270.2s was
@@ -98,6 +100,17 @@ SESSION_ENV_PREFIXES = ("CLAUDE_", "CLAUDECODE")
 SESSION_ENV_KEEP = {TOKEN_ENV}
 OUTPUT_TOKEN_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 MODEL_OUTPUT_TOKEN_BUDGET = "64000"
+
+
+def model_binding_error(model: str, effort: str | None = None) -> str | None:
+    """Return a named configuration error before an unsupported call is attempted."""
+    if model not in SUPPORTED_MODELS:
+        return f"provider 'claude' does not recognize model {model!r}"
+    if effort is not None and effort not in SUPPORTED_EFFORTS:
+        return f"provider 'claude' does not recognize reasoning effort {effort!r}"
+    return None
+
+
 DEFAULT_TOKEN_FILE = Path.home() / ".claude" / "present-worker-token"
 TOKEN_FILE_OVERRIDE_ENV = "STEEL_MISSION_WORKER_CLAUDE_TOKEN_FILE"
 LEGACY_TOKEN_FILE_OVERRIDE_ENV = "PRESENT_WORKER_CLAUDE_TOKEN_FILE"
@@ -583,7 +596,8 @@ def _invoke_once(prompt: str, schema: dict[str, Any], *, timeout: int,
     return structured, None, False
 
 
-def plan(task_id: str, mode: str, requirement: str) -> dict[str, Any]:
+def plan(task_id: str, mode: str, requirement: str, *,
+         model: str | None = None, effort: str | None = None) -> dict[str, Any]:
     mocked = mode == "mock"
     envelope = common.canonical_envelope(task_id, "steel-mission plan (claude)", mocked=mocked)
     if mocked:
@@ -596,6 +610,7 @@ def plan(task_id: str, mode: str, requirement: str) -> dict[str, Any]:
     output, error = _invoke(
         "Create a concrete implementation plan for the requirement below. Do not claim that any work is verified.\n\n"
         f"REQUIREMENT\n{requirement}", PLAN_SCHEMA,
+        model=model, effort=effort,
     )
     if error:
         return {"status": "PROVIDER_ERROR", "provider": "claude", "reason": error, "retryable": True}
@@ -654,7 +669,9 @@ def _survey_shortfall(report: dict[str, Any], snapshot: dict[str, Any]) -> str |
 def coordinator_report(task_id: str, mode: str, requirement: str,
                state_snapshot: dict[str, Any], pack_identity: dict[str, Any],
                timeout: int = COORDINATOR_TIMEOUT_SECONDS,
-               progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+               progress: Callable[[dict[str, Any]], None] | None = None,
+               model: str = COORDINATOR_MODEL,
+               effort: str = COORDINATOR_EFFORT) -> dict[str, Any]:
     """DC13 Delivery Coordinator status report: retrieve -> classify -> reconcile -> report.
 
     The worker gathers the state deterministically and hands it over as data;
@@ -758,7 +775,7 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
         if attempt and remaining < COORDINATOR_MIN_RESURVEY_SECONDS:
             break
         output, error = _invoke(prompt, COORDINATOR_REPORT_SCHEMA, timeout=max(remaining, 1),
-                                model=COORDINATOR_MODEL, effort=COORDINATOR_EFFORT, progress=progress)
+                                model=model, effort=effort, progress=progress)
         if error:
             return {"status": "PROVIDER_ERROR", "provider": "claude", "reason": error, "retryable": True}
         shortfall = _survey_shortfall(output, state_snapshot)
@@ -783,7 +800,8 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
 
 
 def adversarial(task_id: str, mode: str, requirement: str, plan: str, commit: str, diff: str,
-                *, input_context: str = "") -> dict[str, Any]:
+                *, input_context: str = "", model: str | None = None,
+                effort: str | None = None) -> dict[str, Any]:
     mocked = mode == "mock"
     envelope = common.canonical_envelope(task_id, "steel-mission acceptance (claude)", mocked=mocked, commit=commit)
     if mocked:
@@ -798,6 +816,7 @@ def adversarial(task_id: str, mode: str, requirement: str, plan: str, commit: st
         f"REQUIREMENT\n{requirement}\n\nPLAN\n{plan}\n\nCOMMIT\n{commit}\n\n"
         f"WORKFLOW INPUT CONTEXT\n{input_context}\n\nDIFF\n{diff}",
         ADVERSARIAL_SCHEMA,
+        model=model, effort=effort,
     )
     if error:
         return {"status": "PROVIDER_ERROR", "provider": "claude", "reason": error, "retryable": True}

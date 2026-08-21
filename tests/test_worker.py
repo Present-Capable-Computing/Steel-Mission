@@ -477,18 +477,25 @@ def test_status_does_not_require_optional_glimmer():
 
 
 def test_claude_live_plan_uses_canonical_envelope():
+    captured = {}
     original_auth = claude_adapter.authenticated
     original_invoke = claude_adapter._invoke
     try:
         claude_adapter.authenticated = lambda: (True, {})
-        claude_adapter._invoke = lambda prompt, schema: ({
-            "summary": "bounded plan",
-            "steps": [{"id": "s1", "description": "implement", "dependsOn": []}],
-            "openQuestions": [],
-        }, None)
-        payload = claude_adapter.plan("DEV-900006", "live", "requirement")
+        def fake_invoke(_prompt, _schema, **kwargs):
+            captured.update(kwargs)
+            return ({
+                "summary": "bounded plan",
+                "steps": [{"id": "s1", "description": "implement", "dependsOn": []}],
+                "openQuestions": [],
+            }, None)
+        claude_adapter._invoke = fake_invoke
+        payload = claude_adapter.plan(
+            "DEV-900006", "live", "requirement", model="claude-opus-5", effort="high",
+        )
         assert payload["mock"] is False
         assert payload["provenance"]["source"] == "worker"
+        assert captured == {"model": "claude-opus-5", "effort": "high"}
         assert schema_check.validate(payload, "canonical/plan-v1.json") == []
     finally:
         claude_adapter.authenticated = original_auth
@@ -573,10 +580,14 @@ def test_codex_coordinator_report_is_read_only_schema_constrained_and_canonical(
             "What needs attention?",
             {"tasks": [{"taskId": "DEV-900188", "state": "active"}]},
             {"probe": "ok", "packageId": "DC13", "corpusGeneration": 1, "currentThrough": "today"},
+            model="gpt-5.6-terra",
+            effort="high",
         )
 
         command = captured["command"]
         assert command[:4] == ["codex", "--ask-for-approval", "never", "exec"]
+        assert command[command.index("--model") + 1] == "gpt-5.6-terra"
+        assert command[command.index("--config") + 1] == 'model_reasoning_effort="high"'
         assert command[command.index("--sandbox") + 1] == "read-only"
         assert "--output-schema" in command
         item_schema = captured["schema"]["properties"]["items"]["items"]
@@ -4985,11 +4996,46 @@ def test_coordinator_role_prefers_codex_and_names_registry_fallback_when_unavail
     )
 
     assert preferred["provider"] == "codex"
-    assert preferred["selectedModel"] == "codex-cli-default"
+    assert preferred["selectedModel"] == "gpt-5.6-sol"
+    assert "reasoning-effort:xhigh" in preferred["nativeCapabilities"]
     assert "fallbackReason" not in preferred
     assert fallback["provider"] == "claude"
     assert fallback["selectedModel"] == "claude-sonnet-5"
+    assert "reasoning-effort:medium" in fallback["nativeCapabilities"]
     assert fallback["fallbackReason"] == "primary-unavailable"
+
+
+def test_delivery_roles_pin_opus_five_and_codex_maximum_settings():
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    models = {model["id"]: model for model in registry["models"]}
+    roles = {role["id"]: role for role in registry["roles"]}
+
+    assert roles["delivery.planner"]["primaryModel"] == "claude-opus-5"
+    assert roles["delivery.acceptance"]["primaryModel"] == "claude-opus-5"
+    assert "reasoning-effort:high" in models["claude-opus-5"]["nativeCapabilities"]
+    assert roles["delivery.reviewer"]["primaryModel"] == "gpt-5.6-sol"
+    assert "reasoning-effort:xhigh" in models["gpt-5.6-sol"]["nativeCapabilities"]
+
+
+def test_model_role_resolution_refuses_a_model_unknown_to_its_provider(tmp_path, monkeypatch):
+    cli = _load_cli_module()
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    codex = next(model for model in registry["models"] if model["provider"] == "codex")
+    old_id = codex["id"]
+    codex["id"] = "codex-invented-model"
+    for role in registry["roles"]:
+        if role["primaryModel"] == old_id:
+            role["primaryModel"] = codex["id"]
+        role["fallbackModels"] = [codex["id"] if model == old_id else model for model in role["fallbackModels"]]
+    path = tmp_path / "model-role-registry.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setenv(cli.MODEL_ROLE_REGISTRY_ENV, str(path))
+
+    with pytest.raises(
+        common.TaskBundleError,
+        match="provider 'codex' does not recognize model 'codex-invented-model'",
+    ):
+        cli._resolve_model_policy("dc13.coordination-report", require_ready=False)
 
 
 def test_model_role_refuses_provider_that_lacks_required_native_capability():
@@ -5065,6 +5111,157 @@ def test_mock_coordinator_report_routes_through_codex():
         assert schema_check.validate(payload, "canonical/coordination-report-v1.json") == []
     finally:
         purge_task(task_id)
+
+
+def test_changing_registry_model_changes_coordinator_invocation_and_record(monkeypatch, tmp_path):
+    cli = _load_cli_module()
+    captured: dict = {}
+    registry = json.loads((WORKER_DIR / "config" / "model-role-registry.json").read_text())
+    codex = next(model for model in registry["models"] if model["provider"] == "codex")
+    old_id = codex["id"]
+    codex["id"] = "gpt-5.6-terra"
+    codex["nativeCapabilities"] = ["provider-native-cli", "reasoning-effort:high"]
+    for role in registry["roles"]:
+        if role["primaryModel"] == old_id:
+            role["primaryModel"] = codex["id"]
+        role["fallbackModels"] = [
+            codex["id"] if model == old_id else model for model in role["fallbackModels"]
+        ]
+    path = tmp_path / "model-role-registry.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setenv(cli.MODEL_ROLE_REGISTRY_ENV, str(path))
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = True
+        timeout_seconds = 42
+        profile = None
+        role = None
+        provider = None
+
+    def fake_report(*_args, model=None, effort=None, **_kwargs):
+        captured["adapter"] = {"model": model, "effort": effort}
+        return {"status": "OK"}
+
+    def fake_record(_task_id, _stage, _fields=None, **extra):
+        captured["record"] = extra
+        return extra
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_effective_coordinator_runtime_profile", lambda *_args: None)
+    monkeypatch.setattr(cli, "_effective_coordinator_snapshot_policy", lambda *_args: {})
+    monkeypatch.setattr(cli, "_coordinator_state_snapshot", lambda *_args: {})
+    monkeypatch.setattr(cli, "_coordinator_pack_identity", lambda: {"probe": "ok"})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_coordinator_progress_writer", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Where are we?")
+    monkeypatch.setattr(cli.common, "record_stage", fake_record)
+    monkeypatch.setattr(cli.codex_adapter, "coordinator_report", fake_report)
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_coordinator_report(Args()) == 0
+    assert captured["adapter"] == {"model": "gpt-5.6-terra", "effort": "high"}
+    assert captured["record"] == {
+        "role": "codex",
+        "provider": "codex",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+    }
+
+
+def test_plan_command_invokes_the_registry_declared_opus_model(monkeypatch):
+    cli = _load_cli_module()
+    captured: dict = {}
+    policy = {
+        "selectedModel": "claude-opus-5",
+        "provider": "claude",
+        "nativeCapabilities": ["reasoning-effort:high"],
+    }
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = False
+
+    def fake_plan(*_args, model=None, effort=None, **_kwargs):
+        captured.update(model=model, effort=effort)
+        return {"status": "OK"}
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_resolve_model_policy", lambda *_args, **_kwargs: policy)
+    monkeypatch.setattr(cli.claude_adapter, "plan", fake_plan)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Plan this")
+    monkeypatch.setattr(cli.common, "record_stage", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_plan(Args()) == 0
+    assert captured == {"model": "claude-opus-5", "effort": "high"}
+
+
+def test_review_command_invokes_the_registry_declared_codex_model(monkeypatch, tmp_path):
+    cli = _load_cli_module()
+    captured: dict = {}
+    policy = {
+        "selectedModel": "gpt-5.6-sol",
+        "provider": "codex",
+        "nativeCapabilities": ["reasoning-effort:xhigh"],
+    }
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = False
+
+    def fake_review(*_args, model=None, effort=None, **_kwargs):
+        captured.update(model=model, effort=effort)
+        return {"status": "OK"}
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_resolve_model_policy", lambda *_args, **_kwargs: policy)
+    monkeypatch.setattr(cli, "_latest_stage_output_commit", lambda *_args: "a" * 40)
+    monkeypatch.setattr(cli, "_worktree_path", lambda *_args: tmp_path / "absent")
+    monkeypatch.setattr(cli, "_artifact_plan_text", lambda _task_id: "plan")
+    monkeypatch.setattr(cli, "_workflow_input_context_text", lambda: "context")
+    monkeypatch.setattr(cli.codex_adapter, "review", fake_review)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Review this")
+    monkeypatch.setattr(cli.common, "record_stage", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_review(Args()) == 0
+    assert captured == {"model": "gpt-5.6-sol", "effort": "xhigh"}
+
+
+def test_acceptance_command_invokes_the_registry_declared_opus_model(monkeypatch, tmp_path):
+    cli = _load_cli_module()
+    captured: dict = {}
+    policy = {
+        "selectedModel": "claude-opus-5",
+        "provider": "claude",
+        "nativeCapabilities": ["reasoning-effort:high"],
+    }
+
+    class Args:
+        task_id = "DEV-900189"
+        mock = False
+
+    def fake_adversarial(*_args, model=None, effort=None, **_kwargs):
+        captured.update(model=model, effort=effort)
+        return {"status": "OK"}
+
+    monkeypatch.setattr(cli, "_load_or_synthesize_contract", lambda *_args: {})
+    monkeypatch.setattr(cli, "_requirement_gate", lambda *_args: None)
+    monkeypatch.setattr(cli, "_resolve_model_policy", lambda *_args, **_kwargs: policy)
+    monkeypatch.setattr(cli, "_latest_stage_output_commit", lambda *_args: "a" * 40)
+    monkeypatch.setattr(cli, "_worktree_path", lambda *_args: tmp_path / "absent")
+    monkeypatch.setattr(cli, "_artifact_plan_text", lambda _task_id: "plan")
+    monkeypatch.setattr(cli, "_workflow_input_context_text", lambda: "context")
+    monkeypatch.setattr(cli.claude_adapter, "adversarial", fake_adversarial)
+    monkeypatch.setattr(cli.common, "load_requirement", lambda _task_id: "Accept this")
+    monkeypatch.setattr(cli.common, "record_stage", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(cli, "emit", lambda _payload, **_kwargs: 0)
+
+    assert cli.cmd_adversarial(Args()) == 0
+    assert captured == {"model": "claude-opus-5", "effort": "high"}
 
 
 def test_steel_mission_refuses_unknown_runtime_profile_before_starting_mission(tmp_path):
@@ -6613,16 +6810,18 @@ def test_coordinator_report_budget_is_caller_supplied():
                     "contradictions": []}, None
 
         claude_adapter._invoke = fake_invoke
-        claude_adapter.coordinator_report("DEV-900007", "live", "requirement", {},
-                                  {"probe": "ok"}, timeout=42)
+        claude_adapter.coordinator_report(
+            "DEV-900007", "live", "requirement", {}, {"probe": "ok"},
+            timeout=42, model="claude-opus-5", effort="high",
+        )
         # A deadline, not a fresh grant per attempt: the budget is shared with
         # the survey re-ask, so an attempt gets what remains of it and can
         # never exceed it.
         assert 40 <= captured["timeout"] <= 42
         # Effort is pinned: `low` returned an empty "placeholder" stub claiming
         # nothing was unchecked, which the role canon forbids.
-        assert captured["effort"] == "medium"
-        assert captured["model"] == claude_adapter.COORDINATOR_MODEL
+        assert captured["effort"] == "high"
+        assert captured["model"] == "claude-opus-5"
     finally:
         claude_adapter._invoke = original
         claude_adapter.authenticated = original_auth
