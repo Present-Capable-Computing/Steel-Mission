@@ -220,16 +220,19 @@ class SubprocessRunner:
         if extra_env:
             environment.update(extra_env)
         started = time.monotonic()
-        process = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=environment,
-            start_new_session=True,
-        )
+        try:
+            process = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise BenchError(f"command failed to start: {argv[0]}: {exc}") from exc
         try:
             stdout, stderr = process.communicate(input=input_text, timeout=max(1, timeout))
         except subprocess.TimeoutExpired as exc:
@@ -330,10 +333,12 @@ class GitHubPlatform:
     def validate_machine_accounts(self, grant: dict[str, Any]) -> None:
         seen: set[str] = set()
         for worker in ("claude", "codex", "local"):
-            expected = grant["machineAccounts"][worker]["login"]
+            account = grant["machineAccounts"][worker]
+            expected = account["login"]
+            environment = self._account_env(grant, worker)
             result = self._run(
                 ["gh", "api", "user", "--jq", ".login"],
-                extra_env=self._account_env(grant, worker),
+                extra_env=environment,
                 label=f"{worker} machine-account check",
             )
             actual = result.stdout.strip()
@@ -342,6 +347,24 @@ class GitHubPlatform:
             if actual in seen:
                 raise BenchError("machine-account credentials resolve to duplicate GitHub users")
             seen.add(actual)
+            email_result = self._run(
+                ["gh", "api", "user/emails"],
+                extra_env=environment,
+                label=f"{worker} verified-email check",
+            )
+            try:
+                emails = json.loads(email_result.stdout)
+            except json.JSONDecodeError as exc:
+                raise BenchError(f"{worker} verified-email check returned invalid JSON") from exc
+            verified = {
+                str(item.get("email", "")).lower()
+                for item in emails
+                if isinstance(item, dict) and item.get("verified") is True
+            } if isinstance(emails, list) else set()
+            if account["email"].lower() not in verified:
+                raise BenchError(
+                    f"{worker} commit email is not verified by its authenticated GitHub account"
+                )
 
     def validate_repository_wall(self, grant: dict[str, Any]) -> None:
         result = self._run([
@@ -811,6 +834,8 @@ class PipelineBench:
         self.claimed_at = utc_now()
         self.issue_payload: dict[str, Any] = {}
         self.stage_started: dict[str, str] = {}
+        self.active_stage: str | None = None
+        self.active_budget: StageBudget | None = None
         self.evidence: dict[str, Any] = {
             "schemaVersion": 1,
             "missionId": self.grant["missionId"],
@@ -842,6 +867,8 @@ class PipelineBench:
         outcome_status: str = "pending",
         artifact_refs: list[dict[str, Any]] | None = None,
     ) -> None:
+        self.active_stage = stage
+        self.active_budget = budget
         self.sequence += 1
         event_id = "ase-" + secrets.token_hex(12)
         stage_name, worker_key, role, model = STAGE_DETAILS[stage]
@@ -991,6 +1018,32 @@ class PipelineBench:
         raise BenchError("authority-owned changes stop for human delivery outside the mission bench")
 
     def run(self) -> dict[str, Any]:
+        try:
+            return self._run_pipeline()
+        except BenchError as exc:
+            self._record_failure(exc)
+            raise
+
+    def _record_failure(self, error: BenchError) -> None:
+        if self.active_stage is None or self.active_budget is None:
+            return
+        reason = str(error)[:2000] or "mission bench stopped"
+        exhausted = "budget" in reason.lower() or "exceeded its" in reason.lower()
+        state = "budget-exhausted" if exhausted else "failed"
+        self.evidence["state"] = state
+        self.evidence["failure"] = {"reason": reason}
+        self.evidence["completedAt"] = utc_now()
+        self._save_evidence()
+        self._emit(
+            self.active_stage,
+            state,
+            reason,
+            self.active_budget,
+            event_kind="session-stopped",
+            outcome_status=state,
+        )
+
+    def _run_pipeline(self) -> dict[str, Any]:
         issue = self.platform.issue(self.grant)
         self.issue_payload = issue
         labels = {
@@ -1012,26 +1065,26 @@ class PipelineBench:
         self._save_evidence()
         worktree = self.platform.prepare_worktree(self.grant, self.session_dir)
         contract = self._contract()
-        budgets = {stage: StageBudget(self.grant["budgets"][stage]) for stage in STAGE_DETAILS}
+        plan_budget = StageBudget(self.grant["budgets"]["plan"])
 
-        self._emit("plan", "working", "Claude Opus is validating the granted plan.", budgets["plan"], event_kind="stage-started")
+        self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget, event_kind="stage-started")
         plan_prompt = (
             "Plan this granted mission. Do not change its requirement, acceptance evidence, budgets, or authority. "
             "Return clean=false when any assumption, scope boundary, or acceptance command is unresolved.\n\n"
             f"{contract}\n\nAbort conditions: {json.dumps(self.grant['abortConditions'])}"
         )
-        plan = self.agents.plan(plan_prompt, worktree, budgets["plan"], self.session_dir)
+        plan = self.agents.plan(plan_prompt, worktree, plan_budget, self.session_dir)
         if plan.get("clean") is not True:
             summary = require_text(plan.get("summary"), "unclean plan summary")
             handle = self.decisions.request(f"The granted mission plan is unclean. {summary}\n\n{contract}")
             pending = self._decision_pending(handle)
             self._emit(
-                "plan", "waiting-on-person", summary, budgets["plan"],
+                "plan", "waiting-on-person", summary, plan_budget,
                 event_kind="decision-requested", pending_decision=pending,
             )
             self.evidence["decision"] = {"request": handle}
             self._save_evidence()
-            answer = self.decisions.wait_for_answer(handle["jobId"], budgets["plan"].remaining())
+            answer = self.decisions.wait_for_answer(handle["jobId"], plan_budget.remaining())
             self.evidence["decision"]["answer"] = answer
             self._save_evidence()
             if answer.get("selectedOptionId") == "pause":
@@ -1039,19 +1092,20 @@ class PipelineBench:
             plan = self.agents.plan(
                 plan_prompt + "\n\nThe Person answered through the decision flow: " + json.dumps(answer, sort_keys=True),
                 worktree,
-                budgets["plan"],
+                plan_budget,
                 self.session_dir,
             )
             if plan.get("clean") is not True:
                 raise BenchError("plan remained unclean after the Person decision")
         self.evidence["stages"]["plan"] = plan
         self._save_evidence()
-        self._emit("plan", "idle", require_text(plan.get("summary"), "plan summary"), budgets["plan"], event_kind="stage-completed")
+        self._emit("plan", "idle", require_text(plan.get("summary"), "plan summary"), plan_budget, event_kind="stage-completed")
 
+        develop_budget = StageBudget(self.grant["budgets"]["develop"])
         red_result = self.platform.run_command(
             self.grant["definitionOfDone"]["redTest"],
             worktree,
-            budgets["develop"].remaining(),
+            develop_budget.remaining(),
             isolated_command_env(self.session_dir, self.credential_envs),
         )
         if red_result.returncode == 0:
@@ -1063,21 +1117,21 @@ class PipelineBench:
         }
         self._save_evidence()
 
-        self._emit("develop", "working", "The local developer is implementing and committing in its isolated worktree.", budgets["develop"], event_kind="stage-started")
+        self._emit("develop", "working", "The local developer is implementing and committing in its isolated worktree.", develop_budget, event_kind="stage-started")
         develop_prompt = (
             "Implement the granted mission in this isolated worktree. The configured focused regression has already "
             "been observed failing. Make it pass, keep the full suite green, and commit all changes using the existing "
             "machine-account git identity. Do not push or create a pull request.\n\n"
             f"{contract}\n\nApproved plan: {json.dumps(plan, sort_keys=True)}"
         )
-        self.agents.develop(develop_prompt, worktree, budgets["develop"], self.session_dir)
+        self.agents.develop(develop_prompt, worktree, develop_budget, self.session_dir)
         commit = self.platform.assert_machine_commit(self.grant, worktree)
         paths = self.platform.changed_paths(self.grant, worktree)
-        self._stop_for_authority_paths(paths, budgets["develop"], contract)
-        gates = self._green_gates(worktree, budgets["develop"])
+        self._stop_for_authority_paths(paths, develop_budget, contract)
+        gates = self._green_gates(worktree, develop_budget)
         self.evidence["stages"]["develop"] = {"commit": commit, "paths": paths, "gates": gates}
         self._save_evidence()
-        self._emit("develop", "idle", "Local developer commit and all pre-push gates are green.", budgets["develop"], event_kind="stage-completed")
+        self._emit("develop", "idle", "Local developer commit and all pre-push gates are green.", develop_budget, event_kind="stage-completed")
 
         self.platform.push(self.grant, worktree)
         body_path = self.session_dir / "pull-request.md"
@@ -1089,14 +1143,15 @@ class PipelineBench:
         previous_commit = commit
         corrections = 0
         clean_review: dict[str, Any] | None = None
+        review_budget = StageBudget(self.grant["budgets"]["review"])
         for round_number in range(1, self.grant["maxReviewRounds"] + 1):
-            self._emit("review", "working", f"Codex review round {round_number} is inspecting the committed diff.", budgets["review"], event_kind="stage-started")
+            self._emit("review", "working", f"Codex review round {round_number} is inspecting the committed diff.", review_budget, event_kind="stage-started")
             review_prompt = (
                 "Review the committed diff against the granted requirement and acceptance evidence. Report only "
                 "actionable correctness, security, or regression findings.\n\n"
                 f"{contract}\n\nApproved plan: {json.dumps(plan, sort_keys=True)}"
             )
-            review = self.agents.review(review_prompt, worktree, budgets["review"], self.session_dir)
+            review = self.agents.review(review_prompt, worktree, review_budget, self.session_dir)
             self.platform.post_codex_review(self.grant, int(pull_request["number"]), review)
             self.evidence["stages"].setdefault("review", []).append(review)
             self._save_evidence()
@@ -1111,13 +1166,13 @@ class PipelineBench:
                 "relevant tests, and create a new commit with the machine-account identity. Do not push.\n\n"
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
-            self.agents.fix(fix_prompt, worktree, budgets["develop"], self.session_dir)
+            self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
             previous_commit = self.platform.assert_machine_commit(
                 self.grant, worktree, previous_commit=previous_commit
             )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
-            self._stop_for_authority_paths(correction_paths, budgets["develop"], contract)
-            correction_gates = self._green_gates(worktree, budgets["develop"])
+            self._stop_for_authority_paths(correction_paths, develop_budget, contract)
+            correction_gates = self._green_gates(worktree, develop_budget)
             self.evidence["stages"].setdefault("corrections", []).append({
                 "round": round_number,
                 "commit": previous_commit,
@@ -1128,17 +1183,18 @@ class PipelineBench:
             self.platform.push(self.grant, worktree)
         if clean_review is None:
             raise BenchError("Codex review loop exhausted its bounded correction rounds")
-        self._emit("review", "idle", require_text(clean_review.get("summary"), "review summary"), budgets["review"], event_kind="stage-completed")
+        self._emit("review", "idle", require_text(clean_review.get("summary"), "review summary"), review_budget, event_kind="stage-completed")
 
         body_path.write_text(self._pr_body())
         self.platform.update_pr_body(
             self.grant, int(pull_request["number"]), body_path
         )
 
+        acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
         self.platform.arm_auto_merge(self.grant, int(pull_request["number"]))
-        self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", budgets["acceptance"], event_kind="stage-started")
+        self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
         ci = self.platform.wait_for_ci(
-            self.grant, int(pull_request["number"]), budgets["acceptance"].remaining()
+            self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
         acceptance_prompt = (
             "Perform the final read-only acceptance review. Approve only if the committed diff, failing-test evidence, "
@@ -1146,14 +1202,14 @@ class PipelineBench:
             f"{contract}\n\nCI evidence: {ci}\n\nCodex review: {json.dumps(clean_review, sort_keys=True)}"
         )
         acceptance = self.agents.accept(
-            acceptance_prompt, worktree, budgets["acceptance"], self.session_dir
+            acceptance_prompt, worktree, acceptance_budget, self.session_dir
         )
         if acceptance.get("verdict") != "approve":
             raise BenchError(f"Claude acceptance rejected the mission: {acceptance.get('summary')}")
         summary = require_text(acceptance.get("summary"), "acceptance summary")
         self.platform.approve(self.grant, int(pull_request["number"]), summary)
         merged = self.platform.wait_for_merge(
-            self.grant, int(pull_request["number"]), budgets["acceptance"].remaining()
+            self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
         self.evidence["stages"]["acceptance"] = {"ci": ci, "review": acceptance, "merge": merged}
         self.evidence["state"] = "merged"
@@ -1164,7 +1220,7 @@ class PipelineBench:
             {"kind": "pull-request", "uri": str(pull_request["url"])},
         ]
         self._emit(
-            "acceptance", "succeeded", summary, budgets["acceptance"],
+            "acceptance", "succeeded", summary, acceptance_budget,
             event_kind="session-completed", outcome_status="succeeded", artifact_refs=artifacts,
         )
         return {

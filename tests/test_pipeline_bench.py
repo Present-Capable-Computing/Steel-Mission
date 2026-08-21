@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from adapters import schema_check
+import tooling.mission_pipeline_bench as mission_bench
 from tooling.mission_pipeline_bench import (
     AgentDriver,
     BenchError,
@@ -242,6 +243,21 @@ class DiffRunner:
         )
 
 
+class AccountRunner:
+    def __init__(self, accounts, unverified=()):
+        self.accounts = accounts
+        self.unverified = set(unverified)
+
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+        login, email = self.accounts[extra_env["GH_TOKEN"]]
+        if argv == ["gh", "api", "user", "--jq", ".login"]:
+            output = login + "\n"
+        else:
+            assert argv == ["gh", "api", "user/emails"]
+            output = json.dumps([{"email": email, "verified": email not in self.unverified}])
+        return CommandResult(argv, 0, output, "", 0.1)
+
+
 def protected_repository():
     return {
         "required_pull_request_reviews": {
@@ -283,6 +299,32 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     feed = [json.loads(line) for line in Path(result["feedPath"]).read_text().splitlines()]
     assert feed[-1]["outcome"]["status"] == "succeeded"
     assert all(schema_check.validate(item, "canonical/agent-session-status-v1.json") == [] for item in feed)
+
+
+def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    class SlowPlanAgents(FakeAgents):
+        def plan(self, prompt, worktree, budget, session_dir):
+            value = super().plan(prompt, worktree, budget, session_dir)
+            clock[0] += 4
+            return value
+
+    value = grant()
+    value["budgets"]["plan"]["elapsedSeconds"] = 5
+    for stage in ("develop", "review", "acceptance"):
+        value["budgets"][stage]["elapsedSeconds"] = 1
+
+    result = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=FakePlatform(tmp_path),
+        agents=SlowPlanAgents(),
+        decisions=FakeDecision(),
+    ).run()
+
+    assert result["state"] == "merged"
 
 
 def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
@@ -366,6 +408,10 @@ def test_a_red_full_gate_prevents_every_push(tmp_path):
 
     assert "push" not in platform.calls
     assert "create-pr" not in platform.calls
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    assert feed[-1]["state"] == "failed"
+    assert feed[-1]["outcome"]["status"] == "failed"
+    assert json.loads(bench.evidence_path.read_text())["failure"]["reason"].startswith("full test gate failed")
 
 
 def test_review_correction_that_touches_authority_stops_before_another_push(tmp_path):
@@ -487,6 +533,22 @@ def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path
 
     with pytest.raises(BenchError, match="require an approving review"):
         platform.validate_repository_wall(grant())
+
+
+def test_machine_commit_email_must_be_verified_by_the_authenticated_account(tmp_path, monkeypatch):
+    value = grant()
+    accounts = {}
+    for worker, account in value["machineAccounts"].items():
+        token = f"token-{worker}"
+        monkeypatch.setenv(account["tokenEnv"], token)
+        accounts[token] = (account["login"], account["email"])
+    platform = GitHubPlatform(
+        tmp_path,
+        AccountRunner(accounts, unverified={value["machineAccounts"]["local"]["email"]}),
+    )
+
+    with pytest.raises(BenchError, match="local commit email is not verified"):
+        platform.validate_machine_accounts(value)
 
 
 def test_changed_paths_include_both_ends_of_an_authority_file_rename(tmp_path):
