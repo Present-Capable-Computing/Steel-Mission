@@ -12,10 +12,24 @@ const vocabulary = {
   ],
 };
 
+test("an owner sees the workspace grant even when raw assignments are empty", () => {
+  const view = capabilityWorkspaceView(
+    {actorId: "owner-1", role: "owner", capabilities: []},
+    {visibleCapabilities: vocabulary.capabilities},
+  );
+
+  assert.equal(view.accessLevel, "owner");
+  assert.deepEqual(view.capabilities.map((item) => item.label), [
+    "DC03 · Architecture",
+    "DC04 · Product",
+    "DC13 · Delivery Coordinator",
+  ]);
+});
+
 test("a publisher sees the capabilities assigned to that publisher", () => {
   const view = capabilityWorkspaceView(
     {actorId: "publisher-1", role: "publisher", capabilities: ["DC03", "DC13"]},
-    vocabulary,
+    {visibleCapabilities: [vocabulary.capabilities[0], vocabulary.capabilities[2]]},
   );
 
   assert.equal(view.accessLevel, "publisher");
@@ -28,7 +42,7 @@ test("a publisher sees the capabilities assigned to that publisher", () => {
 test("a user sees the capabilities assigned to that user", () => {
   const view = capabilityWorkspaceView(
     {actorId: "user-1", role: "user", capabilities: ["DC04"]},
-    vocabulary,
+    {visibleCapabilities: [vocabulary.capabilities[1]]},
   );
 
   assert.equal(view.accessLevel, "user");
@@ -38,7 +52,7 @@ test("a user sees the capabilities assigned to that user", () => {
 test("an empty assignment explains who can assign a capability and where", () => {
   const view = capabilityWorkspaceView(
     {actorId: "user-2", role: "user", capabilities: []},
-    vocabulary,
+    {visibleCapabilities: []},
   );
 
   assert.deepEqual(view.capabilities, []);
