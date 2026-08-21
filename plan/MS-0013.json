@@ -7,7 +7,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "ACTIVE",
+  "state": "COMPLETE",
   "taskIds": [],
   "milestoneId": "MS-0013",
   "title": "C0 - Founder console: truthful identity and state",
