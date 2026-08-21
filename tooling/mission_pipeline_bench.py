@@ -15,12 +15,14 @@ import os
 import re
 import secrets
 import selectors
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -300,7 +302,9 @@ class SubprocessRunner:
         if not PARENT_CONTAINMENT_READY:
             return
         task_root = Path("/proc/self/task")
-        for _attempt in range(100):
+        deadline = time.monotonic() + 2
+        quiet_since: float | None = None
+        while time.monotonic() < deadline:
             children: set[int] = set()
             try:
                 child_files = list(task_root.glob("*/children"))
@@ -323,7 +327,11 @@ class SubprocessRunner:
                     break
                 if waited == 0:
                     break
-            if not children:
+            if children:
+                quiet_since = None
+            elif quiet_since is None:
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since >= 0.25:
                 return
             time.sleep(0.01)
         raise BenchError("contained descendants could not be reaped")
@@ -468,6 +476,40 @@ class GitHubPlatform:
         self.repository_root = repository_root.resolve()
         self.runner = runner or SubprocessRunner()
         self.worktree_bases: dict[Path, str] = {}
+        self.validated_base_oids: dict[str, str] = {}
+        self.trusted_executables = {
+            name: self._resolve_trusted_executable(name)
+            for name in ("git", "gh")
+        }
+        trusted_directories = [
+            self.trusted_executables["git"].parent,
+            self.trusted_executables["gh"].parent,
+        ]
+        self.trusted_path = os.pathsep.join(
+            dict.fromkeys(str(directory) for directory in trusted_directories)
+        )
+
+    @staticmethod
+    def _resolve_trusted_executable(name: str) -> Path:
+        located = shutil.which(name)
+        if not located:
+            raise BenchError(f"required trusted executable is unavailable: {name}")
+        path = Path(located).resolve()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise BenchError(f"required trusted executable is not executable: {path}")
+        return path
+
+    def _trusted_invocation(
+        self,
+        argv: list[str],
+        extra_env: dict[str, str] | None,
+    ) -> tuple[list[str], dict[str, str]]:
+        executable = self.trusted_executables.get(argv[0]) if argv else None
+        if executable is None:
+            raise BenchError("GitHub platform commands must use a pinned git or gh executable")
+        environment = dict(extra_env or {})
+        environment["PATH"] = self.trusted_path
+        return [str(executable), *argv[1:]], environment
 
     def _run(
         self,
@@ -481,12 +523,13 @@ class GitHubPlatform:
         complete_stdout: bool = False,
         label: str | None = None,
     ) -> CommandResult:
-        kwargs = {"input_text": input_text, "extra_env": extra_env}
+        trusted_argv, trusted_env = self._trusted_invocation(argv, extra_env)
+        kwargs = {"input_text": input_text, "extra_env": trusted_env}
         if not inherit_env:
             kwargs["inherit_env"] = False
         if complete_stdout:
             kwargs["complete_stdout"] = True
-        result = self.runner.run(argv, cwd or self.repository_root, timeout, **kwargs)
+        result = self.runner.run(trusted_argv, cwd or self.repository_root, timeout, **kwargs)
         if result.returncode != 0:
             detail = command_tail(result) or f"exit {result.returncode}"
             raise BenchError(f"{label or argv[0]} failed: {detail}")
@@ -566,10 +609,45 @@ class GitHubPlatform:
                 )
 
     def validate_repository_wall(self, grant: dict[str, Any], timeout: float = 120) -> None:
+        deadline = time.monotonic() + timeout
+
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0:
+                raise BenchError("repository-wall validation exceeded its stage budget")
+            return value
+
+        encoded_branch = urllib.parse.quote(grant["baseBranch"], safe="")
+        ref_endpoint = f"repos/{grant['repository']}/git/ref/heads/{encoded_branch}"
+        environment = self._account_env(grant, "local")
+
+        def live_base_oid() -> str:
+            result = self._run(
+                ["gh", "api", ref_endpoint],
+                timeout=remaining(),
+                extra_env=environment,
+                complete_stdout=True,
+                label="base branch revision read",
+            )
+            try:
+                value = json.loads(result.stdout)
+                oid = value["object"]["sha"]
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                raise BenchError("base branch revision read returned invalid JSON") from exc
+            if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", oid):
+                raise BenchError("base branch revision read returned an invalid commit OID")
+            return oid.lower()
+
+        base_oid = live_base_oid()
+        codeowners_result = self._run([
+            "gh", "api", "-H", "Accept: application/vnd.github.raw+json",
+            f"repos/{grant['repository']}/contents/.github/CODEOWNERS?ref={base_oid}",
+        ], timeout=remaining(), extra_env=environment, complete_stdout=True,
+            label="live-base CODEOWNERS read")
         result = self._run([
             "gh", "api",
             f"repos/{grant['repository']}/branches/{grant['baseBranch']}/protection",
-        ], timeout=timeout, extra_env=self._account_env(grant, "local"), complete_stdout=True,
+        ], timeout=remaining(), extra_env=environment, complete_stdout=True,
             label="branch protection read")
         try:
             protection = json.loads(result.stdout)
@@ -598,10 +676,10 @@ class GitHubPlatform:
         machine_logins = {
             account["login"].lower() for account in grant["machineAccounts"].values()
         }
-        try:
-            codeowners = (self.repository_root / ".github" / "CODEOWNERS").read_text().splitlines()
-        except OSError as exc:
-            raise BenchError(f"CODEOWNERS is unavailable: {exc}") from exc
+        codeowners = codeowners_result.stdout.splitlines()
+        if live_base_oid() != base_oid:
+            raise BenchError("base branch changed during repository-wall validation")
+        self.validated_base_oids[grant["baseBranch"]] = base_oid
         rules = [line.split() for line in codeowners if line.strip() and not line.lstrip().startswith("#")]
         default_rule = next((rule for rule in reversed(rules) if rule[0] == "*"), [])
         default_owners = {token.lstrip("@") for token in default_rule[1:]}
@@ -640,8 +718,15 @@ class GitHubPlatform:
         session_dir.mkdir(parents=True, exist_ok=True)
         if worktree.exists():
             raise BenchError(f"isolated worktree already exists: {worktree}")
+        remote_argv, remote_env = self._trusted_invocation(
+            ["git", "remote", "get-url", "origin"],
+            None,
+        )
         remote = self.runner.run(
-            ["git", "remote", "get-url", "origin"], self.repository_root, 30
+            remote_argv,
+            self.repository_root,
+            30,
+            extra_env=remote_env,
         )
         if remote.returncode == 0:
             self._run(
@@ -652,6 +737,13 @@ class GitHubPlatform:
             base_ref = f"origin/{grant['baseBranch']}"
         else:
             base_ref = grant["baseBranch"]
+        fetched_base = self._run(
+            ["git", "rev-parse", base_ref],
+            label="fetched base revision read",
+        ).stdout.strip().lower()
+        validated_base = self.validated_base_oids.get(grant["baseBranch"])
+        if validated_base is not None and fetched_base != validated_base:
+            raise BenchError("fetched base branch changed after repository-wall validation")
         self._run([
             "git", "worktree", "add", "-b", grant["branch"], str(worktree), base_ref,
         ], timeout=120, label="isolated worktree creation")
@@ -807,13 +899,26 @@ class GitHubPlatform:
             raise BenchError("pull request read returned a non-object")
         return value
 
-    def update_pr_body(self, grant: dict[str, Any], pr_number: int, body_path: Path) -> None:
+    def update_pr_body(
+        self,
+        grant: dict[str, Any],
+        pr_number: int,
+        body_path: Path,
+        timeout: float,
+    ) -> None:
         self._run([
             "gh", "pr", "edit", str(pr_number), "--repo", grant["repository"],
             "--body-file", str(body_path),
-        ], extra_env=self._account_env(grant, "local"), label="pull request evidence update")
+        ], timeout=timeout, extra_env=self._account_env(grant, "local"),
+            label="pull request evidence update")
 
-    def post_codex_review(self, grant: dict[str, Any], pr_number: int, review: dict[str, Any]) -> None:
+    def post_codex_review(
+        self,
+        grant: dict[str, Any],
+        pr_number: int,
+        review: dict[str, Any],
+        timeout: float,
+    ) -> None:
         findings = review.get("findings") if isinstance(review.get("findings"), list) else []
         lines = [f"Codex bench review: {review.get('summary') or review.get('verdict')}"]
         for finding in findings:
@@ -823,7 +928,8 @@ class GitHubPlatform:
         self._run([
             "gh", "pr", "review", str(pr_number), "--repo", grant["repository"],
             "--comment", "--body", body,
-        ], extra_env=self._account_env(grant, "codex"), label="Codex machine-account review")
+        ], timeout=timeout, extra_env=self._account_env(grant, "codex"),
+            label="Codex machine-account review")
 
     def assert_pr_head(
         self,
@@ -1601,7 +1707,13 @@ class PipelineBench:
                 f"{contract}\n\nApproved plan: {json.dumps(plan, sort_keys=True)}"
             )
             review = self.agents.review(review_prompt, worktree, review_budget, self.session_dir)
-            self.platform.post_codex_review(self.grant, int(pull_request["number"]), review)
+            self.platform.post_codex_review(
+                self.grant,
+                int(pull_request["number"]),
+                review,
+                review_budget.remaining(),
+            )
+            review_budget.remaining()
             self.evidence["stages"].setdefault("review", []).append(review)
             self._save_evidence()
             if review.get("verdict") == "clean":
@@ -1643,12 +1755,16 @@ class PipelineBench:
             self.platform.push(self.grant, worktree, develop_budget.remaining())
         if clean_review is None:
             raise BenchError("Codex review loop exhausted its bounded correction rounds")
-        self._emit("review", "idle", require_text(clean_review.get("summary"), "review summary"), review_budget, event_kind="stage-completed")
 
         body_path.write_text(self._pr_body())
         self.platform.update_pr_body(
-            self.grant, int(pull_request["number"]), body_path
+            self.grant,
+            int(pull_request["number"]),
+            body_path,
+            review_budget.remaining(),
         )
+        review_budget.remaining()
+        self._emit("review", "idle", require_text(clean_review.get("summary"), "review summary"), review_budget, event_kind="stage-completed")
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
         self._enforce_live_issue_guards(acceptance_budget)

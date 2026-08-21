@@ -170,15 +170,17 @@ class FakePlatform:
         assert "failing test" in body_path.read_text().lower()
         return {"number": 321, "url": "https://github.test/pull/321"}
 
-    def update_pr_body(self, _grant, _pr_number, body_path):
+    def update_pr_body(self, _grant, _pr_number, body_path, timeout=None):
         body = body_path.read_text()
         self.calls.append("update-pr-body")
+        self.remote_timeouts.append(("update-pr-body", timeout))
         assert "commit-1" in body
         assert "commit-2" in body
         assert "Codex correction rounds: 1" in body
 
-    def post_codex_review(self, _grant, _pr_number, review):
+    def post_codex_review(self, _grant, _pr_number, review, timeout=None):
         self.calls.append(f"codex-review:{review['verdict']}")
+        self.remote_timeouts.append(("codex-review", timeout))
 
     def assert_pr_head(self, _grant, _pr_number, expected_commit, timeout=None):
         self.calls.append(f"pr-head:{expected_commit}:{timeout}")
@@ -262,19 +264,32 @@ class FakeDecision:
 
 
 class ProtectionRunner:
-    def __init__(self, protection):
+    def __init__(self, protection, codeowners=None):
         self.protection = protection
+        self.codeowners = codeowners
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
-        assert argv[:2] == ["gh", "api"]
-        assert extra_env == {"GH_TOKEN": "local-token"}
+        assert Path(argv[0]).name == "gh"
+        assert argv[1] == "api"
+        assert extra_env["GH_TOKEN"] == "local-token"
+        assert extra_env["PATH"]
         assert complete_stdout is True
-        return CommandResult(argv, 0, json.dumps(self.protection), "", 0.1)
+        endpoint = argv[-1]
+        if "/git/ref/heads/" in endpoint:
+            output = json.dumps({"object": {"sha": "a" * 40}})
+        elif "/contents/.github/CODEOWNERS?ref=" in endpoint:
+            output = self.codeowners
+            if output is None:
+                output = (Path(cwd) / ".github" / "CODEOWNERS").read_text()
+        else:
+            output = json.dumps(self.protection)
+        return CommandResult(argv, 0, output, "", 0.1)
 
 
 class DiffRunner:
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
-        assert argv[:4] == ["git", "diff", "--no-ext-diff", "--no-textconv"]
+        assert Path(argv[0]).name == "git"
+        assert argv[1:4] == ["diff", "--no-ext-diff", "--no-textconv"]
         assert inherit_env is False
         return CommandResult(
             argv,
@@ -292,10 +307,11 @@ class AccountRunner:
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
         login, email = self.accounts[extra_env["GH_TOKEN"]]
-        if argv == ["gh", "api", "user", "--jq", ".login"]:
+        command = [Path(argv[0]).name, *argv[1:]]
+        if command == ["gh", "api", "user", "--jq", ".login"]:
             output = login + "\n"
         else:
-            assert argv == ["gh", "api", "user/emails"]
+            assert command == ["gh", "api", "user/emails"]
             assert complete_stdout is True
             output = json.dumps([{"email": email, "verified": email not in self.unverified}])
         return CommandResult(argv, 0, output, "", 0.1)
@@ -306,7 +322,8 @@ class PushRunner:
         self.expected_blank = expected_blank
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
-        assert argv[:2] == ["git", "push"]
+        assert Path(argv[0]).name == "git"
+        assert argv[1] == "push"
         assert inherit_env is False
         assert all(extra_env[name] == "" for name in self.expected_blank)
         assert extra_env["SM_BENCH_PUSH_TOKEN"] == "local-token"
@@ -323,7 +340,8 @@ class MergePollRunner:
         self.timeouts = []
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
-        assert argv[:3] == ["gh", "pr", "view"]
+        assert Path(argv[0]).name == "gh"
+        assert argv[1:3] == ["pr", "view"]
         assert complete_stdout is True
         self.timeouts.append(timeout)
         self.clock[0] += min(0.6, timeout)
@@ -707,6 +725,41 @@ def test_develop_budget_expiry_after_push_prevents_pr_creation(tmp_path, monkeyp
     assert "create-pr" not in platform.calls
 
 
+def test_review_posting_cannot_complete_after_the_review_budget(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    class SlowReviewPlatform(FakePlatform):
+        def post_codex_review(self, grant_value, pr_number, review, timeout=None):
+            super().post_codex_review(grant_value, pr_number, review)
+            self.remote_timeouts.append(("codex-review", timeout))
+            clock[0] += timeout or 1
+
+        def update_pr_body(self, _grant, _pr_number, _body_path, timeout=None):
+            self.calls.append("update-pr-body")
+            self.remote_timeouts.append(("update-pr-body", timeout))
+
+    value = grant()
+    value["budgets"]["review"]["elapsedSeconds"] = 1
+    platform = SlowReviewPlatform(tmp_path)
+    agents = FakeAgents(reviews=[
+        {"verdict": "clean", "summary": "Clean review", "findings": []},
+    ])
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="elapsed-time budget is exhausted"):
+        bench.run()
+
+    assert ("codex-review", 1) in platform.remote_timeouts
+    assert not any(call.startswith("auto-merge:") for call in platform.calls)
+
+
 def test_expired_acceptance_read_cannot_arm_auto_merge(tmp_path, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
@@ -858,6 +911,35 @@ def test_detached_descendants_cannot_escape_linux_subreaper_containment(tmp_path
     assert completed.returncode == 0, completed.stderr
 
 
+def test_descendant_cleanup_rechecks_after_an_initially_quiet_proc_scan(monkeypatch):
+    clock = [0.0]
+    scans = [[], ["424242"], []]
+    killed = []
+
+    class ChildFile:
+        def __init__(self, content):
+            self.content = content
+
+        def read_text(self):
+            return self.content
+
+    class TaskRoot:
+        def glob(self, _pattern):
+            values = scans.pop(0) if scans else []
+            return [ChildFile(value) for value in values]
+
+    monkeypatch.setattr(mission_bench, "PARENT_CONTAINMENT_READY", True)
+    monkeypatch.setattr(mission_bench, "Path", lambda _value: TaskRoot())
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(mission_bench.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    monkeypatch.setattr(mission_bench.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(mission_bench.os, "waitpid", lambda *_args: (_ for _ in ()).throw(ChildProcessError()))
+
+    SubprocessRunner._kill_adopted_descendants()
+
+    assert killed == [(424242, mission_bench.signal.SIGKILL)]
+
+
 def test_subprocess_output_is_drained_into_fixed_size_tail_buffers(tmp_path):
     result = SubprocessRunner().run([
         sys.executable,
@@ -897,6 +979,39 @@ def test_untrusted_subprocess_inherits_only_allowlisted_parent_environment(tmp_p
 
     assert "DATABASE_URL" not in environment
     assert environment["ANTHROPIC_API_KEY"] == "provider-only"
+
+
+def test_privileged_commands_stay_pinned_after_untrusted_path_shadowing(tmp_path, monkeypatch):
+    trusted = tmp_path / "trusted"
+    attacker = tmp_path / "attacker"
+    trusted.mkdir()
+    attacker.mkdir()
+    for directory in (trusted, attacker):
+        for name in ("git", "gh"):
+            executable = directory / name
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(trusted))
+
+    class RecordingRunner:
+        def __init__(self):
+            self.commands = []
+
+        def run(self, argv, cwd, timeout, **_kwargs):
+            self.commands.append(argv)
+            return CommandResult(argv, 0, "", "", 0.1)
+
+    runner = RecordingRunner()
+    platform = GitHubPlatform(tmp_path, runner)
+    monkeypatch.setenv("PATH", f"{attacker}{os.pathsep}{trusted}")
+
+    platform._run(["gh", "api", "user"])
+    platform._run(["git", "status"])
+
+    assert [Path(command[0]) for command in runner.commands] == [
+        (trusted / "gh").resolve(),
+        (trusted / "git").resolve(),
+    ]
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc isolation")
@@ -1017,6 +1132,30 @@ def test_repository_wall_requires_claude_acceptance_without_authority_ownership(
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+    remote_codeowners = codeowners.read_text().replace(
+        "/schemas/canonical/ @andrewHermann",
+        "/schemas/canonical/ @sm-agent-codex",
+    )
+    platform = GitHubPlatform(
+        tmp_path,
+        ProtectionRunner(protected_repository(), codeowners=remote_codeowners),
+    )
+
+    with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
+        platform.validate_repository_wall(grant())
 
 
 def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path, monkeypatch):
