@@ -390,11 +390,31 @@ def coordinator_report(task_id: str, mode: str, requirement: str,
                 "advisoryNote": claude_adapter.COORDINATOR_ADVISORY_NOTE}
     st = status(model)
     if not st["ready"]:
+        caller_timeout = float(timeout)
         started = time.monotonic()
-        warmed = rewarm(model, progress=progress, timeout=min(float(timeout), REWARM_TIMEOUT_SECONDS))
+        warmed = rewarm(model, progress=progress, timeout=min(caller_timeout, REWARM_TIMEOUT_SECONDS))
         if warmed.get("status") != "READY":
             return warmed
-        timeout = max(0.1, float(timeout) - (time.monotonic() - started))
+        remaining = caller_timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            reason = (
+                f"Glimmer re-warm exhausted the {caller_timeout:g}s caller timeout "
+                "before advisory generation"
+            )
+            if progress is not None:
+                progress({
+                    "type": "system",
+                    "subtype": "glimmer_request_budget_exhausted",
+                    "model": model,
+                    "reason": reason,
+                })
+            return {
+                "status": "PROVIDER_ERROR",
+                "provider": "glimmer",
+                "reason": reason,
+                "retryable": True,
+            }
+        timeout = remaining
 
     prompt = (
         "You are DC13 Delivery Coordinator answering 'Where are we?' for this worker-visible snapshot. "

@@ -3317,6 +3317,12 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
                 "Local model re-warm failed",
                 str(event.get("reason") or "Ollama did not confirm the model load."),
             )
+        elif subtype == "glimmer_request_budget_exhausted":
+            state["phase"] = f"Glimmer request budget exhausted after re-warm for {subject}"
+            append_timeline(
+                "Local model request timed out",
+                str(event.get("reason") or "No caller timeout remained after model re-warm."),
+            )
         elif subtype == "glimmer_request_started":
             state["phase"] = f"Glimmer request started for {subject}"
             append_timeline("Glimmer request started", f"Glimmer model {active_model} is loaded; waiting for stream chunks")

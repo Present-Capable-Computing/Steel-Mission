@@ -5025,6 +5025,47 @@ def test_glimmer_coordinator_reports_a_failed_rewarm_without_starting_chat(monke
     ]
 
 
+def test_glimmer_coordinator_stops_when_rewarm_exhausts_the_caller_budget(monkeypatch):
+    progress: list[dict] = []
+    generation_called = False
+
+    monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
+        "provider": "glimmer",
+        "installed": True,
+        "model": "qwen2.5-coder:14b",
+        "model_available": True,
+        "service_running": True,
+        "model_loaded": False,
+        "ready": False,
+    })
+    monkeypatch.setattr(glimmer_adapter, "rewarm", lambda *_args, **_kwargs: {
+        "status": "READY",
+        "provider": "glimmer",
+        "model": "qwen2.5-coder:14b",
+        "rewarmed": True,
+    })
+    clock = iter((10.0, 12.0))
+    monkeypatch.setattr(glimmer_adapter.time, "monotonic", lambda: next(clock))
+
+    def fake_generate(*_args, **_kwargs):
+        nonlocal generation_called
+        generation_called = True
+        return {}, None
+
+    monkeypatch.setattr(glimmer_adapter, "_generate_streaming_json", fake_generate)
+
+    result = glimmer_adapter.coordinator_report(
+        "DEV-900190", "live", "Where are we?", {}, {"probe": "ok"},
+        timeout=2, progress=progress.append,
+    )
+
+    assert result["status"] == "PROVIDER_ERROR"
+    assert "re-warm exhausted the 2s caller timeout" in result["reason"]
+    assert result["retryable"] is True
+    assert generation_called is False
+    assert progress[-1]["subtype"] == "glimmer_request_budget_exhausted"
+
+
 def test_glimmer_coordinator_still_refuses_to_cold_start_the_server(monkeypatch):
     post_called = False
     monkeypatch.setattr(glimmer_adapter, "status", lambda _model: {
@@ -6396,6 +6437,15 @@ def test_coordinator_progress_messages_show_glimmer_provider_and_model():
         assert failed["phase"].startswith("Glimmer model qwen2.5-coder:14b re-warm failed")
         assert failed["timeline"][-1]["label"] == "Local model re-warm failed"
         assert failed["timeline"][-1]["detail"] == "Glimmer model re-warm failed: timed out"
+
+        writer({
+            "type": "system",
+            "subtype": "glimmer_request_budget_exhausted",
+            "reason": "Glimmer re-warm exhausted the 90s caller timeout before advisory generation",
+        })
+        exhausted = json.loads((progress_dir / "progress.json").read_text())
+        assert exhausted["phase"].startswith("Glimmer request budget exhausted after re-warm")
+        assert exhausted["timeline"][-1]["label"] == "Local model request timed out"
 
         writer({"type": "system", "subtype": "glimmer_request_started"})
         started = json.loads((progress_dir / "progress.json").read_text())
