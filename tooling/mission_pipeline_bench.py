@@ -75,7 +75,7 @@ def codeowners_pattern_matches(pattern: str, path: str) -> bool:
     """Return whether a supported CODEOWNERS pattern applies to a repository path."""
     normalized = pattern.removeprefix("/")
     candidate = path.removeprefix("/")
-    if not normalized or pattern.startswith("!") or "[" in pattern:
+    if not normalized or pattern.startswith("!") or "[" in pattern or "**" in normalized:
         raise BenchError(f"unsupported CODEOWNERS pattern in repository wall: {pattern}")
     if normalized == "*":
         return True
@@ -158,7 +158,9 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
     require_text(grant.get("baseBranch"), "baseBranch")
     require_text(grant.get("branch"), "branch")
     require_text(grant.get("grantedAt"), "grantedAt")
-    require_text(grant.get("grantedBy"), "grantedBy")
+    granted_by = require_text(grant.get("grantedBy"), "grantedBy")
+    if not re.fullmatch(r"(?=.{1,39}\Z)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", granted_by):
+        raise BenchError("grantedBy must be a GitHub login")
     require_text(grant.get("requirement"), "requirement")
     require_text(grant.get("acceptanceEvidence"), "acceptanceEvidence")
     allowed_paths = grant.get("allowedPaths")
@@ -1632,7 +1634,7 @@ class PipelineBench:
         handle = self.decisions.request(
             f"The mission touched human-owned paths and cannot merge them unattended: {authority_paths}\n\n{contract}"
         )
-        pending = self._decision_pending(handle)
+        pending = self._decision_pending(handle, "blocked")
         self._emit(
             "develop",
             "waiting-on-person",
@@ -1993,7 +1995,7 @@ class PipelineBench:
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
         self._enforce_live_issue_guards(acceptance_budget)
-        repository_wall = self.platform.validate_repository_wall(
+        self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
         )
@@ -2007,7 +2009,7 @@ class PipelineBench:
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
-        repository_wall = self.platform.validate_repository_wall(
+        self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
         )

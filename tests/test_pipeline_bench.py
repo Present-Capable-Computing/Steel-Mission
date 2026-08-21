@@ -859,6 +859,15 @@ def test_grant_requires_a_repository_relative_allowed_path_wall():
         mission_bench.validate_grant(value)
 
 
+@pytest.mark.parametrize("granted_by", ["Andrew Hermann", "andrew@example.com", "-andrew"])
+def test_grant_requires_granted_by_to_be_a_github_login(granted_by):
+    value = grant()
+    value["grantedBy"] = granted_by
+
+    with pytest.raises(BenchError, match="grantedBy must be a GitHub login"):
+        mission_bench.validate_grant(value)
+
+
 def test_plan_outside_the_allowed_path_wall_stops_before_development(tmp_path):
     agents = FakeAgents(plans=[{
         "clean": True,
@@ -1135,6 +1144,9 @@ def test_review_correction_that_touches_authority_stops_before_another_push(tmp_
 
     assert platform.calls.count("push") == 1
     assert decisions.calls[0] == "request"
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    waiting = next(item for item in feed if item["state"] == "waiting-on-person")
+    assert waiting["pendingDecision"]["kind"] == "blocked"
 
 
 def test_isolated_worktree_keeps_main_clean_when_the_session_is_killed(tmp_path):
@@ -1424,6 +1436,7 @@ def test_local_developer_parks_the_platform_sandbox_inside_the_isolated_worktree
 
     assert runner.argv[runner.argv.index("-m") + 1] == "qwen3-coder:30b"
     assert runner.argv[runner.argv.index("-s") + 1] == "workspace-write"
+    assert runner.argv[runner.argv.index("-C") + 1] == str(tmp_path)
 
 
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
@@ -1619,6 +1632,19 @@ def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(t
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     with pytest.raises(BenchError, match="effective CODEOWNERS rule must remain Founder-only"):
+        platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_fails_closed_on_recursive_codeowners_globs(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        protected_codeowners() + "**/canonical/*.json @sm-agent-claude\n"
+    )
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="unsupported CODEOWNERS pattern"):
         platform.validate_repository_wall(grant())
 
 
