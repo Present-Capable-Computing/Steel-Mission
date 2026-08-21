@@ -51,7 +51,7 @@ def grant() -> dict:
             stage: {"elapsedSeconds": 900, "turns": 6}
             for stage in ("plan", "develop", "review", "acceptance")
         },
-        "abortConditions": ["Any command exceeds its budget", "The granted requirement changes"],
+        "abortConditions": [{"kind": "budget-exhausted"}],
         "maxReviewRounds": 2,
         "machineAccounts": {
             "claude": {"login": "sm-agent-claude", "email": "claude@example.invalid", "tokenEnv": "SM_AGENT_CLAUDE_GITHUB_TOKEN"},
@@ -102,7 +102,7 @@ class FakePlatform:
         self.calls: list[str] = []
         self.commit = 0
 
-    def issue(self, _grant):
+    def issue(self, _grant, _timeout=None):
         self.calls.append("issue")
         return self.issue_payload
 
@@ -176,13 +176,13 @@ class FakePlatform:
     def post_codex_review(self, _grant, _pr_number, review):
         self.calls.append(f"codex-review:{review['verdict']}")
 
-    def assert_pr_head(self, _grant, _pr_number, expected_commit):
-        self.calls.append(f"pr-head:{expected_commit}")
+    def assert_pr_head(self, _grant, _pr_number, expected_commit, timeout=None):
+        self.calls.append(f"pr-head:{expected_commit}:{timeout}")
         if self.head_changes_after_ci and any(call.startswith("ci:") for call in self.calls):
             raise BenchError("pull request head changed outside the granted mission")
 
-    def arm_auto_merge(self, _grant, _pr_number, head_commit):
-        self.calls.append(f"auto-merge:{head_commit}")
+    def arm_auto_merge(self, _grant, _pr_number, head_commit, timeout=None):
+        self.calls.append(f"auto-merge:{head_commit}:{timeout}")
         if self.arm_failure:
             raise BenchError("auto-merge response was lost")
 
@@ -193,8 +193,8 @@ class FakePlatform:
         self.calls.append(f"ci:{timeout}")
         return "all checks passed"
 
-    def approve(self, _grant, _pr_number, summary, head_commit):
-        self.calls.append(f"approve:{head_commit}:{summary}")
+    def approve(self, _grant, _pr_number, summary, head_commit, timeout=None):
+        self.calls.append(f"approve:{head_commit}:{summary}:{timeout}")
 
     def wait_for_merge(self, _grant, _pr_number, timeout):
         self.calls.append(f"merged:{timeout}")
@@ -261,8 +261,9 @@ class ProtectionRunner:
     def __init__(self, protection):
         self.protection = protection
 
-    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
         assert argv[:2] == ["gh", "api"]
+        assert complete_stdout is True
         return CommandResult(argv, 0, json.dumps(self.protection), "", 0.1)
 
 
@@ -284,12 +285,13 @@ class AccountRunner:
         self.accounts = accounts
         self.unverified = set(unverified)
 
-    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
         login, email = self.accounts[extra_env["GH_TOKEN"]]
         if argv == ["gh", "api", "user", "--jq", ".login"]:
             output = login + "\n"
         else:
             assert argv == ["gh", "api", "user/emails"]
+            assert complete_stdout is True
             output = json.dumps([{"email": email, "verified": email not in self.unverified}])
         return CommandResult(argv, 0, output, "", 0.1)
 
@@ -313,8 +315,9 @@ class MergePollRunner:
         self.clock = clock
         self.timeouts = []
 
-    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
         assert argv[:3] == ["gh", "pr", "view"]
+        assert complete_stdout is True
         self.timeouts.append(timeout)
         self.clock[0] += min(0.6, timeout)
         return CommandResult(argv, 0, '{"state":"OPEN"}', "", 0.1)
@@ -356,6 +359,12 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     assert next(index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")) < next(
         index for index, call in enumerate(platform.calls) if call.startswith("approve:")
     )
+    acceptance_calls = [
+        call for call in platform.calls
+        if call.startswith(("pr-head:", "auto-merge:", "approve:"))
+    ]
+    assert acceptance_calls
+    assert all(not call.endswith(":None") for call in acceptance_calls)
     assert "update-pr-body" in platform.calls
     assert all(REQUIREMENT in prompt and ACCEPTANCE in prompt for _, prompt in agents.prompts)
 
@@ -509,6 +518,51 @@ def test_repository_gate_cannot_change_head_before_the_bench_pushes(tmp_path):
     assert "push" not in platform.calls
 
 
+def test_machine_checkable_path_abort_stops_before_every_push(tmp_path):
+    value = grant()
+    value["abortConditions"] = [{"kind": "path-changed", "paths": ["tests/"]}]
+    platform = FakePlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="abort condition matched"):
+        bench.run()
+
+    assert "push" not in platform.calls
+
+
+def test_grant_drift_abort_rechecks_the_issue_contract_before_push(tmp_path):
+    changed_issue = issue()
+    changed_issue["body"] = changed_issue["body"].replace(REQUIREMENT, "A changed requirement.")
+
+    class DriftingPlatform(FakePlatform):
+        def issue(self, grant_value, timeout=None):
+            if self.calls.count("issue"):
+                self.issue_payload = changed_issue
+            return super().issue(grant_value, timeout)
+
+    value = grant()
+    value["abortConditions"] = [{"kind": "grant-drift"}]
+    platform = DriftingPlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="abort condition matched a changed issue contract"):
+        bench.run()
+
+    assert "push" not in platform.calls
+
+
 def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaustion(tmp_path):
     platform = FakePlatform(tmp_path, merge_failure=True)
     bench = PipelineBench(
@@ -563,6 +617,34 @@ def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tm
 
     assert "disable-auto-merge" in platform.calls
     assert not any(call.startswith("approve:") for call in platform.calls)
+
+
+def test_expired_acceptance_read_cannot_arm_auto_merge(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    class SlowHeadPlatform(FakePlatform):
+        def assert_pr_head(self, grant_value, pr_number, expected_commit, timeout=None):
+            super().assert_pr_head(grant_value, pr_number, expected_commit, timeout)
+            clock[0] += timeout
+
+    value = grant()
+    value["budgets"]["acceptance"]["elapsedSeconds"] = 1
+    platform = SlowHeadPlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="elapsed-time budget is exhausted"):
+        bench.run()
+
+    assert "pr-head:commit-2:1" in platform.calls
+    assert not any(call.startswith("auto-merge:") for call in platform.calls)
+    assert "disable-auto-merge" not in platform.calls
 
 
 def test_review_correction_that_touches_authority_stops_before_another_push(tmp_path):
@@ -652,6 +734,18 @@ def test_subprocess_output_is_drained_into_fixed_size_tail_buffers(tmp_path):
     assert result.stderr.endswith("stderr-end")
 
 
+def test_structured_subprocess_preserves_complete_output_beyond_diagnostic_tail(tmp_path):
+    payload = {"model": "claude-opus-5", "structured_output": {"summary": "x" * 50000}}
+    result = SubprocessRunner().run(
+        [sys.executable, "-c", f"import json; print(json.dumps({payload!r}))"],
+        tmp_path,
+        5,
+        complete_stdout=True,
+    )
+
+    assert json.loads(result.stdout) == payload
+
+
 def test_untrusted_subprocess_inherits_only_allowlisted_parent_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgres://unrelated-secret")
     result = SubprocessRunner().run(
@@ -693,6 +787,13 @@ def test_linux_children_cannot_read_the_credential_bearing_parent_environment():
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_non_linux_hosts_fail_closed_before_untrusted_execution(monkeypatch):
+    monkeypatch.setattr(mission_bench.sys, "platform", "darwin")
+
+    with pytest.raises(BenchError, match="requires Linux parent credential isolation"):
+        mission_bench.protect_parent_credentials()
 
 
 def test_claude_stages_require_reported_opus_major_version_five_or_newer():
@@ -739,6 +840,14 @@ def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
         PipelineBench(grant_path, repository / "runtime", repository_root=repository)
 
 
+def test_grant_rejects_free_form_abort_conditions():
+    value = grant()
+    value["abortConditions"] = ["stop if adapters/ is touched"]
+
+    with pytest.raises(BenchError, match="machine-checkable objects"):
+        mission_bench.validate_grant(value)
+
+
 def test_repository_wall_requires_claude_acceptance_without_authority_ownership(tmp_path):
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
@@ -780,6 +889,23 @@ def test_repository_wall_rejects_a_later_machine_override_of_an_authority_rule(t
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     with pytest.raises(BenchError, match="final effective CODEOWNERS"):
+        platform.validate_repository_wall(grant())
+
+
+@pytest.mark.parametrize("machine_login", ["sm-agent-codex", "SM-AGENT-QWEN"])
+def test_repository_wall_rejects_every_machine_account_as_authority_owner(tmp_path, machine_login):
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        f"/schemas/canonical/ @{machine_login}\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
         platform.validate_repository_wall(grant())
 
 
