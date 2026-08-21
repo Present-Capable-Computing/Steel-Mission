@@ -1809,6 +1809,58 @@ def cos_provider_summary() -> dict[str, Any]:
     return summary
 
 
+def provider_status_strip() -> list[dict[str, Any]]:
+    """Return the console's live provider connection and activity state."""
+    _status, worker_response = worker_json_command(["status"], timeout=15)
+    worker_payload = worker_response.get("payload") if isinstance(worker_response.get("payload"), dict) else {}
+    detail = worker_payload.get("detail") if isinstance(worker_payload.get("detail"), dict) else {}
+    reported = detail.get("providers") if isinstance(detail.get("providers"), dict) else {}
+    activity = {
+        provider: {"jobCount": 0, "thinkingTokens": 0, "reportsTokens": False}
+        for provider in ("claude", "codex", "glimmer")
+    }
+    with JOBS_LOCK:
+        active_jobs = [dict(job) for job in JOBS.values() if job.get("state") == "running"]
+    for job in active_jobs:
+        progress = read_progress(job.get("taskId"))
+        provider = str(progress.get("provider") or job.get("provider") or "")
+        if provider not in activity:
+            continue
+        activity[provider]["jobCount"] += 1
+        tokens = progress.get("thinkingTokens")
+        if isinstance(tokens, int) and tokens >= 0:
+            activity[provider]["thinkingTokens"] += tokens
+            activity[provider]["reportsTokens"] = True
+
+    labels = {"claude": "Claude", "codex": "Codex", "glimmer": "Glimmer"}
+    providers = []
+    for provider_id in ("claude", "codex", "glimmer"):
+        provider = reported.get(provider_id) if isinstance(reported.get(provider_id), dict) else {}
+        if provider_id == "glimmer":
+            connection = "online" if provider.get("ready") is True else "offline"
+        else:
+            connection = "connected" if (
+                provider.get("installed") is True
+                and provider.get("authenticated") is True
+                and provider.get("probe") != "failed"
+            ) else "disconnected"
+        provider_activity = activity[provider_id]
+        item: dict[str, Any] = {
+            "id": provider_id,
+            "label": labels[provider_id],
+            "connection": connection,
+            "activity": "working" if provider_activity["jobCount"] else "idle",
+            "jobCount": provider_activity["jobCount"],
+        }
+        if provider_activity["reportsTokens"]:
+            item["tokenUsage"] = {"thinkingTokens": provider_activity["thinkingTokens"]}
+        if provider_id == "glimmer":
+            item["modelLoaded"] = provider.get("model_loaded") is True
+            item["model"] = provider.get("model")
+        providers.append(item)
+    return providers
+
+
 def configured_path(name: str) -> Path | None:
     value = os.environ.get(name)
     return Path(value) if value else None
@@ -6293,6 +6345,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         job = {"state": "running", "createdAt": utc_now(), "startedEpoch": started,
                "taskId": task_id, "mock": mock, "question": question, "scope": scope,
                "profile": selected_profile, "missionId": mission_id, "operatorRole": operator,
+               "provider": model_policy.get("provider"),
                "actorUserId": actor_id,
                "organizationId": selected_organization_id,
                "workMode": mode,
@@ -8841,6 +8894,7 @@ def start_orchestrated_mission(
             "question": clean_objective[:12000],
             "objective": clean_objective[:12000],
             "profile": selected_profile,
+            "provider": model_policy.get("provider"),
             "missionId": mission_id,
             "missionKind": "orchestrated",
             "templateId": template_id,
@@ -9329,7 +9383,12 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, 200 if payload.get("ok") else 404, payload)
                 return
         if path == "/api/health":
-            json_response(self, 200, {"ok": True, "service": "steel-mission-chat", **cos_provider_summary()})
+            json_response(self, 200, {
+                "ok": True,
+                "service": "steel-mission-chat",
+                **cos_provider_summary(),
+                "providers": provider_status_strip(),
+            })
             return
         if path == "/api/runtime-profiles":
             json_response(self, 200, {

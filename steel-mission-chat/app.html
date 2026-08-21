@@ -87,6 +87,35 @@ select {
 .rail dd {
   margin: 0;
 }
+.provider-status {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+}
+.provider-status article {
+  padding: 0.75rem;
+  border: 1px solid #29323d;
+  border-radius: 0.65rem;
+  background: #10161d;
+}
+.provider-status article p,
+.status-error {
+  margin: 0.3rem 0 0;
+  color: #8d9aa8;
+  font-size: 0.78rem;
+}
+.provider-status [data-connection=connected],
+.provider-status [data-connection=online],
+.provider-status [data-activity=working] {
+  color: #a7ddcf;
+}
+.provider-status [data-connection=disconnected],
+.provider-status [data-connection=offline],
+.provider-status [data-connection=unavailable],
+.status-error {
+  color: #e5a3a3;
+}
 .workspace {
   min-width: 0;
 }
@@ -2505,6 +2534,59 @@ select {
     }
   ];
 
+  // steel-mission-ui/src/status.ts
+  var PROVIDERS = [
+    { id: "claude", label: "Claude" },
+    { id: "codex", label: "Codex" },
+    { id: "glimmer", label: "Glimmer" }
+  ];
+  async function checked5(response, fallback) {
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(String(payload.error || fallback));
+    return payload;
+  }
+  function providerStatus(value, expected) {
+    const provider = value && typeof value === "object" ? value : {};
+    const usage = provider.tokenUsage && typeof provider.tokenUsage === "object" ? provider.tokenUsage : {};
+    const thinkingTokens = typeof usage.thinkingTokens === "number" ? usage.thinkingTokens : void 0;
+    return {
+      id: expected.id,
+      label: typeof provider.label === "string" ? provider.label : expected.label,
+      connection: typeof provider.connection === "string" ? provider.connection : "unavailable",
+      activity: provider.activity === "working" ? "working" : "idle",
+      jobCount: typeof provider.jobCount === "number" ? provider.jobCount : 0,
+      ...thinkingTokens === void 0 ? {} : { thinkingTokens }
+    };
+  }
+  async function loadConsoleStatus(request) {
+    const [healthResponse, readinessResponse] = await Promise.all([
+      request("/api/health", { cache: "no-store" }),
+      request("/api/control-plane/readiness", { cache: "no-store" })
+    ]);
+    const health = await checked5(healthResponse, "Server health is unavailable");
+    const readiness = await checked5(readinessResponse, "Authority readiness is unavailable");
+    const reportedProviders = Array.isArray(health.providers) ? health.providers : [];
+    const providers = PROVIDERS.map((expected) => providerStatus(
+      reportedProviders.find((provider) => Boolean(provider) && typeof provider === "object" && provider.id === expected.id),
+      expected
+    ));
+    const authority = readiness.meetsProductionTarget === true ? "Production ready" : readiness.meetsAlphaTarget === true ? "Alpha ready" : "Not ready";
+    return { server: "Connected", authority, providers };
+  }
+  function unavailableConsoleStatus(error) {
+    return {
+      server: "Unavailable",
+      authority: "Unavailable",
+      providers: PROVIDERS.map((provider) => ({
+        ...provider,
+        connection: "unavailable",
+        activity: "idle",
+        jobCount: 0
+      })),
+      error: error instanceof Error ? error.message : "Live status is unavailable"
+    };
+  }
+
   // steel-mission-ui/src/app.tsx
   function browserCookie(name) {
     return document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1) || "";
@@ -2532,6 +2614,25 @@ select {
     const [selectedAssignmentUser, setSelectedAssignmentUser] = d2("");
     const [selectedAssignmentCapabilities, setSelectedAssignmentCapabilities] = d2([]);
     const [assignmentStatus, setAssignmentStatus] = d2("");
+    const [consoleStatus, setConsoleStatus] = d2(null);
+    h2(() => {
+      let current = true;
+      let refreshTimer;
+      const refresh = () => {
+        loadConsoleStatus(apiRequest).then((status) => {
+          if (current) setConsoleStatus(status);
+        }).catch((error) => {
+          if (current) setConsoleStatus(unavailableConsoleStatus(error));
+        }).finally(() => {
+          if (current) refreshTimer = window.setTimeout(refresh, 1e4);
+        });
+      };
+      refresh();
+      return () => {
+        current = false;
+        if (refreshTimer !== void 0) window.clearTimeout(refreshTimer);
+      };
+    }, []);
     h2(() => {
       let current = true;
       Promise.all([
@@ -2608,15 +2709,28 @@ select {
           /* @__PURE__ */ u3("p", { class: "eyebrow", children: "Agent delivery plane" }),
           /* @__PURE__ */ u3("strong", { children: "Steel Mission" })
         ] }),
-        /* @__PURE__ */ u3("dl", { children: [
+        /* @__PURE__ */ u3("dl", { class: "system-status", "aria-label": "Live system status", "aria-live": "polite", children: [
           /* @__PURE__ */ u3("div", { children: [
             /* @__PURE__ */ u3("dt", { children: "Server" }),
-            /* @__PURE__ */ u3("dd", { children: "Not connected" })
+            /* @__PURE__ */ u3("dd", { children: consoleStatus?.server || "\u2014" })
           ] }),
           /* @__PURE__ */ u3("div", { children: [
             /* @__PURE__ */ u3("dt", { children: "Authority" }),
-            /* @__PURE__ */ u3("dd", { children: "Advisory" })
+            /* @__PURE__ */ u3("dd", { children: consoleStatus?.authority || "\u2014" })
           ] })
+        ] }),
+        /* @__PURE__ */ u3("section", { class: "provider-status", "aria-labelledby": "providerStatusTitle", "aria-live": "polite", children: [
+          /* @__PURE__ */ u3("p", { id: "providerStatusTitle", class: "eyebrow", children: "Providers" }),
+          consoleStatus?.providers.map((provider) => /* @__PURE__ */ u3("article", { "data-provider": provider.id, children: [
+            /* @__PURE__ */ u3("strong", { children: provider.label }),
+            /* @__PURE__ */ u3("p", { children: [
+              /* @__PURE__ */ u3("span", { "data-connection": provider.connection, children: provider.connection }),
+              " \xB7 ",
+              /* @__PURE__ */ u3("span", { "data-activity": provider.activity, children: provider.activity }),
+              provider.thinkingTokens !== void 0 && ` \xB7 ${provider.thinkingTokens.toLocaleString()} thinking tokens`
+            ] })
+          ] }, provider.id)),
+          consoleStatus?.error && /* @__PURE__ */ u3("p", { role: "status", class: "status-error", children: consoleStatus.error })
         ] })
       ] }),
       /* @__PURE__ */ u3("section", { class: "workspace", children: [
