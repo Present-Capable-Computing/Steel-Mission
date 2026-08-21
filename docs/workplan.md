@@ -262,7 +262,9 @@ and the templates do not have a bypass in normal use.
   (`gh pr merge <n> --auto --merge`); it lands by itself once the checks and any
   required review pass, which means it lands without you looking at it again.
   Queuing is never a way of not waiting for a review you expect to be told
-  something in. Having queued, report completion without
+  something in. With auto-merge armed, resolving the last review thread is the
+  trigger: resolve a thread only after the commits that answer it are on the
+  remote, or the merge fires without the fix it was told exists. Having queued, report completion without
   waiting for the landing, and report the true state: queued with checks pending
   or green, never "merged" before the merge exists. The issue closes on the merge
   itself, by number. The head branch is deleted on merge; the commits are on
