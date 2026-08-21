@@ -6296,8 +6296,7 @@ def run_coordinator_report(task_id: str, question: str, messages: list[dict[str,
 
 def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile: str | None = None,
               operator_role: str | None = None, uploads: Any = None, work_mode: str | None = None,
-              actor_user_id: str | None = None, organization_id: str | None = None,
-              initial_decision_request: dict[str, Any] | None = None) -> str:
+              actor_user_id: str | None = None, organization_id: str | None = None) -> str:
     job_id = secrets.token_urlsafe(12)
     mission_id = "ms-" + secrets.token_hex(12)
     # The task id is minted here, not inside the run, so that a failed job still
@@ -6341,12 +6340,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
     if upload_context:
         messages = [*messages, {"role": "user", "content": "# Uploaded chat context\n\n" + upload_context}]
     scope = [] if mock else snapshot_scope(selected_profile)
-    initial_request = initial_decision_request or (
-        demo_decision_request()
-        if classify_follow_up(question).get("effect") == "request-user-decision"
-        else {}
-    )
-    initial_decision = bool(initial_request)
+    initial_decision_demo = classify_follow_up(question).get("effect") == "request-user-decision"
     with JOBS_LOCK:
         job = {"state": "running", "createdAt": utc_now(), "startedEpoch": started,
                "taskId": task_id, "mock": mock, "question": question, "scope": scope,
@@ -6360,9 +6354,9 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
                "knowledgeQuality": knowledge_quality,
                "followUps": [], "steeringRevision": 0, "restartRequested": False,
                "restartCount": 0}
-        if initial_decision:
+        if initial_decision_demo:
             job["state"] = "waiting_for_decision"
-            job["decisionRequest"] = initial_request
+            job["decisionRequest"] = demo_decision_request()
             job["phase"] = "Delivery Coordinator needs your decision before continuing."
             job["steeringRevision"] = 1
         JOBS[job_id] = job
@@ -6370,7 +6364,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         mission_id,
         jobId=job_id,
         taskId=task_id,
-        state="waiting_for_decision" if initial_decision else "running",
+        state="waiting_for_decision" if initial_decision_demo else "running",
         operatorRole=operator,
         actorUserId=actor_id,
         organizationId=selected_organization_id,
@@ -6385,7 +6379,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
         snapshotPolicySummary=snapshot_policy_summary(snapshot_policy),
         snapshotCollections=scope,
         knowledgeQuality=knowledge_quality,
-        steeringRevision=1 if initial_decision else 0,
+        steeringRevision=1 if initial_decision_demo else 0,
         followUpCount=0,
         restartCount=0,
         startedAt=dt.datetime.fromtimestamp(started, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -6412,7 +6406,7 @@ def start_job(question: str, messages: list[dict[str, str]], mock: bool, profile
             "chatUploadCount": len(upload_summaries),
         },
     )
-    if initial_decision:
+    if initial_decision_demo:
         append_mission_audit(
             mission_id,
             "decision-requested",
@@ -9925,53 +9919,6 @@ class Handler(BaseHTTPRequestHandler):
                                       "state": payload.get("state", "running"),
                                       "progress": job_api_payload(parts[2], payload).get("progress", {})})
             return
-        if path.startswith("/api/chat/") and path.endswith("/decision-request"):
-            try:
-                parts = path.strip("/").split("/")
-                if len(parts) != 4 or parts[:2] != ["api", "chat"] or parts[3] != "decision-request":
-                    raise ValueError("invalid decision request path")
-                body = read_json(self)
-                question = body.get("question")
-                context = body.get("context")
-                options = body.get("options")
-                default_option_id = body.get("defaultOptionId")
-                if not isinstance(question, str) or not question.strip():
-                    raise ValueError("decision question is required")
-                if not isinstance(context, str) or not context.strip():
-                    raise ValueError("decision context is required")
-                if default_option_id is not None and not isinstance(default_option_id, str):
-                    raise ValueError("default decision option must be a string")
-                with JOBS_LOCK:
-                    existing_job = dict(JOBS.get(parts[2], {}))
-                if not existing_job:
-                    raise KeyError("chat job not found")
-                if not mission_visible_to_actor(existing_job, actor or {"actorId": "user", "role": "user"}):
-                    raise PermissionError("chat job is not visible to this actor")
-                request = request_user_decision(
-                    parts[2],
-                    question,
-                    context,
-                    options,
-                    default_option_id,
-                )
-                with JOBS_LOCK:
-                    payload = dict(JOBS.get(parts[2], {}))
-            except KeyError:
-                json_response(self, 404, {"ok": False, "error": "chat job not found"})
-                return
-            except RuntimeError as exc:
-                json_response(self, 409, {"ok": False, "error": str(exc)})
-                return
-            except PermissionError as exc:
-                json_response(self, 403, {"ok": False, "error": str(exc)})
-                return
-            except Exception as exc:  # noqa: BLE001
-                json_response(self, 400, {"ok": False, "error": str(exc)})
-                return
-            json_response(self, 202, {"ok": True, "jobId": parts[2], "decisionRequest": request,
-                                      "state": payload.get("state", "waiting_for_decision"),
-                                      "progress": job_api_payload(parts[2], payload).get("progress", {})})
-            return
         if path.startswith("/api/chat/") and path.endswith("/decision"):
             try:
                 parts = path.strip("/").split("/")
@@ -10026,32 +9973,12 @@ class Handler(BaseHTTPRequestHandler):
             work_mode = body.get("workMode")
             if work_mode is not None and not isinstance(work_mode, str):
                 raise ValueError("workMode must be a string")
-            initial_decision = body.get("decisionRequest")
-            if initial_decision is not None:
-                if not isinstance(initial_decision, dict):
-                    raise ValueError("decisionRequest must be an object")
-                decision_question = initial_decision.get("question")
-                decision_context = initial_decision.get("context")
-                default_option_id = initial_decision.get("defaultOptionId")
-                if not isinstance(decision_question, str) or not decision_question.strip():
-                    raise ValueError("decision question is required")
-                if not isinstance(decision_context, str) or not decision_context.strip():
-                    raise ValueError("decision context is required")
-                if default_option_id is not None and not isinstance(default_option_id, str):
-                    raise ValueError("default decision option must be a string")
-                initial_decision = build_decision_request(
-                    decision_question,
-                    decision_context,
-                    initial_decision.get("options"),
-                    default_option_id,
-                )
             job_id = start_job(question.strip()[:12000], messages, bool(body.get("mock")),
                                profile.strip() if isinstance(profile, str) and profile.strip() else None,
                                actor["role"],
                                uploads,
                                work_mode.strip() if isinstance(work_mode, str) and work_mode.strip() else None,
-                               actor["actorId"], str(actor.get("organizationId") or ""),
-                               initial_decision)
+                               actor["actorId"], str(actor.get("organizationId") or ""))
         except Exception as exc:  # noqa: BLE001
             json_response(self, 400, {"ok": False, "error": str(exc)})
             return
@@ -10060,11 +9987,8 @@ class Handler(BaseHTTPRequestHandler):
         # disagree once -- a session that expires, a cookie discarded mid-run, an
         # edited actor field -- for the poll to be refused a job the same person
         # just created.
-        response = {"ok": True, "jobId": job_id, "state": "running",
-                    "actorUserId": actor["actorId"], "operatorRole": actor["role"]}
-        if initial_decision:
-            response.update({"state": "waiting_for_decision", "decisionRequest": initial_decision})
-        json_response(self, 202, response)
+        json_response(self, 202, {"ok": True, "jobId": job_id, "state": "running",
+                                  "actorUserId": actor["actorId"], "operatorRole": actor["role"]})
 
     def log_message(self, format: str, *args: Any) -> None:
         print(f"{self.address_string()} - {format % args}")

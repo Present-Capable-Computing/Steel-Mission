@@ -1,7 +1,6 @@
 import json
 import os
 import runpy
-import socket
 import subprocess
 import sys
 import threading
@@ -42,12 +41,6 @@ def grant() -> dict:
         "grantedBy": "andrewHermann",
         "requirement": REQUIREMENT,
         "acceptanceEvidence": ACCEPTANCE,
-        "surfaces": {
-            "authentication": False,
-            "networkService": False,
-            "subprocessExecution": False,
-            "authoritySchemas": False,
-        },
         "definitionOfDone": {
             "redTest": ["python3", "-m", "pytest", "tests/test_rehearsal.py", "-q"],
             "redFailure": {"exitCodes": [1], "outputPattern": "1 failed"},
@@ -117,10 +110,8 @@ class FakePlatform:
     def validate_machine_accounts(self, _grant):
         self.calls.append("accounts")
 
-    def validate_repository_wall(self, _grant, timeout=None, *, changed_paths=None):
+    def validate_repository_wall(self, _grant, timeout=None):
         self.calls.append("branch-protection")
-        if changed_paths is not None:
-            self.calls.append(f"codeowners-paths:{','.join(changed_paths)}")
         self.remote_timeouts.append(("branch-protection", timeout))
 
     def claim_issue(self, _grant, session_id):
@@ -250,13 +241,12 @@ class FakeDecision:
     def __init__(self, answer=None):
         self.calls: list[str] = []
         self.answer = answer or {
-            "selectedOptionId": "revise-within-grant",
+            "selectedOptionId": "continue-narrow",
             "freeText": "Stay inside the grant.",
         }
 
-    def request(self, context, timeout=None, **_kwargs):
+    def request(self, context):
         self.calls.append("request")
-        assert timeout is not None
         assert "unclean" in context.lower() or "human-owned" in context.lower()
         return {
             "jobId": "JOB-decision",
@@ -296,62 +286,15 @@ class ProtectionRunner:
         return CommandResult(argv, 0, output, "", 0.1)
 
 
-class EncodedBranchProtectionRunner(ProtectionRunner):
-    def run(self, argv, cwd, timeout, **kwargs):
-        endpoint = argv[-1]
-        if "/branches/" in endpoint:
-            assert endpoint.endswith("/branches/release%2F2026/protection")
-        return super().run(argv, cwd, timeout, **kwargs)
-
-
 class DiffRunner:
-    def run(
-        self,
-        argv,
-        cwd,
-        timeout,
-        *,
-        input_text="",
-        extra_env=None,
-        inherit_env=True,
-        complete_stdout=False,
-    ):
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
         assert Path(argv[0]).name == "git"
         assert argv[1:4] == ["diff", "--no-ext-diff", "--no-textconv"]
-        assert "-z" in argv
-        assert inherit_env is False
-        assert complete_stdout is True
-        return CommandResult(
-            argv,
-            0,
-            "R100\0schemas/canonical/job-v2.json\0docs/job-v2.json\0"
-            "M\0tests/test_job.py\0",
-            "",
-            0.1,
-        )
-
-
-class NulDiffRunner:
-    def run(
-        self,
-        argv,
-        cwd,
-        timeout,
-        *,
-        input_text="",
-        extra_env=None,
-        inherit_env=True,
-        complete_stdout=False,
-    ):
-        assert Path(argv[0]).name == "git"
-        assert "-z" in argv
-        assert complete_stdout is True
         assert inherit_env is False
         return CommandResult(
             argv,
             0,
-            "M\0schemas/canonical/line\nbreak.json\0"
-            "R100\0docs/old\tname.md\0docs/new\nname.md\0",
+            "R100\tschemas/canonical/job-v2.json\tdocs/job-v2.json\nM\ttests/test_job.py\n",
             "",
             0.1,
         )
@@ -377,15 +320,11 @@ class AccountRunner:
 class PushRunner:
     def __init__(self, expected_blank):
         self.expected_blank = expected_blank
-        self.commands = []
 
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
-        self.commands.append((argv, cwd, extra_env, inherit_env))
         assert Path(argv[0]).name == "git"
+        assert argv[1] == "push"
         assert inherit_env is False
-        if "push" not in argv:
-            assert "SM_BENCH_PUSH_TOKEN" not in extra_env
-            return CommandResult(argv, 0, "prepared", "", 0.1)
         assert all(extra_env[name] == "" for name in self.expected_blank)
         assert extra_env["SM_BENCH_PUSH_TOKEN"] == "local-token"
         assert extra_env["GIT_CONFIG_GLOBAL"] == os.devnull
@@ -419,10 +358,7 @@ def protected_repository():
         "required_conversation_resolution": {"enabled": True},
         "required_status_checks": {
             "strict": True,
-            "checks": [
-                {"context": "Python test suite (3.11)"},
-                {"context": "Python test suite (3.12)"},
-            ],
+            "checks": [{"context": "interpreter-checks"}],
         },
     }
 
@@ -443,13 +379,13 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
         decisions=FakeDecision(),
     ).run()
 
-    assert result["state"] == "queued"
+    assert result["state"] == "merged"
     assert result["reviewCorrectionRounds"] == 1
     first_push = platform.calls.index("push")
     assert any(call.startswith("command:make test") for call in platform.calls[:first_push])
     assert any(call.startswith("command:make release-check") for call in platform.calls[:first_push])
-    assert next(index for index, call in enumerate(platform.calls) if call.startswith("approve:")) < next(
-        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
+    assert next(index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")) < next(
+        index for index, call in enumerate(platform.calls) if call.startswith("approve:")
     )
     acceptance_calls = [
         call for call in platform.calls
@@ -468,65 +404,6 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     feed = [json.loads(line) for line in Path(result["feedPath"]).read_text().splitlines()]
     assert feed[-1]["outcome"]["status"] == "succeeded"
     assert all(schema_check.validate(item, "canonical/agent-session-status-v1.json") == [] for item in feed)
-
-
-def test_pull_request_body_stays_outside_the_worker_writable_session(tmp_path):
-    victim = tmp_path / "victim.txt"
-    victim.write_text("must remain unchanged\n")
-
-    class BodySymlinkPlatform(FakePlatform):
-        def prepare_worktree(self, grant_value, session_dir):
-            worktree = super().prepare_worktree(grant_value, session_dir)
-            (session_dir / "pull-request.md").symlink_to(victim)
-            self.session_dir = session_dir
-            return worktree
-
-        def create_pr(self, grant_value, worktree, body_path, timeout=None):
-            assert body_path.parent != self.session_dir
-            assert body_path.is_file()
-            assert not body_path.is_symlink()
-            return super().create_pr(grant_value, worktree, body_path, timeout)
-
-        def update_pr_body(self, grant_value, pr_number, body_path, timeout=None):
-            assert body_path.parent != self.session_dir
-            assert body_path.is_file()
-            assert not body_path.is_symlink()
-            return super().update_pr_body(grant_value, pr_number, body_path, timeout)
-
-    result = PipelineBench(
-        write_grant(tmp_path / "grant.json"),
-        tmp_path / "state",
-        platform=BodySymlinkPlatform(tmp_path),
-        agents=FakeAgents(),
-        decisions=FakeDecision(),
-    ).run()
-
-    assert result["state"] == "queued"
-    assert victim.read_text() == "must remain unchanged\n"
-
-
-def test_auto_merge_cannot_be_armed_before_this_session_finishes_acceptance(tmp_path):
-    events = []
-
-    class TrackingPlatform(FakePlatform):
-        def arm_auto_merge(self, grant_value, pr_number, head_commit, timeout=None):
-            events.append("auto-merge")
-            super().arm_auto_merge(grant_value, pr_number, head_commit, timeout)
-
-    class TrackingAgents(FakeAgents):
-        def accept(self, prompt, worktree, budget, session_dir):
-            events.append("final-acceptance")
-            return super().accept(prompt, worktree, budget, session_dir)
-
-    PipelineBench(
-        write_grant(tmp_path / "grant.json"),
-        tmp_path / "state",
-        platform=TrackingPlatform(tmp_path),
-        agents=TrackingAgents(),
-        decisions=FakeDecision(),
-    ).run()
-
-    assert events.index("final-acceptance") < events.index("auto-merge")
 
 
 def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):
@@ -552,7 +429,7 @@ def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch)
         decisions=FakeDecision(),
     ).run()
 
-    assert result["state"] == "queued"
+    assert result["state"] == "merged"
 
 
 def test_security_review_issue_is_refused_before_claim_or_execution(tmp_path):
@@ -611,7 +488,7 @@ def test_unclean_plan_waits_on_existing_decision_flow_then_replans_inside_grant(
         decisions=decisions,
     ).run()
 
-    assert result["state"] == "queued"
+    assert result["state"] == "merged"
     assert decisions.calls[0] == "request"
     assert decisions.calls[1].startswith("wait:JOB-decision:")
     assert platform.calls.index("worktree") < platform.calls.index("commit:commit-1")
@@ -680,33 +557,6 @@ def test_red_test_runner_error_is_not_accepted_as_the_granted_assertion_failure(
         bench.run()
 
     assert "push" not in platform.calls
-    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
-    assert feed[-1]["stage"] == "develop-and-commit"
-
-
-def test_failure_after_claim_during_worktree_setup_is_recorded(tmp_path):
-    class BrokenWorktreePlatform(FakePlatform):
-        def prepare_worktree(self, grant_value, session_dir):
-            super().prepare_worktree(grant_value, session_dir)
-            raise BenchError("isolated worktree setup failed")
-
-    bench = PipelineBench(
-        write_grant(tmp_path / "grant.json"),
-        tmp_path / "state",
-        platform=BrokenWorktreePlatform(tmp_path),
-        agents=FakeAgents(),
-        decisions=FakeDecision(),
-    )
-
-    with pytest.raises(BenchError, match="worktree setup failed"):
-        bench.run()
-
-    evidence = json.loads(bench.evidence_path.read_text())
-    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
-    assert evidence["state"] == "failed"
-    assert evidence["failure"]["reason"] == "isolated worktree setup failed"
-    assert feed[-1]["state"] == "failed"
-    assert feed[-1]["stage"] == "plan"
 
 
 def test_repository_gate_cannot_change_head_before_the_bench_pushes(tmp_path):
@@ -770,20 +620,25 @@ def test_grant_drift_abort_rechecks_the_issue_contract_before_push(tmp_path):
     assert "push" not in platform.calls
 
 
-def test_accepted_pull_request_returns_queued_without_waiting_for_landing(tmp_path):
+def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaustion(tmp_path):
     platform = FakePlatform(tmp_path, merge_failure=True)
-
-    result = PipelineBench(
+    bench = PipelineBench(
         write_grant(tmp_path / "grant.json"),
         tmp_path / "state",
         platform=platform,
         agents=FakeAgents(),
         decisions=FakeDecision(),
-    ).run()
+    )
 
-    assert result["state"] == "queued"
-    assert not any(call.startswith("merged:") for call in platform.calls)
-    assert "disable-auto-merge" not in platform.calls
+    with pytest.raises(BenchError, match="acceptance budget"):
+        bench.run()
+
+    assert next(
+        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
+    ) < platform.calls.index("disable-auto-merge")
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    assert feed[-1]["state"] == "budget-exhausted"
+    assert feed[-1]["outcome"]["status"] == "budget-exhausted"
 
 
 def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
@@ -804,7 +659,7 @@ def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
     ) < platform.calls.index("disable-auto-merge")
 
 
-def test_pull_request_head_change_after_ci_stops_before_approval_or_auto_merge(tmp_path):
+def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tmp_path):
     platform = FakePlatform(tmp_path, head_changes_after_ci=True)
     bench = PipelineBench(
         write_grant(tmp_path / "grant.json"),
@@ -817,21 +672,16 @@ def test_pull_request_head_change_after_ci_stops_before_approval_or_auto_merge(t
     with pytest.raises(BenchError, match="pull request head changed"):
         bench.run()
 
-    assert "disable-auto-merge" not in platform.calls
+    assert "disable-auto-merge" in platform.calls
     assert not any(call.startswith("approve:") for call in platform.calls)
-    assert not any(call.startswith("auto-merge:") for call in platform.calls)
 
 
 def test_branch_wall_is_revalidated_before_auto_merge_is_armed(tmp_path):
     class WeakeningWallPlatform(FakePlatform):
-        def validate_repository_wall(self, grant_value, timeout=None, *, changed_paths=None):
+        def validate_repository_wall(self, grant_value, timeout=None):
             if any(operation == "branch-protection" for operation, _timeout in self.remote_timeouts):
                 raise BenchError("branch protection changed before auto-merge")
-            super().validate_repository_wall(
-                grant_value,
-                timeout,
-                changed_paths=changed_paths,
-            )
+            super().validate_repository_wall(grant_value, timeout)
 
     platform = WeakeningWallPlatform(tmp_path)
     bench = PipelineBench(
@@ -910,48 +760,6 @@ def test_review_posting_cannot_complete_after_the_review_budget(tmp_path, monkey
     assert not any(call.startswith("auto-merge:") for call in platform.calls)
 
 
-def test_stage_budget_preserves_fractional_remaining_time(monkeypatch):
-    clock = [100.0]
-    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
-    budget = mission_bench.StageBudget({"elapsedSeconds": 1, "turns": 1})
-
-    clock[0] = 100.75
-
-    assert budget.remaining() == pytest.approx(0.25)
-
-
-def test_review_budget_expiry_during_a_correction_prevents_its_push(tmp_path, monkeypatch):
-    clock = [0.0]
-    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
-
-    class SlowCorrectionAgents(FakeAgents):
-        def review(self, prompt, worktree, budget, session_dir):
-            value = super().review(prompt, worktree, budget, session_dir)
-            if value["verdict"] == "changes-requested":
-                clock[0] += 2
-            return value
-
-        def fix(self, prompt, worktree, budget, session_dir):
-            super().fix(prompt, worktree, budget, session_dir)
-            clock[0] += 2
-
-    value = grant()
-    value["budgets"]["review"]["elapsedSeconds"] = 3
-    platform = FakePlatform(tmp_path)
-    bench = PipelineBench(
-        write_grant(tmp_path / "grant.json", value),
-        tmp_path / "state",
-        platform=platform,
-        agents=SlowCorrectionAgents(),
-        decisions=FakeDecision(),
-    )
-
-    with pytest.raises(BenchError, match="elapsed-time budget is exhausted"):
-        bench.run()
-
-    assert platform.calls.count("push") == 1
-
-
 def test_expired_acceptance_read_cannot_arm_auto_merge(tmp_path, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
@@ -975,7 +783,7 @@ def test_expired_acceptance_read_cannot_arm_auto_merge(tmp_path, monkeypatch):
     with pytest.raises(BenchError, match="elapsed-time budget is exhausted"):
         bench.run()
 
-    assert "pr-head:commit-2:1.0" in platform.calls
+    assert "pr-head:commit-2:1" in platform.calls
     assert not any(call.startswith("auto-merge:") for call in platform.calls)
     assert "disable-auto-merge" not in platform.calls
 
@@ -1073,78 +881,6 @@ def test_successful_command_reaps_background_descendants_before_returning(tmp_pa
     assert not marker.exists()
 
 
-def test_successful_command_does_not_wait_for_a_child_holding_its_pipes(tmp_path):
-    parent_code = (
-        "import subprocess, sys; "
-        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
-        "print('done')"
-    )
-
-    result = SubprocessRunner().run([sys.executable, "-c", parent_code], tmp_path, 1)
-
-    assert result.returncode == 0
-    assert result.stdout.strip() == "done"
-
-
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux subreaper containment")
-def test_detached_descendants_cannot_escape_linux_subreaper_containment(tmp_path):
-    marker = tmp_path / "detached-descendant-survived"
-    script = (
-        "import subprocess, sys, time\n"
-        "from pathlib import Path\n"
-        "from tooling.mission_pipeline_bench import protect_parent_credentials, SubprocessRunner\n"
-        "protect_parent_credentials()\n"
-        f"marker = Path({str(marker)!r})\n"
-        "child = \"import time; from pathlib import Path; time.sleep(1); \" "
-        "+ f\"Path({str(marker)!r}).write_text('survived')\"\n"
-        "parent = \"import subprocess, sys; subprocess.Popen([sys.executable, '-c', \" "
-        "+ repr(child) + \"] , start_new_session=True, stdin=subprocess.DEVNULL, \" "
-        "+ \"stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\"\n"
-        "SubprocessRunner().run([sys.executable, '-c', parent], Path.cwd(), 5)\n"
-        "time.sleep(1.2)\n"
-        "raise SystemExit(1 if marker.exists() else 0)\n"
-    )
-
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=Path(__file__).resolve().parents[1],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-
-
-def test_descendant_cleanup_rechecks_after_an_initially_quiet_proc_scan(monkeypatch):
-    clock = [0.0]
-    scans = [[], ["424242"], []]
-    killed = []
-
-    class ChildFile:
-        def __init__(self, content):
-            self.content = content
-
-        def read_text(self):
-            return self.content
-
-    class TaskRoot:
-        def glob(self, _pattern):
-            values = scans.pop(0) if scans else []
-            return [ChildFile(value) for value in values]
-
-    monkeypatch.setattr(mission_bench, "PARENT_CONTAINMENT_READY", True)
-    monkeypatch.setattr(mission_bench, "Path", lambda _value: TaskRoot())
-    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(mission_bench.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
-    monkeypatch.setattr(mission_bench.os, "kill", lambda pid, sig: killed.append((pid, sig)))
-    monkeypatch.setattr(mission_bench.os, "waitpid", lambda *_args: (_ for _ in ()).throw(ChildProcessError()))
-
-    SubprocessRunner._kill_adopted_descendants()
-
-    assert killed == [(424242, mission_bench.signal.SIGKILL)]
-
-
 def test_subprocess_output_is_drained_into_fixed_size_tail_buffers(tmp_path):
     result = SubprocessRunner().run([
         sys.executable,
@@ -1186,162 +922,6 @@ def test_untrusted_subprocess_inherits_only_allowlisted_parent_environment(tmp_p
     assert environment["ANTHROPIC_API_KEY"] == "provider-only"
 
 
-def test_repository_authored_gates_request_an_isolated_network(tmp_path):
-    class RecordingRunner:
-        def __init__(self):
-            self.network_access = None
-
-        def run(
-            self,
-            argv,
-            cwd,
-            timeout,
-            *,
-            extra_env=None,
-            inherit_env=True,
-            network_access=True,
-        ):
-            self.network_access = network_access
-            return CommandResult(argv, 0, "", "", 0.1)
-
-    runner = RecordingRunner()
-    platform = GitHubPlatform(tmp_path, runner)
-
-    platform.run_command(
-        [sys.executable, "-c", "raise SystemExit(0)"],
-        tmp_path,
-        5,
-        mission_bench.isolated_command_env(tmp_path / "session", set()),
-    )
-
-    assert runner.network_access is False
-
-
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux Landlock TCP isolation")
-def test_network_isolated_gate_cannot_reach_host_loopback(tmp_path):
-    with socket.socket() as host_listener:
-        host_listener.bind(("127.0.0.2", 8765))
-        host_listener.listen()
-        script = (
-            "import socket\n"
-            "probe = socket.socket()\n"
-            "probe.settimeout(0.5)\n"
-            "try:\n"
-            "    probe.connect(('127.0.0.2', 8765))\n"
-            "except OSError:\n"
-            "    pass\n"
-            "else:\n"
-            "    raise SystemExit('host loopback remained reachable')\n"
-            "finally:\n"
-            "    probe.close()\n"
-            "private = socket.socket()\n"
-            "private.bind(('127.0.0.1', 0))\n"
-            "private.listen()\n"
-            "client = socket.create_connection(private.getsockname(), timeout=0.5)\n"
-            "accepted, _address = private.accept()\n"
-            "accepted.close(); client.close(); private.close()\n"
-        )
-        environment = mission_bench.isolated_command_env(tmp_path / "session", set())
-
-        result = SubprocessRunner().run(
-            [sys.executable, "-c", script],
-            tmp_path,
-            5,
-            extra_env=environment,
-            inherit_env=False,
-            network_access=False,
-        )
-
-    assert result.returncode == 0, result.stderr
-
-
-def test_untrusted_subprocess_uses_a_clean_session_home(tmp_path, monkeypatch):
-    original_home = tmp_path / "credential-bearing-home"
-    original_home.mkdir()
-    monkeypatch.setenv("HOME", str(original_home))
-    session_dir = tmp_path / "session"
-    environment = mission_bench.isolated_command_env(session_dir, set())
-
-    result = SubprocessRunner().run(
-        [sys.executable, "-c", "import os; print(os.environ['HOME'])"],
-        tmp_path,
-        5,
-        extra_env=environment,
-        inherit_env=False,
-    )
-
-    sandbox_home = Path(result.stdout.strip())
-    assert sandbox_home != original_home
-    assert sandbox_home.is_relative_to(session_dir)
-
-
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux Landlock isolation")
-def test_linux_untrusted_subprocess_cannot_read_a_sibling_credential_home(tmp_path):
-    credential_home = tmp_path / "credential-home"
-    credential_home.mkdir()
-    secret = credential_home / "cloud-credentials"
-    secret.write_text("sentinel-secret")
-    session_dir = tmp_path / "session"
-    worktree = session_dir / "worktree"
-    worktree.mkdir(parents=True)
-    environment = mission_bench.isolated_command_env(session_dir, set())
-    script = (
-        "from pathlib import Path\n"
-        f"secret = Path({str(secret)!r})\n"
-        "try:\n"
-        "    secret.read_text()\n"
-        "except PermissionError:\n"
-        "    raise SystemExit(0)\n"
-        "raise SystemExit(1)\n"
-    )
-
-    result = SubprocessRunner().run(
-        [sys.executable, "-c", script],
-        worktree,
-        5,
-        extra_env=environment,
-        inherit_env=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-
-
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux Landlock isolation")
-def test_linux_untrusted_subprocess_cannot_scan_a_sibling_process_environment(tmp_path):
-    sibling_environment = os.environ.copy()
-    sibling_environment["SIBLING_MACHINE_TOKEN"] = "sentinel-secret"
-    sibling = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(30)"],
-        env=sibling_environment,
-    )
-    session_dir = tmp_path / "session"
-    worktree = session_dir / "worktree"
-    worktree.mkdir(parents=True)
-    environment = mission_bench.isolated_command_env(session_dir, set())
-    script = (
-        "from pathlib import Path\n"
-        f"target = Path('/proc/{sibling.pid}/environ')\n"
-        "try:\n"
-        "    content = target.read_bytes()\n"
-        "except PermissionError:\n"
-        "    raise SystemExit(0)\n"
-        "raise SystemExit(1 if b'sentinel-secret' in content else 2)\n"
-    )
-    try:
-        result = SubprocessRunner().run(
-            [sys.executable, "-c", script],
-            worktree,
-            5,
-            extra_env=environment,
-            inherit_env=False,
-        )
-    finally:
-        sibling.terminate()
-        sibling.wait(timeout=5)
-
-    assert result.returncode == 0, result.stderr
-
-
 def test_privileged_commands_stay_pinned_after_untrusted_path_shadowing(tmp_path, monkeypatch):
     trusted = tmp_path / "trusted"
     attacker = tmp_path / "attacker"
@@ -1373,58 +953,6 @@ def test_privileged_commands_stay_pinned_after_untrusted_path_shadowing(tmp_path
         (trusted / "gh").resolve(),
         (trusted / "git").resolve(),
     ]
-
-
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc isolation")
-def test_linux_children_cannot_read_the_credential_bearing_parent_environment():
-    script = (
-        "import os, subprocess, sys\n"
-        "from pathlib import Path\n"
-        "from tooling.mission_pipeline_bench import protect_parent_credentials\n"
-        "assert b'PARENT_SECRET_TOKEN=sentinel-value' in Path('/proc/self/environ').read_bytes()\n"
-        "protect_parent_credentials()\n"
-        "path = f'/proc/{os.getpid()}/environ'\n"
-        "child = subprocess.run([sys.executable, '-c', "
-        "f\"from pathlib import Path; print(Path({path!r}).read_bytes())\"], capture_output=True)\n"
-        "raise SystemExit(1 if child.returncode == 0 and b'sentinel-value' in child.stdout else 0)\n"
-    )
-    environment = os.environ.copy()
-    environment["PARENT_SECRET_TOKEN"] = "sentinel-value"
-
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=Path(__file__).resolve().parents[1],
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-
-
-def test_non_linux_hosts_fail_closed_before_untrusted_execution(monkeypatch):
-    monkeypatch.setattr(mission_bench.sys, "platform", "darwin")
-
-    with pytest.raises(BenchError, match="requires Linux parent credential isolation"):
-        mission_bench.protect_parent_credentials()
-
-
-def test_linux_parent_protection_enables_child_subreaper(monkeypatch):
-    calls = []
-
-    class FakeLibc:
-        def prctl(self, option, value, _arg2, _arg3, _arg4):
-            calls.append((option, value))
-            return 0
-
-    monkeypatch.setattr(mission_bench.sys, "platform", "linux")
-    monkeypatch.setattr(mission_bench.ctypes, "CDLL", lambda *_args, **_kwargs: FakeLibc())
-    monkeypatch.setattr(mission_bench, "PARENT_CONTAINMENT_READY", False, raising=False)
-
-    mission_bench.protect_parent_credentials()
-
-    assert calls == [(4, 0), (36, 1)]
 
 
 def test_claude_stages_require_reported_opus_major_version_five_or_newer():
@@ -1462,46 +990,6 @@ def test_model_subprocess_environment_allows_only_its_provider_credential(tmp_pa
     assert local_environment["GIT_CONFIG_VALUE_7"] == "qwen@example.invalid"
 
 
-def test_codex_structured_artifacts_live_inside_the_worker_sandbox(tmp_path):
-    session_dir = tmp_path / "session"
-    worktree = session_dir / "worktree"
-    worktree.mkdir(parents=True)
-
-    class StructuredRunner:
-        def run(
-            self,
-            argv,
-            cwd,
-            timeout,
-            *,
-            input_text="",
-            extra_env=None,
-            inherit_env=True,
-        ):
-            schema_path = Path(argv[argv.index("--output-schema") + 1])
-            output_path = Path(argv[argv.index("-o") + 1])
-            sandbox_root = Path(extra_env["SM_BENCH_SANDBOX_ROOT"])
-            assert schema_path.is_relative_to(sandbox_root)
-            assert output_path.is_relative_to(sandbox_root)
-            output_path.write_text(json.dumps({
-                "verdict": "clean",
-                "summary": "No findings",
-                "findings": [],
-            }))
-            return CommandResult(argv, 0, "", "", 0.1)
-
-    driver = AgentDriver(runner=StructuredRunner())
-
-    review = driver.review(
-        "Review this mission.",
-        worktree,
-        mission_bench.StageBudget({"elapsedSeconds": 30, "turns": 1}),
-        session_dir,
-    )
-
-    assert review["verdict"] == "clean"
-
-
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
     repository = tmp_path / "repository"
     repository.mkdir()
@@ -1516,49 +1004,6 @@ def test_grant_rejects_free_form_abort_conditions():
     value["abortConditions"] = ["stop if adapters/ is touched"]
 
     with pytest.raises(BenchError, match="machine-checkable objects"):
-        mission_bench.validate_grant(value)
-
-
-def test_grant_requires_every_machine_checkable_pr_surface():
-    value = grant()
-    del value["surfaces"]["networkService"]
-
-    with pytest.raises(BenchError, match="surfaces must declare exactly"):
-        mission_bench.validate_grant(value)
-
-
-def test_pull_request_body_renders_the_granted_security_surface_checkboxes(tmp_path):
-    value = grant()
-    value["surfaces"].update({
-        "authentication": True,
-        "subprocessExecution": True,
-    })
-    bench = PipelineBench(
-        write_grant(tmp_path / "grant.json", value),
-        tmp_path / "state",
-        platform=FakePlatform(tmp_path),
-        agents=FakeAgents(),
-        decisions=FakeDecision(),
-    )
-
-    body = bench._pr_body()
-
-    assert "- [x] Authentication, authorization, or session handling" in body
-    assert "- [ ] A network-listening service, or its bind address" in body
-    assert "- [x] Subprocess or container execution" in body
-    assert "- [ ] Authority-owned schemas (`schemas/canonical/`, `schemas/schema-registry.json`)" in body
-    assert "- [ ] None of the above" in body
-
-
-@pytest.mark.parametrize("target", ["machine", "decision"])
-def test_grant_rejects_github_token_refs_that_collide_with_provider_credentials(target):
-    value = grant()
-    if target == "machine":
-        value["machineAccounts"]["local"]["tokenEnv"] = "OPENAI_API_KEY"
-    else:
-        value["decisionApi"]["tokenEnv"] = "ANTHROPIC_API_KEY"
-
-    with pytest.raises(BenchError, match="provider credential variable"):
         mission_bench.validate_grant(value)
 
 
@@ -1600,49 +1045,6 @@ def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_p
 
     with pytest.raises(BenchError, match="machine accounts cannot own authority paths"):
         platform.validate_repository_wall(grant())
-
-
-def test_repository_wall_allows_unrelated_rules_after_authority_ownership(tmp_path, monkeypatch):
-    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
-    codeowners = tmp_path / ".github" / "CODEOWNERS"
-    codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/ @andrewHermann\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-        "/steel_core/ @andrewHermann\n"
-        "/plan/ @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/tooling/ @andrewHermann\n"
-    )
-    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
-
-    platform.validate_repository_wall(grant())
-
-
-def test_repository_wall_rejects_changed_paths_not_owned_by_acceptance_account(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
-    codeowners = tmp_path / ".github" / "CODEOWNERS"
-    codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-        "/tooling/ @andrewHermann\n"
-    )
-    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
-
-    with pytest.raises(BenchError, match="acceptance account cannot review changed path"):
-        platform.validate_repository_wall(
-            grant(),
-            changed_paths=["tooling/mission_pipeline_bench.py"],
-        )
 
 
 def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path, monkeypatch):
@@ -1734,70 +1136,6 @@ def test_repository_wall_requires_checks_against_the_current_base(tmp_path, monk
         platform.validate_repository_wall(grant())
 
 
-def test_repository_wall_requires_both_interpreter_check_contexts(tmp_path, monkeypatch):
-    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
-    codeowners = tmp_path / ".github" / "CODEOWNERS"
-    codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
-    protection = protected_repository()
-    protection["required_status_checks"]["checks"] = [
-        {"context": "Python test suite (3.11)"},
-    ]
-    platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
-
-    with pytest.raises(BenchError, match="both interpreter checks"):
-        platform.validate_repository_wall(grant())
-
-
-def test_repository_wall_percent_encodes_a_slash_in_the_base_branch(tmp_path, monkeypatch):
-    value = grant()
-    value["baseBranch"] = "release/2026"
-    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
-    codeowners = tmp_path / ".github" / "CODEOWNERS"
-    codeowners.parent.mkdir()
-    codeowners.write_text(
-        "* @sm-agent-claude\n"
-        "/schemas/canonical/ @andrewHermann\n"
-        "/schemas/schema-registry.json @andrewHermann\n"
-        "/docs/workplan.md @andrewHermann\n"
-        "/.github/CODEOWNERS @andrewHermann\n"
-    )
-    platform = GitHubPlatform(
-        tmp_path,
-        EncodedBranchProtectionRunner(protected_repository()),
-    )
-
-    platform.validate_repository_wall(value)
-
-
-def test_pull_request_validation_rejects_a_retargeted_base(tmp_path, monkeypatch):
-    value = grant()
-    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
-
-    class RetargetedPullRequestRunner:
-        def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, complete_stdout=False):
-            assert Path(argv[0]).name == "gh"
-            assert "headRefOid,baseRefName" in argv
-            return CommandResult(
-                argv,
-                0,
-                json.dumps({"headRefOid": "reviewed-head", "baseRefName": "release"}),
-                "",
-                0.1,
-            )
-
-    platform = GitHubPlatform(tmp_path, RetargetedPullRequestRunner())
-
-    with pytest.raises(BenchError, match="base branch changed"):
-        platform.assert_pr_head(value, 321, "reviewed-head", 30)
-
-
 def test_machine_commit_email_must_be_verified_by_the_authenticated_account(tmp_path, monkeypatch):
     value = grant()
     accounts = {}
@@ -1824,105 +1162,12 @@ def test_authenticated_push_disables_hooks_and_scrubs_every_unrelated_credential
     monkeypatch.setenv("UNRELATED_API_TOKEN", "also-secret")
     worktree = tmp_path / "session" / "worktree"
     worktree.mkdir(parents=True)
-    (worktree / ".git").mkdir()
-    (worktree / ".git" / "config").write_text(
-        "[url \"https://attacker.invalid/\"]\n"
-        "\tinsteadOf = https://github.com/\n"
+    platform = GitHubPlatform(
+        tmp_path,
+        PushRunner(credential_names | {"UNRELATED_API_TOKEN"}),
     )
-    runner = PushRunner(credential_names | {"UNRELATED_API_TOKEN"})
-    platform = GitHubPlatform(tmp_path, runner)
 
     platform.push(value, worktree, 30)
-
-    push_argv = runner.commands[-1][0]
-    assert "--git-dir" in push_argv
-    push_git_dir = Path(push_argv[push_argv.index("--git-dir") + 1])
-    assert push_git_dir != worktree / ".git"
-
-
-def test_authenticated_push_ignores_an_untrusted_askpass_symlink(tmp_path, monkeypatch):
-    value = grant()
-    credential_names = {
-        account["tokenEnv"] for account in value["machineAccounts"].values()
-    }
-    for name in credential_names:
-        monkeypatch.setenv(
-            name,
-            "local-token" if name == value["machineAccounts"]["local"]["tokenEnv"] else "secret",
-        )
-    worktree = tmp_path / "session" / "worktree"
-    worktree.mkdir(parents=True)
-    victim = tmp_path / "victim.txt"
-    victim.write_text("must remain unchanged\n")
-    (worktree.parent / "git-askpass.sh").symlink_to(victim)
-
-    class TrustedAskpassRunner(PushRunner):
-        def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
-            if "push" in argv:
-                askpass = Path(extra_env["GIT_ASKPASS"])
-                assert askpass.parent != worktree.parent
-                assert askpass.is_file()
-                assert not askpass.is_symlink()
-            return super().run(
-                argv,
-                cwd,
-                timeout,
-                input_text=input_text,
-                extra_env=extra_env,
-                inherit_env=inherit_env,
-            )
-
-    platform = GitHubPlatform(tmp_path, TrustedAskpassRunner(credential_names))
-
-    platform.push(value, worktree, 30)
-
-    assert victim.read_text() == "must remain unchanged\n"
-
-
-def test_authenticated_push_uses_a_parent_only_empty_hooks_directory(tmp_path, monkeypatch):
-    value = grant()
-    credential_names = {
-        account["tokenEnv"] for account in value["machineAccounts"].values()
-    }
-    for name in credential_names:
-        monkeypatch.setenv(
-            name,
-            "local-token" if name == value["machineAccounts"]["local"]["tokenEnv"] else "secret",
-        )
-    worktree = tmp_path / "session" / "worktree"
-    worktree.mkdir(parents=True)
-    worker_environment = mission_bench.isolated_command_env(worktree.parent, credential_names)
-    worker_hooks = Path(worker_environment["GIT_CONFIG_VALUE_3"])
-    (worker_hooks / "pre-push").write_text("#!/bin/sh\nexit 99\n")
-    (worker_hooks / "pre-push").chmod(0o700)
-
-    class TrustedHooksRunner(PushRunner):
-        def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
-            if "push" in argv:
-                hooks = Path(extra_env["GIT_CONFIG_VALUE_3"])
-                assert not hooks.is_relative_to(worktree.parent)
-                assert list(hooks.iterdir()) == []
-            return super().run(
-                argv,
-                cwd,
-                timeout,
-                input_text=input_text,
-                extra_env=extra_env,
-                inherit_env=inherit_env,
-            )
-
-    GitHubPlatform(tmp_path, TrustedHooksRunner(credential_names)).push(value, worktree, 30)
-
-
-def test_worker_sandbox_write_root_excludes_session_control_files(tmp_path):
-    session_dir = tmp_path / "session"
-    session_dir.mkdir()
-
-    environment = mission_bench.isolated_command_env(session_dir, set())
-
-    sandbox_root = Path(environment["SM_BENCH_SANDBOX_ROOT"])
-    assert sandbox_root.parent == session_dir
-    assert sandbox_root != session_dir
 
 
 def test_merge_poll_and_sleep_never_exceed_the_remaining_acceptance_budget(tmp_path, monkeypatch):
@@ -1959,19 +1204,6 @@ def test_changed_paths_include_both_ends_of_an_authority_file_rename(tmp_path):
     ]
 
 
-def test_changed_paths_preserve_tabs_and_newlines_without_git_quoting(tmp_path):
-    platform = GitHubPlatform(tmp_path, NulDiffRunner())
-    platform.worktree_bases[tmp_path.resolve()] = "base-commit"
-
-    paths = platform.changed_paths(grant(), tmp_path)
-
-    assert paths == [
-        "schemas/canonical/line\nbreak.json",
-        "docs/old\tname.md",
-        "docs/new\nname.md",
-    ]
-
-
 def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer(tmp_path):
     chat = runpy.run_path(str(Path(__file__).resolve().parents[1] / "steel-mission-chat" / "server.py"))
     handler = chat["Handler"]
@@ -1995,16 +1227,9 @@ def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer
     client = DecisionClient({"baseUrl": f"http://{host}:{port}"})
     handle = client.request(f"The plan is unclean.\n\n{REQUIREMENT}\n\n{ACCEPTANCE}")
     try:
-        request_payload = handle["decisionRequest"]
-        assert request_payload["question"] == "How should this mission resolve the unclean plan?"
-        assert "The plan is unclean." in request_payload["context"]
-        assert {option["id"] for option in request_payload["options"]} == {
-            "revise-within-grant",
-            "pause",
-        }
         request = Request(
             f"http://{host}:{port}/api/chat/{handle['jobId']}/decision",
-            data=json.dumps({"optionId": "revise-within-grant", "freeText": "Stay inside the grant."}).encode(),
+            data=json.dumps({"optionId": "continue-narrow", "freeText": "Stay inside the grant."}).encode(),
             headers={
                 "Content-Type": "application/json",
                 "X-Present-Role": "owner",
@@ -2016,7 +1241,7 @@ def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer
             assert response.status == 202
 
         answer = client.wait_for_answer(handle["jobId"], 5)
-        assert answer["selectedOptionId"] == "revise-within-grant"
+        assert answer["selectedOptionId"] == "continue-narrow"
         assert answer["freeText"] == "Stay inside the grant."
     finally:
         with chat["JOBS_LOCK"]:
@@ -2024,29 +1249,3 @@ def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
-
-
-def test_decision_poll_cannot_return_an_answer_after_its_budget(monkeypatch):
-    clock = [0.0]
-    timeouts = []
-    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
-
-    class SlowDecisionClient(DecisionClient):
-        def _request(self, path, *, method="GET", payload=None, timeout=15):
-            timeouts.append(timeout)
-            clock[0] += timeout
-            return {
-                "progress": {
-                    "steeringEvents": [{
-                        "effect": "answer-decision",
-                        "selectedOptionId": "revise-within-grant",
-                    }],
-                },
-            }
-
-    client = SlowDecisionClient({"baseUrl": "http://127.0.0.1:8765"})
-
-    with pytest.raises(BenchError, match="plan session budget"):
-        client.wait_for_answer("JOB-slow", 1)
-
-    assert timeouts == [1]

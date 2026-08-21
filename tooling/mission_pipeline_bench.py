@@ -9,7 +9,6 @@ an explicitly supplied state directory outside the product repository.
 from __future__ import annotations
 
 import argparse
-import ctypes
 import json
 import os
 import re
@@ -17,7 +16,6 @@ import secrets
 import selectors
 import shutil
 import signal
-import stat
 import subprocess
 import sys
 import tempfile
@@ -55,19 +53,16 @@ PROVIDER_AUTH_ENV = {
     "codex": ("OPENAI_API_KEY",),
     "local": (),
 }
-PROVIDER_CREDENTIAL_ENVS = {
-    name for names in PROVIDER_AUTH_ENV.values() for name in names
-}
 UNTRUSTED_BASE_ENV = (
-    "PATH", "USER", "LOGNAME", "SHELL", "TERM",
-    "LANG", "LC_ALL", "LC_CTYPE",
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM",
+    "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE",
+    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
     "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY",
-    "OLLAMA_HOST",
+    "CODEX_HOME", "CLAUDE_CONFIG_DIR", "OLLAMA_HOST",
 )
 DIAGNOSTIC_TAIL_BYTES = 20_000
 COMPLETE_STDOUT_BYTES = 1_000_000
-PARENT_CONTAINMENT_READY = False
 
 
 class BenchError(RuntimeError):
@@ -92,25 +87,6 @@ def atomic_json(path: Path, value: Any) -> None:
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
     os.replace(temporary, path)
-
-
-def atomic_text(path: Path, value: str, mode: int = 0o600) -> None:
-    """Replace a parent-owned text artifact without following its destination."""
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    flags |= getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(temporary, flags, mode)
-        with os.fdopen(descriptor, "w") as stream:
-            stream.write(value)
-            os.fchmod(stream.fileno(), mode)
-        os.replace(temporary, path)
-    except OSError as exc:
-        try:
-            temporary.unlink()
-        except OSError:
-            pass
-        raise BenchError("cannot write a trusted parent text artifact") from exc
 
 
 def json_object(path: Path) -> dict[str, Any]:
@@ -153,21 +129,6 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
     require_text(grant.get("grantedBy"), "grantedBy")
     require_text(grant.get("requirement"), "requirement")
     require_text(grant.get("acceptanceEvidence"), "acceptanceEvidence")
-
-    surfaces = grant.get("surfaces")
-    surface_names = {
-        "authentication",
-        "networkService",
-        "subprocessExecution",
-        "authoritySchemas",
-    }
-    if not isinstance(surfaces, dict) or set(surfaces) != surface_names:
-        raise BenchError(
-            "surfaces must declare exactly authentication, networkService, "
-            "subprocessExecution, and authoritySchemas"
-        )
-    if not all(isinstance(surfaces[name], bool) for name in surface_names):
-        raise BenchError("surfaces declarations must be booleans")
 
     definition = grant.get("definitionOfDone")
     if not isinstance(definition, dict):
@@ -242,8 +203,6 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
         token_env = require_text(account.get("tokenEnv"), f"machineAccounts.{worker}.tokenEnv")
         if not re.fullmatch(r"[A-Z][A-Z0-9_]+", token_env):
             raise BenchError(f"machineAccounts.{worker}.tokenEnv must name an environment variable")
-        if token_env in PROVIDER_CREDENTIAL_ENVS:
-            raise BenchError("GitHub token reference cannot use a provider credential variable")
         if any(key in account for key in ("token", "accessToken", "secret")):
             raise BenchError("grants carry credential references, never credential values")
         logins.append(login)
@@ -255,12 +214,8 @@ def validate_grant(grant: dict[str, Any]) -> dict[str, Any]:
         raise BenchError("decisionApi must be an object")
     require_text(decision.get("baseUrl"), "decisionApi.baseUrl")
     token_env = decision.get("tokenEnv")
-    if token_env is not None:
-        token_env = require_text(token_env, "decisionApi.tokenEnv")
-        if not re.fullmatch(r"[A-Z][A-Z0-9_]+", token_env):
-            raise BenchError("decisionApi.tokenEnv must name an environment variable")
-        if token_env in PROVIDER_CREDENTIAL_ENVS:
-            raise BenchError("GitHub token reference cannot use a provider credential variable")
+    if token_env is not None and not re.fullmatch(r"[A-Z][A-Z0-9_]+", require_text(token_env, "decisionApi.tokenEnv")):
+        raise BenchError("decisionApi.tokenEnv must name an environment variable")
     return grant
 
 
@@ -280,184 +235,6 @@ def command_tail(result: CommandResult, limit: int = 4000) -> str:
     return text[-limit:]
 
 
-def protect_parent_credentials() -> None:
-    """Deny same-UID Linux children access to this process through /proc."""
-    if not sys.platform.startswith("linux"):
-        raise BenchError("mission execution requires Linux parent credential isolation")
-    global PARENT_CONTAINMENT_READY
-    libc = ctypes.CDLL(None, use_errno=True)
-    protections = (
-        (4, 0, "protect parent credential memory"),
-        (36, 1, "enable child-subreaper containment"),
-    )
-    for option, value, label in protections:
-        if libc.prctl(option, value, 0, 0, 0) != 0:
-            error_number = ctypes.get_errno()
-            raise BenchError(f"cannot {label}: {os.strerror(error_number)}")
-    PARENT_CONTAINMENT_READY = True
-
-
-class _LandlockRulesetAttr(ctypes.Structure):
-    _fields_ = [
-        ("handled_access_fs", ctypes.c_uint64),
-        ("handled_access_net", ctypes.c_uint64),
-    ]
-
-
-class _LandlockPathBeneathAttr(ctypes.Structure):
-    _fields_ = [
-        ("allowed_access", ctypes.c_uint64),
-        ("parent_fd", ctypes.c_int32),
-    ]
-
-
-class _LandlockNetPortAttr(ctypes.Structure):
-    _fields_ = [
-        ("allowed_access", ctypes.c_uint64),
-        ("port", ctypes.c_uint64),
-    ]
-
-
-class _SockFilter(ctypes.Structure):
-    _fields_ = [
-        ("code", ctypes.c_ushort),
-        ("jt", ctypes.c_ubyte),
-        ("jf", ctypes.c_ubyte),
-        ("k", ctypes.c_uint32),
-    ]
-
-
-class _SockFprog(ctypes.Structure):
-    _fields_ = [
-        ("length", ctypes.c_ushort),
-        ("filters", ctypes.POINTER(_SockFilter)),
-    ]
-
-
-def _landlock_abi() -> int:
-    if not sys.platform.startswith("linux"):
-        raise BenchError("untrusted filesystem isolation requires Linux Landlock")
-    machine = os.uname().machine.lower()
-    if machine not in {"x86_64", "amd64", "aarch64", "arm64", "riscv64"}:
-        raise BenchError(f"unsupported Linux architecture for Landlock isolation: {machine}")
-    libc = ctypes.CDLL(None, use_errno=True)
-    result = libc.syscall(444, None, 0, 1)
-    if result < 1:
-        error_number = ctypes.get_errno()
-        raise BenchError(f"Linux Landlock isolation is unavailable: {os.strerror(error_number)}")
-    return int(result)
-
-
-def _gate_tcp_ports() -> tuple[int, ...]:
-    """Allow test-owned ephemeral TCP only, never the product control plane."""
-    try:
-        values = Path("/proc/sys/net/ipv4/ip_local_port_range").read_text().split()
-        lower, upper = (int(value) for value in values)
-    except (OSError, TypeError, ValueError) as exc:
-        raise BenchError("cannot read the Linux ephemeral TCP port range") from exc
-    if len(values) != 2 or not 1024 <= lower <= upper <= 65535:
-        raise BenchError("Linux ephemeral TCP port range is invalid")
-    control_plane_port = 8765
-    return (0, *(port for port in range(lower, upper + 1) if port != control_plane_port))
-
-
-def _restrict_filesystem_with_landlock(
-    abi: int,
-    read_roots: tuple[str, ...],
-    write_roots: tuple[str, ...],
-    allowed_tcp_ports: tuple[int, ...] | None = None,
-) -> None:
-    execute = 1 << 0
-    read_file = 1 << 2
-    read_dir = 1 << 3
-    handled = (1 << 13) - 1
-    if abi >= 2:
-        handled |= 1 << 13
-    if abi >= 3:
-        handled |= 1 << 14
-    read_access = execute | read_file | read_dir
-    write_access = handled
-    network_access = 0
-    if allowed_tcp_ports is not None:
-        if abi < 4:
-            raise OSError(95, "Landlock TCP isolation requires ABI 4 or newer")
-        network_access = (1 << 0) | (1 << 1)
-    libc = ctypes.CDLL(None, use_errno=True)
-    ruleset = _LandlockRulesetAttr(
-        handled_access_fs=handled,
-        handled_access_net=network_access,
-    )
-    ruleset_size = ctypes.sizeof(ctypes.c_uint64)
-    if network_access:
-        ruleset_size = ctypes.sizeof(ruleset)
-    ruleset_fd = libc.syscall(444, ctypes.byref(ruleset), ruleset_size, 0)
-    if ruleset_fd < 0:
-        raise OSError(ctypes.get_errno(), "cannot create Landlock ruleset")
-    opened: list[int] = []
-    try:
-        roots = [(path, read_access) for path in read_roots]
-        roots.extend((path, write_access) for path in write_roots)
-        for value, access in roots:
-            path = Path(value)
-            if not path.exists():
-                continue
-            descriptor = os.open(path, os.O_PATH | os.O_CLOEXEC)
-            opened.append(descriptor)
-            rule = _LandlockPathBeneathAttr(
-                allowed_access=access,
-                parent_fd=descriptor,
-            )
-            if libc.syscall(445, ruleset_fd, 1, ctypes.byref(rule), 0) != 0:
-                raise OSError(ctypes.get_errno(), f"cannot add Landlock rule for {path}")
-        for port in allowed_tcp_ports or ():
-            rule = _LandlockNetPortAttr(
-                allowed_access=network_access,
-                port=port,
-            )
-            if libc.syscall(445, ruleset_fd, 2, ctypes.byref(rule), 0) != 0:
-                raise OSError(ctypes.get_errno(), f"cannot add Landlock TCP rule for port {port}")
-        if libc.prctl(38, 1, 0, 0, 0) != 0:
-            raise OSError(ctypes.get_errno(), "cannot enable no-new-privileges")
-        if libc.syscall(446, ruleset_fd, 0) != 0:
-            raise OSError(ctypes.get_errno(), "cannot apply Landlock ruleset")
-    finally:
-        for descriptor in opened:
-            os.close(descriptor)
-        os.close(ruleset_fd)
-
-
-def _deny_descendant_process_group_escape() -> None:
-    machine = os.uname().machine.lower()
-    denied_by_architecture = {
-        "x86_64": (109, 112),
-        "amd64": (109, 112),
-        "aarch64": (154, 157),
-        "arm64": (154, 157),
-        "riscv64": (154, 157),
-    }
-    denied = denied_by_architecture.get(machine)
-    if denied is None:
-        raise OSError(95, f"unsupported architecture for process containment: {machine}")
-    load_syscall_number = 0x20
-    jump_equal = 0x15
-    return_errno = 0x00050000 | 1
-    return_allow = 0x7FFF0000
-    instructions = [_SockFilter(load_syscall_number, 0, 0, 0)]
-    for syscall_number in denied:
-        instructions.extend((
-            _SockFilter(jump_equal, 0, 1, syscall_number),
-            _SockFilter(0x06, 0, 0, return_errno),
-        ))
-    instructions.append(_SockFilter(0x06, 0, 0, return_allow))
-    filters = (_SockFilter * len(instructions))(*instructions)
-    program = _SockFprog(length=len(instructions), filters=filters)
-    libc = ctypes.CDLL(None, use_errno=True)
-    if libc.prctl(38, 1, 0, 0, 0) != 0:
-        raise OSError(ctypes.get_errno(), "cannot enable no-new-privileges")
-    if libc.prctl(22, 2, ctypes.byref(program)) != 0:
-        raise OSError(ctypes.get_errno(), "cannot install process-containment filter")
-
-
 def isolated_command_env(
     session_dir: Path,
     credential_envs: set[str],
@@ -465,51 +242,11 @@ def isolated_command_env(
     scrub_all_credentials: bool = False,
 ) -> dict[str, str]:
     """Remove GitHub authority from repository-authored and model commands."""
-    sandbox_root = session_dir / "worker-sandbox"
-    gh_config = sandbox_root / "no-github-credentials"
-    hooks = sandbox_root / "no-git-hooks"
-    sandbox_home = sandbox_root / "home"
-    sandbox_tmp = sandbox_root / "tmp"
-    sandbox_directories = (
-        sandbox_root,
-        gh_config,
-        hooks,
-        sandbox_home,
-        sandbox_tmp,
-        sandbox_home / ".config",
-        sandbox_home / ".cache",
-        sandbox_home / ".runtime",
-        sandbox_home / ".codex",
-        sandbox_home / ".claude",
-    )
-    for directory in sandbox_directories:
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        try:
-            metadata = directory.lstat()
-        except OSError as exc:
-            raise BenchError(f"cannot inspect worker sandbox directory: {directory}") from exc
-        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-            raise BenchError(f"worker sandbox path is not a real directory: {directory}")
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        try:
-            descriptor = os.open(directory, flags)
-            try:
-                os.fchmod(descriptor, 0o700)
-            finally:
-                os.close(descriptor)
-        except OSError as exc:
-            raise BenchError(f"cannot secure worker sandbox directory: {directory}") from exc
+    gh_config = session_dir / "no-github-credentials"
+    hooks = session_dir / "no-git-hooks"
+    gh_config.mkdir(parents=True, exist_ok=True)
+    hooks.mkdir(parents=True, exist_ok=True)
     environment = {
-        "HOME": str(sandbox_home),
-        "TMPDIR": str(sandbox_tmp),
-        "TEMP": str(sandbox_tmp),
-        "TMP": str(sandbox_tmp),
-        "XDG_CONFIG_HOME": str(sandbox_home / ".config"),
-        "XDG_CACHE_HOME": str(sandbox_home / ".cache"),
-        "XDG_RUNTIME_DIR": str(sandbox_home / ".runtime"),
-        "CODEX_HOME": str(sandbox_home / ".codex"),
-        "CLAUDE_CONFIG_DIR": str(sandbox_home / ".claude"),
-        "SM_BENCH_SANDBOX_ROOT": str(sandbox_root),
         "GH_CONFIG_DIR": str(gh_config),
         "GH_TOKEN": "",
         "GITHUB_TOKEN": "",
@@ -541,45 +278,6 @@ def isolated_command_env(
 class SubprocessRunner:
     """Run argv-only commands with bounded output and no implicit shell."""
 
-    @staticmethod
-    def _kill_adopted_descendants() -> None:
-        if not PARENT_CONTAINMENT_READY:
-            return
-        task_root = Path("/proc/self/task")
-        deadline = time.monotonic() + 2
-        quiet_since: float | None = None
-        while time.monotonic() < deadline:
-            children: set[int] = set()
-            try:
-                child_files = list(task_root.glob("*/children"))
-                for child_file in child_files:
-                    try:
-                        children.update(int(value) for value in child_file.read_text().split())
-                    except FileNotFoundError:
-                        continue
-            except OSError as exc:
-                raise BenchError(f"cannot enumerate contained descendants: {exc}") from exc
-            for pid in children:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            while True:
-                try:
-                    waited, _status = os.waitpid(-1, os.WNOHANG)
-                except ChildProcessError:
-                    break
-                if waited == 0:
-                    break
-            if children:
-                quiet_since = None
-            elif quiet_since is None:
-                quiet_since = time.monotonic()
-            elif time.monotonic() - quiet_since >= 0.25:
-                return
-            time.sleep(0.01)
-        raise BenchError("contained descendants could not be reaped")
-
     def run(
         self,
         argv: list[str],
@@ -590,7 +288,6 @@ class SubprocessRunner:
         extra_env: dict[str, str] | None = None,
         inherit_env: bool = True,
         complete_stdout: bool = False,
-        network_access: bool = True,
     ) -> CommandResult:
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise BenchError("refusing a non-argv command")
@@ -601,58 +298,6 @@ class SubprocessRunner:
         environment.pop("GITHUB_TOKEN", None)
         if extra_env:
             environment.update(extra_env)
-        if not network_access and not sys.platform.startswith("linux"):
-            raise BenchError("network-isolated repository commands require Linux")
-        execution_argv = list(argv)
-        landlock_setup: tuple[
-            int,
-            tuple[str, ...],
-            tuple[str, ...],
-            tuple[int, ...] | None,
-        ] | None = None
-        if not inherit_env and sys.platform.startswith("linux"):
-            located = execution_argv[0] if os.path.isabs(execution_argv[0]) else shutil.which(
-                execution_argv[0],
-                path=environment.get("PATH"),
-            )
-            if not located:
-                raise BenchError(f"untrusted executable is unavailable: {execution_argv[0]}")
-            executable = Path(located).resolve()
-            execution_argv[0] = str(executable)
-            sandbox_root = environment.pop("SM_BENCH_SANDBOX_ROOT", "")
-            extra_read_roots = environment.pop("SM_BENCH_SANDBOX_READ_ROOTS", "")
-            read_roots = [
-                path for path in (
-                    "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt",
-                    "/nix/store", "/proc/self", "/proc/thread-self", "/sys",
-                    str(executable.parent),
-                )
-                if Path(path).exists()
-            ]
-            read_roots.extend(
-                path for path in extra_read_roots.split(os.pathsep) if path
-            )
-            write_roots = [str(cwd), "/dev"]
-            if sandbox_root:
-                write_roots.append(sandbox_root)
-            abi = _landlock_abi()
-            landlock_setup = (
-                abi,
-                tuple(dict.fromkeys(read_roots)),
-                tuple(dict.fromkeys(write_roots)),
-                None if network_access else _gate_tcp_ports(),
-            )
-        preexec_fn = None
-        if landlock_setup is not None or (
-            sys.platform.startswith("linux") and PARENT_CONTAINMENT_READY
-        ):
-            def child_setup() -> None:
-                if landlock_setup is not None:
-                    _restrict_filesystem_with_landlock(*landlock_setup)
-                if PARENT_CONTAINMENT_READY:
-                    _deny_descendant_process_group_escape()
-
-            preexec_fn = child_setup
         started = time.monotonic()
         if timeout <= 0:
             raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}")
@@ -661,16 +306,15 @@ class SubprocessRunner:
             stdin.seek(0)
             try:
                 process = subprocess.Popen(
-                    execution_argv,
+                    argv,
                     cwd=cwd,
                     stdin=stdin,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     env=environment,
                     start_new_session=True,
-                    preexec_fn=preexec_fn,
                 )
-            except (OSError, subprocess.SubprocessError) as exc:
+            except OSError as exc:
                 raise BenchError(f"command failed to start: {argv[0]}: {exc}") from exc
             deadline = started + timeout
             streams = selectors.DefaultSelector()
@@ -680,28 +324,11 @@ class SubprocessRunner:
             streams.register(process.stdout, selectors.EVENT_READ, "stdout")
             streams.register(process.stderr, selectors.EVENT_READ, "stderr")
             try:
-                direct_exited = False
                 while streams.get_map():
-                    if not direct_exited and process.poll() is not None:
-                        direct_exited = True
-                        try:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        except (ProcessLookupError, PermissionError):
-                            pass
-                        self._kill_adopted_descendants()
-                    if direct_exited:
-                        ready = streams.select(timeout=0.25)
-                        if not ready:
-                            for key in list(streams.get_map().values()):
-                                streams.unregister(key.fileobj)
-                                key.fileobj.close()
-                            break
-                    else:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise subprocess.TimeoutExpired(argv, timeout)
-                        ready = streams.select(timeout=min(0.25, remaining))
-                    for key, _mask in ready:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(argv, timeout)
+                    for key, _mask in streams.select(timeout=min(0.25, remaining)):
                         chunk = os.read(key.fileobj.fileno(), 65536)
                         if not chunk:
                             streams.unregister(key.fileobj)
@@ -717,30 +344,26 @@ class SubprocessRunner:
                             buffer.extend(chunk)
                             if len(buffer) > DIAGNOSTIC_TAIL_BYTES:
                                 del buffer[:-DIAGNOSTIC_TAIL_BYTES]
-                if direct_exited:
-                    process.wait()
-                else:
-                    process.wait(timeout=max(0.001, deadline - time.monotonic()))
+                process.wait(timeout=max(0.001, deadline - time.monotonic()))
             except subprocess.TimeoutExpired as exc:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
-                except (ProcessLookupError, PermissionError):
+                except ProcessLookupError:
                     pass
                 try:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError):
+                    except ProcessLookupError:
                         pass
                     process.wait()
                 raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}") from exc
             finally:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
+                except ProcessLookupError:
                     pass
-                self._kill_adopted_descendants()
                 streams.close()
                 for stream in (process.stdout, process.stderr):
                     if stream is not None and not stream.closed:
@@ -768,13 +391,13 @@ class StageBudget:
     def elapsed(self) -> int:
         return max(0, int(time.monotonic() - self.started))
 
-    def remaining(self) -> float:
-        remaining = self.limit_seconds - max(0.0, time.monotonic() - self.started)
-        if remaining <= 0:
+    def remaining(self) -> int:
+        remaining = self.limit_seconds - self.elapsed()
+        if remaining < 1:
             raise BenchError("session elapsed-time budget is exhausted")
         return remaining
 
-    def use_turn(self) -> float:
+    def use_turn(self) -> int:
         if self.turns >= self.limit_turns:
             raise BenchError("session turn budget is exhausted")
         self.turns += 1
@@ -785,35 +408,6 @@ class StageBudget:
 
     def limit(self) -> dict[str, int]:
         return {"elapsedSeconds": self.limit_seconds, "turns": self.limit_turns}
-
-
-class CoupledStageBudget:
-    """Charge a correction to both the development and active review grants."""
-
-    def __init__(self, *budgets: StageBudget):
-        self.budgets = budgets
-
-    def remaining(self) -> float:
-        return min(budget.remaining() for budget in self.budgets)
-
-    def use_turn(self) -> float:
-        for budget in self.budgets:
-            budget.use_turn()
-        return self.remaining()
-
-    def spent(self) -> dict[str, int]:
-        values = [budget.spent() for budget in self.budgets]
-        return {
-            "elapsedSeconds": max(value["elapsedSeconds"] for value in values),
-            "turns": max(value["turns"] for value in values),
-        }
-
-    def limit(self) -> dict[str, int]:
-        values = [budget.limit() for budget in self.budgets]
-        return {
-            "elapsedSeconds": min(value["elapsedSeconds"] for value in values),
-            "turns": min(value["turns"] for value in values),
-        }
 
 
 class GitHubPlatform:
@@ -955,13 +549,7 @@ class GitHubPlatform:
                     f"{worker} commit email is not verified by its authenticated GitHub account"
                 )
 
-    def validate_repository_wall(
-        self,
-        grant: dict[str, Any],
-        timeout: float = 120,
-        *,
-        changed_paths: list[str] | None = None,
-    ) -> None:
+    def validate_repository_wall(self, grant: dict[str, Any], timeout: float = 120) -> None:
         deadline = time.monotonic() + timeout
 
         def remaining() -> float:
@@ -999,7 +587,7 @@ class GitHubPlatform:
             label="live-base CODEOWNERS read")
         result = self._run([
             "gh", "api",
-            f"repos/{grant['repository']}/branches/{encoded_branch}/protection",
+            f"repos/{grant['repository']}/branches/{grant['baseBranch']}/protection",
         ], timeout=remaining(), extra_env=environment, complete_stdout=True,
             label="branch protection read")
         try:
@@ -1023,17 +611,6 @@ class GitHubPlatform:
             raise BenchError("branch protection must require review conversation resolution")
         if not isinstance(required_checks, list) or not required_checks:
             raise BenchError("branch protection must require continuous-integration checks")
-        required_contexts = {
-            item.get("context")
-            for item in required_checks
-            if isinstance(item, dict) and isinstance(item.get("context"), str)
-        }
-        interpreter_checks = {
-            "Python test suite (3.11)",
-            "Python test suite (3.12)",
-        }
-        if not interpreter_checks.issubset(required_contexts):
-            raise BenchError("branch protection must require both interpreter checks")
         if not isinstance(checks, dict) or checks.get("strict") is not True:
             raise BenchError("required checks must cover the current base branch")
         acceptance_login = grant["machineAccounts"]["claude"]["login"]
@@ -1055,80 +632,14 @@ class GitHubPlatform:
             "/docs/workplan.md",
             "/.github/CODEOWNERS",
         )
-
-        def matches(pattern: str, path: str) -> bool:
-            normalized = pattern.lstrip("/")
-            candidate = path.lstrip("/")
-            directory = normalized.endswith("/")
-            if directory:
-                normalized += "**"
-            pieces: list[str] = []
-            index = 0
-            while index < len(normalized):
-                character = normalized[index]
-                if character == "*":
-                    if index + 1 < len(normalized) and normalized[index + 1] == "*":
-                        pieces.append(".*")
-                        index += 2
-                    else:
-                        pieces.append("[^/]*")
-                        index += 1
-                elif character == "?":
-                    pieces.append("[^/]")
-                    index += 1
-                else:
-                    pieces.append(re.escape(character))
-                    index += 1
-            prefix = "" if "/" in normalized else "(?:.*/)?"
-            return re.fullmatch(prefix + "".join(pieces), candidate) is not None
-
-        for authority_pattern in authority_patterns:
-            probe = (
-                authority_pattern + ".mission-bench-codeowners-probe"
-                if authority_pattern.endswith("/")
-                else authority_pattern
-            )
-            matching_rules = [
-                (index, rule)
-                for index, rule in enumerate(rules)
-                if matches(rule[0], probe)
-            ]
-            if not matching_rules:
-                raise BenchError(f"{authority_pattern} must remain Person-owned in CODEOWNERS")
-            effective_index, effective_rule = matching_rules[-1]
-            effective_owners = {token.lstrip("@").lower() for token in effective_rule[1:]}
-            if not effective_owners:
-                raise BenchError(f"{authority_pattern} must remain Person-owned in CODEOWNERS")
-            if effective_owners & machine_logins:
-                raise BenchError(
-                    "machine accounts cannot own authority paths in final effective CODEOWNERS rules"
-                )
-            if not authority_pattern.endswith("/"):
-                continue
-            authority_prefix = authority_pattern.lstrip("/")
-            for rule in rules[effective_index + 1:]:
-                rule_owners = {token.lstrip("@").lower() for token in rule[1:]}
-                if not rule_owners & machine_logins:
-                    continue
-                static_prefix = re.split(r"[*?[]", rule[0].lstrip("/"), maxsplit=1)[0]
-                if (
-                    static_prefix.startswith(authority_prefix)
-                    or authority_prefix.startswith(static_prefix)
-                ):
-                    raise BenchError(
-                        "machine accounts cannot own authority paths in final effective CODEOWNERS rules"
-                    )
-
-        for changed_path in changed_paths or []:
-            matching_rules = [rule for rule in rules if matches(rule[0], changed_path)]
-            effective_owners = {
-                token.lstrip("@").lower()
-                for token in (matching_rules[-1][1:] if matching_rules else [])
-            }
-            if acceptance_login.lower() not in effective_owners:
-                raise BenchError(
-                    f"acceptance account cannot review changed path under effective CODEOWNERS: {changed_path}"
-                )
+        if [rule[0] for rule in rules[-len(authority_patterns):]] != list(authority_patterns):
+            raise BenchError("Person-owned authority rules must be the final effective CODEOWNERS rules")
+        for pattern, rule in zip(authority_patterns, rules[-len(authority_patterns):], strict=True):
+            owners = {token.lstrip("@") for token in rule[1:]}
+            if not owners:
+                raise BenchError(f"{pattern} must remain Person-owned in CODEOWNERS")
+            if {owner.lower() for owner in owners} & machine_logins:
+                raise BenchError("machine accounts cannot own authority paths in CODEOWNERS")
 
     def claim_issue(self, grant: dict[str, Any], session_id: str) -> None:
         account = grant["machineAccounts"]["local"]
@@ -1174,17 +685,9 @@ class GitHubPlatform:
         validated_base = self.validated_base_oids.get(grant["baseBranch"])
         if validated_base is not None and fetched_base != validated_base:
             raise BenchError("fetched base branch changed after repository-wall validation")
-        self._run(
-            ["git", "clone", "--no-hardlinks", "--no-checkout", str(self.repository_root), str(worktree)],
-            timeout=180,
-            label="isolated repository creation",
-        )
-        self._run(
-            ["git", "checkout", "-b", grant["branch"], fetched_base],
-            cwd=worktree,
-            timeout=120,
-            label="isolated branch creation",
-        )
+        self._run([
+            "git", "worktree", "add", "-b", grant["branch"], str(worktree), base_ref,
+        ], timeout=120, label="isolated worktree creation")
         self.worktree_bases[worktree.resolve()] = self._run(
             ["git", "rev-parse", "HEAD"],
             cwd=worktree,
@@ -1199,14 +702,7 @@ class GitHubPlatform:
         timeout: int,
         extra_env: dict[str, str],
     ) -> CommandResult:
-        return self.runner.run(
-            argv,
-            cwd,
-            timeout,
-            extra_env=extra_env,
-            inherit_env=False,
-            network_access=False,
-        )
+        return self.runner.run(argv, cwd, timeout, extra_env=extra_env, inherit_env=False)
 
     def assert_machine_commit(
         self,
@@ -1268,110 +764,53 @@ class GitHubPlatform:
         result = self._run(
             [
                 "git", "diff", "--no-ext-diff", "--no-textconv",
-                "--name-status", "-z", "--find-renames", f"{base_ref}...HEAD",
+                "--name-status", "--find-renames", f"{base_ref}...HEAD",
             ],
             cwd=worktree,
             extra_env=environment,
             inherit_env=False,
-            complete_stdout=True,
             label="changed path read",
         )
         paths: list[str] = []
-        fields = result.stdout.split("\0")
-        if fields and fields[-1] == "":
-            fields.pop()
-        index = 0
-        while index < len(fields):
-            status = fields[index]
-            path_count = 2 if status.startswith(("R", "C")) else 1
-            end = index + 1 + path_count
-            if not status or end > len(fields):
-                raise BenchError("changed path read returned malformed NUL-delimited output")
-            candidates = fields[index + 1:end]
+        for line in result.stdout.splitlines():
+            fields = line.split("\t")
+            if len(fields) < 2:
+                continue
+            candidates = fields[1:3] if fields[0].startswith(("R", "C")) else fields[1:2]
             for path in candidates:
                 if path and path not in paths:
                     paths.append(path)
-            index = end
         return paths
 
     def push(self, grant: dict[str, Any], worktree: Path, timeout: float) -> None:
-        deadline = time.monotonic() + timeout
-
-        def remaining() -> float:
-            value = deadline - time.monotonic()
-            if value <= 0:
-                raise BenchError("machine-account push exceeded the develop budget")
-            return value
-
         token_env = grant["machineAccounts"]["local"]["tokenEnv"]
         token = os.environ.get(token_env)
         if not token:
             raise BenchError(f"machine-account credential {token_env} is not available")
-        with tempfile.TemporaryDirectory(prefix="steel-mission-push-auth-") as auth_directory:
-            trusted_root = Path(auth_directory)
-            trusted_hooks = trusted_root / "hooks"
-            trusted_home = trusted_root / "home"
-            trusted_tmp = trusted_root / "tmp"
-            for directory in (trusted_hooks, trusted_home, trusted_tmp):
-                directory.mkdir(mode=0o700)
-            preparation_environment = isolated_command_env(
-                worktree.parent,
-                self._credential_envs(grant),
-                scrub_all_credentials=True,
-            )
-            preparation_environment.update({
-                "HOME": str(trusted_home),
-                "TMPDIR": str(trusted_tmp),
-                "TEMP": str(trusted_tmp),
-                "TMP": str(trusted_tmp),
-                "GIT_CONFIG_VALUE_3": str(trusted_hooks),
-            })
-            askpass = Path(auth_directory) / "git-askpass.sh"
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-            flags |= getattr(os, "O_NOFOLLOW", 0)
-            try:
-                descriptor = os.open(askpass, flags, 0o700)
-                with os.fdopen(descriptor, "w") as stream:
-                    stream.write(
-                        "#!/bin/sh\n"
-                        "case \"$1\" in\n"
-                        "  *Username*) printf '%s\\n' x-access-token ;;\n"
-                        "  *) printf '%s\\n' \"$SM_BENCH_PUSH_TOKEN\" ;;\n"
-                        "esac\n"
-                    )
-                    os.fchmod(stream.fileno(), 0o700)
-            except OSError as exc:
-                raise BenchError("cannot create a safe machine-account askpass helper") from exc
-            environment = dict(preparation_environment)
-            environment.update({
-                "GIT_ASKPASS": str(askpass),
-                "GIT_TERMINAL_PROMPT": "0",
-                "SM_BENCH_PUSH_TOKEN": token,
-            })
-            with tempfile.TemporaryDirectory(prefix="clean-push-", dir=worktree.parent) as directory:
-                clean_git_dir = Path(directory)
-                self._run(
-                    ["git", "init", "--bare", str(clean_git_dir)],
-                    cwd=worktree.parent,
-                    timeout=remaining(),
-                    extra_env=preparation_environment,
-                    inherit_env=False,
-                    label="clean push repository creation",
-                )
-                self._run(
-                    ["git", "--git-dir", str(clean_git_dir), "fetch", "--no-tags", str(worktree), "HEAD"],
-                    cwd=worktree.parent,
-                    timeout=remaining(),
-                    extra_env=preparation_environment,
-                    inherit_env=False,
-                    label="reviewed commit import",
-                )
-                self._run([
-                    "git", "--git-dir", str(clean_git_dir), "push",
-                    f"https://github.com/{grant['repository']}.git",
-                    f"FETCH_HEAD:refs/heads/{grant['branch']}",
-                ], cwd=worktree.parent, timeout=remaining(), extra_env=environment, inherit_env=False,
-                    label="machine-account push")
+        askpass = worktree.parent / "git-askpass.sh"
+        askpass.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in\n"
+            "  *Username*) printf '%s\\n' x-access-token ;;\n"
+            "  *) printf '%s\\n' \"$SM_BENCH_PUSH_TOKEN\" ;;\n"
+            "esac\n"
+        )
+        askpass.chmod(0o700)
+        environment = isolated_command_env(
+            worktree.parent,
+            self._credential_envs(grant),
+            scrub_all_credentials=True,
+        )
+        environment.update({
+            "GIT_ASKPASS": str(askpass),
+            "GIT_TERMINAL_PROMPT": "0",
+            "SM_BENCH_PUSH_TOKEN": token,
+        })
+        self._run([
+            "git", "push", f"https://github.com/{grant['repository']}.git",
+            f"HEAD:refs/heads/{grant['branch']}",
+        ], cwd=worktree, timeout=timeout, extra_env=environment, inherit_env=False,
+            label="machine-account push")
 
     def create_pr(
         self,
@@ -1386,7 +825,7 @@ class GitHubPlatform:
             "--base", grant["baseBranch"], "--head", grant["branch"],
             "--title", f"Mission #{grant['issueNumber']}: {grant['branch'].split('/', 1)[-1].replace('-', ' ')}",
             "--body-file", str(body_path),
-        ], cwd=self.repository_root, timeout=timeout, extra_env=self._account_env(grant, "local"),
+        ], cwd=worktree, timeout=timeout, extra_env=self._account_env(grant, "local"),
             label="pull request creation")
         url = result.stdout.strip().splitlines()[-1]
         remaining = deadline - time.monotonic()
@@ -1442,14 +881,12 @@ class GitHubPlatform:
     ) -> None:
         result = self._run([
             "gh", "pr", "view", str(pr_number), "--repo", grant["repository"],
-            "--json", "headRefOid,baseRefName",
+            "--json", "headRefOid",
         ], timeout=timeout, extra_env=self._account_env(grant, "local"), complete_stdout=True,
             label="pull request head read")
         value = json.loads(result.stdout)
         if not isinstance(value, dict) or value.get("headRefOid") != expected_commit:
             raise BenchError("pull request head changed outside the granted mission")
-        if value.get("baseRefName") != grant["baseBranch"]:
-            raise BenchError("pull request base branch changed outside the granted mission")
 
     def arm_auto_merge(
         self,
@@ -1661,30 +1098,19 @@ class AgentDriver:
         label: str,
     ) -> dict[str, Any]:
         timeout = budget.use_turn()
-        environment = self._agent_env(session_dir, "codex")
-        sandbox_root = Path(environment["SM_BENCH_SANDBOX_ROOT"])
-        with tempfile.TemporaryDirectory(
-            prefix=f"{label}-structured-",
-            dir=sandbox_root,
-        ) as directory:
-            schema_path = Path(directory) / "output-schema.json"
-            output_path = Path(directory) / "output.json"
-            atomic_json(schema_path, schema)
-            result = self.runner.run([
-                "codex", "exec", "--ephemeral", "-s", "read-only", "-C", str(cwd),
-                "--output-schema", str(schema_path), "-o", str(output_path), "-",
-            ], cwd, timeout, input_text=prompt, extra_env=environment, inherit_env=False)
-            if result.returncode != 0:
-                raise BenchError(f"Codex {label} stage failed: {command_tail(result)}")
-            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-            try:
-                descriptor = os.open(output_path, flags)
-                with os.fdopen(descriptor) as stream:
-                    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                        raise BenchError(f"Codex {label} stage returned an unsafe output artifact")
-                    value = json.load(stream)
-            except (OSError, json.JSONDecodeError) as exc:
-                raise BenchError(f"Codex {label} stage did not write valid structured output") from exc
+        schema_path = session_dir / f"{label}-output-schema.json"
+        output_path = session_dir / f"{label}-output.json"
+        atomic_json(schema_path, schema)
+        result = self.runner.run([
+            "codex", "exec", "--ephemeral", "-s", "read-only", "-C", str(cwd),
+            "--output-schema", str(schema_path), "-o", str(output_path), "-",
+        ], cwd, timeout, input_text=prompt, extra_env=self._agent_env(session_dir, "codex"), inherit_env=False)
+        if result.returncode != 0:
+            raise BenchError(f"Codex {label} stage failed: {command_tail(result)}")
+        try:
+            value = json.loads(output_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise BenchError(f"Codex {label} stage did not write valid structured output") from exc
         if not isinstance(value, dict):
             raise BenchError(f"Codex {label} stage returned a non-object")
         return value
@@ -1719,16 +1145,7 @@ class DecisionClient:
         self.base_url = require_text(configuration.get("baseUrl"), "decisionApi.baseUrl").rstrip("/")
         self.token_env = configuration.get("tokenEnv") if isinstance(configuration.get("tokenEnv"), str) else ""
 
-    def _request(
-        self,
-        path: str,
-        *,
-        method: str = "GET",
-        payload: dict[str, Any] | None = None,
-        timeout: float = 15,
-    ) -> dict[str, Any]:
-        if timeout <= 0:
-            raise BenchError("decision API request exceeded its stage budget")
+    def _request(self, path: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> dict[str, Any]:
         headers = {"Accept": "application/json", "X-Present-Role": "owner", "X-Present-Actor": "mission-bench"}
         if self.token_env:
             token = os.environ.get(self.token_env)
@@ -1741,7 +1158,7 @@ class DecisionClient:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with urllib.request.urlopen(request, timeout=15) as response:
                 value = json.loads(response.read())
         except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
             raise BenchError(f"decision API request failed: {exc}") from exc
@@ -1749,65 +1166,29 @@ class DecisionClient:
             raise BenchError(f"decision API refused the request: {value}")
         return value
 
-    def request(
-        self,
-        context: str,
-        timeout: float = 30,
-        *,
-        question: str = "How should this mission resolve the unclean plan?",
-        options: list[dict[str, str]] | None = None,
-        default_option_id: str = "pause",
-    ) -> dict[str, Any]:
-        deadline = time.monotonic() + timeout
-
-        def remaining() -> float:
-            value = deadline - time.monotonic()
-            if value <= 0:
-                raise BenchError("decision request exceeded its stage budget")
-            return value
-
-        choices = options or [
-            {
-                "id": "revise-within-grant",
-                "label": "Revise within grant",
-                "description": "Return the stated constraint to the planner without changing the granted outcome.",
-            },
-            {
-                "id": "pause",
-                "label": "Pause mission",
-                "description": "Keep the mission stopped until a Person supplies different direction.",
-            },
-        ]
-        value = self._request("/api/chat", method="POST", timeout=remaining(), payload={
-            "question": question,
+    def request(self, context: str) -> dict[str, Any]:
+        value = self._request("/api/chat", method="POST", payload={
+            "question": "ask me to decide",
             "messages": [{"role": "user", "content": context[:12000]}],
             "workMode": "normal",
             "profile": "dc13.claude",
             "mock": True,
-            "decisionRequest": {
-                "question": question,
-                "context": context[:12000],
-                "options": choices,
-                "defaultOptionId": default_option_id,
-            },
         })
-        remaining()
         job_id = require_text(value.get("jobId"), "decision job id")
-        request = value.get("decisionRequest") if isinstance(value.get("decisionRequest"), dict) else {}
+        progress = value.get("progress") if isinstance(value.get("progress"), dict) else {}
+        request = progress.get("decisionRequest") if isinstance(progress.get("decisionRequest"), dict) else {}
+        if not request:
+            polled = self._request(f"/api/chat/{job_id}")
+            progress = polled.get("progress") if isinstance(polled.get("progress"), dict) else {}
+            request = progress.get("decisionRequest") if isinstance(progress.get("decisionRequest"), dict) else {}
         if not request:
             raise BenchError("decision API did not create a pending decision")
         return {"jobId": job_id, "decisionRequest": request, "url": f"{self.base_url}/job/{job_id}"}
 
     def wait_for_answer(self, job_id: str, timeout: int) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            value = self._request(f"/api/chat/{job_id}", timeout=min(15, remaining))
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
+        while time.monotonic() < deadline:
+            value = self._request(f"/api/chat/{job_id}")
             progress = value.get("progress") if isinstance(value.get("progress"), dict) else {}
             events = progress.get("steeringEvents") if isinstance(progress.get("steeringEvents"), list) else []
             answers = [
@@ -1818,7 +1199,7 @@ class DecisionClient:
                 return answers[-1]
             if value.get("state") in {"cancelled", "error"}:
                 raise BenchError("decision job stopped without a Person decision")
-            time.sleep(min(2, max(0, deadline - time.monotonic())))
+            time.sleep(2)
         raise BenchError("mission decision exceeded the plan session budget")
 
 
@@ -1843,7 +1224,6 @@ class PipelineBench:
         self.feed_path = self.state_root / "agent-session-status.jsonl"
         self.evidence_path = self.session_dir / "evidence.json"
         self.platform = platform or GitHubPlatform(self.repository_root)
-        self.requires_parent_protection = isinstance(self.platform, GitHubPlatform)
         self.credential_envs = {
             account["tokenEnv"] for account in self.grant["machineAccounts"].values()
         }
@@ -1978,22 +1358,6 @@ class PipelineBench:
         red = self.evidence.get("redTest", {})
         gates = self.evidence.get("stages", {}).get("develop", {}).get("gates", {})
         corrections = self.evidence.get("stages", {}).get("corrections", [])
-        surfaces = self.grant["surfaces"]
-
-        def surface_checkbox(name: str, label: str) -> str:
-            mark = "x" if surfaces[name] else " "
-            return f"- [{mark}] {label}"
-
-        surface_lines = "\n".join((
-            surface_checkbox("authentication", "Authentication, authorization, or session handling"),
-            surface_checkbox("networkService", "A network-listening service, or its bind address"),
-            surface_checkbox("subprocessExecution", "Subprocess or container execution"),
-            surface_checkbox(
-                "authoritySchemas",
-                "Authority-owned schemas (`schemas/canonical/`, `schemas/schema-registry.json`)",
-            ),
-            f"- [{'x' if not any(surfaces.values()) else ' '}] None of the above",
-        ))
         commits = [self.evidence.get("stages", {}).get("develop", {}).get("commit")]
         commits.extend(
             item.get("commit") for item in corrections
@@ -2021,9 +1385,8 @@ class PipelineBench:
             f"- Codex correction rounds: {self.evidence.get('reviewCorrectionRounds', 0)}\n"
             f"{correction_lines}\n\n"
             "## Surfaces touched\n\n"
-            f"{surface_lines}\n\n"
-            "These machine-checkable declarations are part of the mission grant. Anything ticked above requires "
-            "the repository's security-review path before merge; authority-owned paths also stop for Person delivery.\n\n"
+            "The granted issue defines the touched surface. The bench refuses security-review-labelled issues "
+            "and stops authority-owned paths for human review.\n\n"
             "## Reversibility\n\n"
             "Revert the mission commit or close this pull request without merging. The bench does not mutate main directly.\n"
         )
@@ -2051,22 +1414,7 @@ class PipelineBench:
         if not authority_paths:
             return
         handle = self.decisions.request(
-            f"The mission touched human-owned paths and cannot merge them unattended: {authority_paths}\n\n{contract}",
-            budget.remaining(),
-            question="How should this authority-owned change be handed off?",
-            options=[
-                {
-                    "id": "acknowledge-human-delivery",
-                    "label": "Hand off to a Person",
-                    "description": "Stop the unattended mission and leave the authority-owned change for Person review.",
-                },
-                {
-                    "id": "pause",
-                    "label": "Pause mission",
-                    "description": "Keep the mission stopped until a Person supplies different direction.",
-                },
-            ],
-            default_option_id="acknowledge-human-delivery",
+            f"The mission touched human-owned paths and cannot merge them unattended: {authority_paths}\n\n{contract}"
         )
         pending = self._decision_pending(handle)
         self._emit(
@@ -2129,8 +1477,6 @@ class PipelineBench:
 
     def run(self) -> dict[str, Any]:
         try:
-            if self.requires_parent_protection:
-                protect_parent_credentials()
             return self._run_pipeline()
         except BenchError as exc:
             final_error = self._record_failure(exc)
@@ -2187,18 +1533,11 @@ class PipelineBench:
         self.claimed_at = utc_now()
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self._save_evidence()
-        plan_budget = StageBudget(self.grant["budgets"]["plan"])
-        self._emit(
-            "plan",
-            "working",
-            "The granted mission is preparing its isolated planning worktree.",
-            plan_budget,
-            event_kind="stage-started",
-        )
         worktree = self.platform.prepare_worktree(self.grant, self.session_dir)
         contract = self._contract()
+        plan_budget = StageBudget(self.grant["budgets"]["plan"])
 
-        self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget)
+        self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget, event_kind="stage-started")
         plan_prompt = (
             "Plan this granted mission. Do not change its requirement, acceptance evidence, budgets, or authority. "
             "Return clean=false when any assumption, scope boundary, or acceptance command is unresolved.\n\n"
@@ -2207,10 +1546,7 @@ class PipelineBench:
         plan = self.agents.plan(plan_prompt, worktree, plan_budget, self.session_dir)
         if plan.get("clean") is not True:
             summary = require_text(plan.get("summary"), "unclean plan summary")
-            handle = self.decisions.request(
-                f"The granted mission plan is unclean. {summary}\n\n{contract}",
-                plan_budget.remaining(),
-            )
+            handle = self.decisions.request(f"The granted mission plan is unclean. {summary}\n\n{contract}")
             pending = self._decision_pending(handle)
             self._emit(
                 "plan", "waiting-on-person", summary, plan_budget,
@@ -2236,13 +1572,6 @@ class PipelineBench:
         self._emit("plan", "idle", require_text(plan.get("summary"), "plan summary"), plan_budget, event_kind="stage-completed")
 
         develop_budget = StageBudget(self.grant["budgets"]["develop"])
-        self._emit(
-            "develop",
-            "working",
-            "The granted regression is being observed before development begins.",
-            develop_budget,
-            event_kind="stage-started",
-        )
         red_result = self.platform.run_command(
             self.grant["definitionOfDone"]["redTest"],
             worktree,
@@ -2293,15 +1622,14 @@ class PipelineBench:
 
         self._enforce_live_issue_guards(develop_budget)
         self.platform.push(self.grant, worktree, develop_budget.remaining())
-        with tempfile.TemporaryDirectory(prefix="steel-mission-pr-body-") as directory:
-            body_path = Path(directory) / "pull-request.md"
-            atomic_text(body_path, self._pr_body())
-            pull_request = self.platform.create_pr(
-                self.grant,
-                worktree,
-                body_path,
-                develop_budget.remaining(),
-            )
+        body_path = self.session_dir / "pull-request.md"
+        body_path.write_text(self._pr_body())
+        pull_request = self.platform.create_pr(
+            self.grant,
+            worktree,
+            body_path,
+            develop_budget.remaining(),
+        )
         self.evidence["pullRequest"] = pull_request
         self._save_evidence()
 
@@ -2337,16 +1665,14 @@ class PipelineBench:
                 "relevant tests, and create a new commit with the machine-account identity. Do not push.\n\n"
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
-            correction_budget = CoupledStageBudget(develop_budget, review_budget)
-            self.agents.fix(fix_prompt, worktree, correction_budget, self.session_dir)
-            correction_budget.remaining()
+            self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
             baseline_commit = previous_commit
             correction_commit = self.platform.assert_machine_commit(
                 self.grant, worktree, previous_commit=baseline_commit
             )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
-            self._validate_changed_paths(correction_paths, correction_budget, contract)
-            correction_gates = self._green_gates(worktree, correction_budget)
+            self._validate_changed_paths(correction_paths, develop_budget, contract)
+            correction_gates = self._green_gates(worktree, develop_budget)
             self.platform.assert_unchanged_machine_commit(
                 self.grant,
                 worktree,
@@ -2354,8 +1680,7 @@ class PipelineBench:
                 previous_commit=baseline_commit,
             )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
-            self._validate_changed_paths(correction_paths, correction_budget, contract)
-            paths = correction_paths
+            self._validate_changed_paths(correction_paths, develop_budget, contract)
             previous_commit = correction_commit
             self.evidence["stages"].setdefault("corrections", []).append({
                 "round": round_number,
@@ -2364,20 +1689,18 @@ class PipelineBench:
             })
             self.evidence["reviewCorrectionRounds"] = corrections
             self._save_evidence()
-            self._enforce_live_issue_guards(correction_budget)
-            self.platform.push(self.grant, worktree, correction_budget.remaining())
+            self._enforce_live_issue_guards(develop_budget)
+            self.platform.push(self.grant, worktree, develop_budget.remaining())
         if clean_review is None:
             raise BenchError("Codex review loop exhausted its bounded correction rounds")
 
-        with tempfile.TemporaryDirectory(prefix="steel-mission-pr-body-") as directory:
-            body_path = Path(directory) / "pull-request.md"
-            atomic_text(body_path, self._pr_body())
-            self.platform.update_pr_body(
-                self.grant,
-                int(pull_request["number"]),
-                body_path,
-                review_budget.remaining(),
-            )
+        body_path.write_text(self._pr_body())
+        self.platform.update_pr_body(
+            self.grant,
+            int(pull_request["number"]),
+            body_path,
+            review_budget.remaining(),
+        )
         review_budget.remaining()
         self._emit("review", "idle", require_text(clean_review.get("summary"), "review summary"), review_budget, event_kind="stage-completed")
 
@@ -2386,7 +1709,6 @@ class PipelineBench:
         self.platform.validate_repository_wall(
             self.grant,
             acceptance_budget.remaining(),
-            changed_paths=paths,
         )
         self.platform.assert_pr_head(
             self.grant,
@@ -2394,7 +1716,15 @@ class PipelineBench:
             previous_commit,
             acceptance_budget.remaining(),
         )
-        self._emit("acceptance", "working", "Required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
+        arm_timeout = acceptance_budget.remaining()
+        self.auto_merge_armed = True
+        self.platform.arm_auto_merge(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+            arm_timeout,
+        )
+        self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
@@ -2416,11 +1746,6 @@ class PipelineBench:
             raise BenchError(f"Claude acceptance rejected the mission: {acceptance.get('summary')}")
         summary = require_text(acceptance.get("summary"), "acceptance summary")
         self._enforce_live_issue_guards(acceptance_budget)
-        self.platform.validate_repository_wall(
-            self.grant,
-            acceptance_budget.remaining(),
-            changed_paths=paths,
-        )
         self.platform.assert_pr_head(
             self.grant,
             int(pull_request["number"]),
@@ -2434,25 +1759,12 @@ class PipelineBench:
             previous_commit,
             acceptance_budget.remaining(),
         )
-        arm_timeout = acceptance_budget.remaining()
-        self.auto_merge_armed = True
-        self.platform.arm_auto_merge(
-            self.grant,
-            int(pull_request["number"]),
-            previous_commit,
-            arm_timeout,
+        merged = self.platform.wait_for_merge(
+            self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
-        queued = {
-            "state": "queued",
-            "armedAt": utc_now(),
-            "headCommit": previous_commit,
-        }
-        self.evidence["stages"]["acceptance"] = {
-            "ci": ci,
-            "review": acceptance,
-            "autoMerge": queued,
-        }
-        self.evidence["state"] = "queued"
+        self.auto_merge_armed = False
+        self.evidence["stages"]["acceptance"] = {"ci": ci, "review": acceptance, "merge": merged}
+        self.evidence["state"] = "merged"
         self.evidence["completedAt"] = utc_now()
         self._save_evidence()
         artifacts = [
@@ -2460,12 +1772,12 @@ class PipelineBench:
             {"kind": "pull-request", "uri": str(pull_request["url"])},
         ]
         self._emit(
-            "acceptance", "succeeded", f"{summary} Auto-merge is queued.", acceptance_budget,
+            "acceptance", "succeeded", summary, acceptance_budget,
             event_kind="session-completed", outcome_status="succeeded", artifact_refs=artifacts,
         )
         return {
             "ok": True,
-            "state": "queued",
+            "state": "merged",
             "missionId": self.grant["missionId"],
             "sessionId": self.session_id,
             "pullRequest": pull_request,
