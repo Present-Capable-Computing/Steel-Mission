@@ -46,6 +46,7 @@ export interface StartChatInput {
   question: string;
   messages: ChatMessage[];
   workMode: WorkMode;
+  profile?: string;
 }
 
 async function responsePayload(response: Response, fallback: string): Promise<ChatJob> {

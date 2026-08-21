@@ -293,6 +293,42 @@ def test_application_chat_surface_consumes_the_existing_pipeline():
     assert 'action="/ask"' in plain
 
 
+def test_work_modes_render_distinct_surfaces_and_a_live_model_picker():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+    parser = ContractPageParser()
+    parser.feed(html)
+
+    assert 'data-work-surface="normal-chat"' in html
+    assert 'data-work-surface="domain-capabilities"' in html
+    assert 'id="deliverySetup"' in html
+    assert "/api/runtime-profiles/resolve" in html
+    assert "disabled" not in parser.nodes["coordinatorModel"]["attrs"]
+
+
+def test_runtime_profile_resolution_endpoint_uses_the_worker_registry(monkeypatch):
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["Handler"].do_GET.__globals__
+    calls = []
+
+    def resolve(args, payload=None, timeout=15):
+        calls.append((args, payload, timeout))
+        return 200, {
+            "ok": True,
+            "payload": {
+                "runtimeProfile": {"id": "dc13.local", "modelProvider": "glimmer"},
+                "modelPolicy": {"provider": "glimmer", "selectedModel": "qwen2.5-coder:14b"},
+            },
+        }
+
+    monkeypatch.setitem(globals_, "worker_json_command", resolve)
+    status, payload = route_response(chat, "/api/runtime-profiles/resolve?profile=dc13.local")
+
+    assert status == 200
+    assert payload["payload"]["modelPolicy"]["provider"] == "glimmer"
+    assert calls == [(["runtime-profile-resolve", "dc13.local"], None, 15)]
+
+
 def test_health_status_strip_reflects_a_started_job(monkeypatch):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["start_job"].__globals__

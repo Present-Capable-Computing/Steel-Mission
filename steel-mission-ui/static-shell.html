@@ -10,8 +10,8 @@
     <header class="toolbar">
       <div>
         <label id="coordinatorModelLabel" for="coordinatorModel">Coordinator model</label>
-        <select id="coordinatorModel" aria-describedby="coordinatorModelDescription" disabled>
-          <option>Delivery Coordinator</option>
+        <select id="coordinatorModel" aria-describedby="coordinatorModelDescription">
+          <option>Loading registered models…</option>
         </select>
         <p id="coordinatorModelDescription">Selects the model configuration that executes the Delivery Coordinator.</p>
       </div>
@@ -26,16 +26,6 @@
       </div>
       <button id="openSettings" class="settings-trigger" type="button" aria-controls="settingsPanel" aria-expanded="false">Settings</button>
     </header>
-    <p id="domainCapabilityDefinition" class="definition" data-vocabulary-term="domain-capability">
-      Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
-    </p>
-    <section id="capabilityWorkspace" class="capability-workspace" aria-labelledby="capabilityWorkspaceTitle">
-      <div>
-        <p class="eyebrow">Capability workspace</p>
-        <h2 id="capabilityWorkspaceTitle">Your Domain Capabilities</h2>
-      </div>
-      <p id="capabilityEmptyState" class="capability-empty">No Domain Capabilities are assigned yet. Ask an organization owner or admin to assign one in Settings → Users.</p>
-    </section>
     <section id="settingsPanel" class="settings-panel" aria-label="Settings" hidden>
       <nav class="settings-nav" aria-label="Settings sections">
         <button id="settingsNav-organizations" type="button" data-settings-target="organizations" aria-controls="settingsSection-organizations" aria-current="page"><strong>Organizations</strong><span>Identity, knowledge bindings, and capability sets</span></button>
@@ -58,20 +48,39 @@
         <section id="settingsSection-audit" class="settings-section" aria-labelledby="settingsNav-audit" hidden><p class="eyebrow">Settings</p><h2>Audit</h2><p>Configuration mutations</p></section>
       </div>
     </section>
-    <section class="chat-panel" aria-labelledby="chatTitle">
-      <header>
-        <p class="eyebrow">Delivery Coordinator</p>
-        <h1 id="chatTitle">Ask Steel Mission</h1>
-        <p>Ask a question, add context while the answer is running, or respond when the coordinator needs a decision.</p>
-      </header>
-      <div id="chatConversation" class="chat-conversation" aria-live="polite">
-        <p class="chat-empty">Loading the live conversation…</p>
-      </div>
-      <form id="chatComposer" class="chat-composer">
-        <label for="chatQuestion">Message Delivery Coordinator</label>
-        <textarea id="chatQuestion" placeholder="Where are we, what is unverified, and what needs my attention?" required></textarea>
-        <button id="chatSend" type="submit">Ask Delivery Coordinator</button>
-      </form>
+    <section class="work-surface" data-work-surface="normal-chat">
+      <section class="chat-panel" aria-labelledby="chatTitle">
+        <header>
+          <p class="eyebrow">Delivery Coordinator</p>
+          <h1 id="chatTitle">Ask Steel Mission</h1>
+          <p>Ask a question, add context while the answer is running, or respond when the coordinator needs a decision.</p>
+        </header>
+        <div id="chatConversation" class="chat-conversation" aria-live="polite">
+          <p class="chat-empty">Loading the live conversation…</p>
+        </div>
+        <form id="chatComposer" class="chat-composer">
+          <label for="chatQuestion">Message Delivery Coordinator</label>
+          <textarea id="chatQuestion" placeholder="Where are we, what is unverified, and what needs my attention?" required></textarea>
+          <button id="chatSend" type="submit">Ask Delivery Coordinator</button>
+        </form>
+      </section>
+    </section>
+    <section class="work-surface" data-work-surface="domain-capabilities" hidden>
+      <p id="domainCapabilityDefinition" class="definition" data-vocabulary-term="domain-capability">
+        Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
+      </p>
+      <section id="capabilityWorkspace" class="capability-workspace" aria-labelledby="capabilityWorkspaceTitle">
+        <div>
+          <p class="eyebrow">Capability workspace</p>
+          <h2 id="capabilityWorkspaceTitle">Your Domain Capabilities</h2>
+        </div>
+        <p id="capabilityEmptyState" class="capability-empty">No Domain Capabilities are assigned yet. Ask an organization owner or admin to assign one in Settings → Users.</p>
+      </section>
+      <section id="deliverySetup" class="delivery-setup" aria-labelledby="deliverySetupTitle">
+        <p class="eyebrow">Delivery setup</p>
+        <h2 id="deliverySetupTitle">Prepare a mission</h2>
+        <p>Loading delivery setup…</p>
+      </section>
     </section>
   </section>
 </main>

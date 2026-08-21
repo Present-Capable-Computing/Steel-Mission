@@ -30,6 +30,10 @@ import {
   type ConsoleStatus,
 } from "./status";
 import {ChatPanel} from "./chat-panel";
+import {
+  loadCoordinatorModels,
+  type CoordinatorModel,
+} from "./coordinator-models";
 
 
 function browserCookie(name: string): string {
@@ -63,6 +67,25 @@ function App() {
   const [selectedAssignmentCapabilities, setSelectedAssignmentCapabilities] = useState<string[]>([]);
   const [assignmentStatus, setAssignmentStatus] = useState("");
   const [consoleStatus, setConsoleStatus] = useState<ConsoleStatus | null>(null);
+  const [coordinatorModels, setCoordinatorModels] = useState<CoordinatorModel[]>([]);
+  const [coordinatorProfile, setCoordinatorProfile] = useState("");
+  const [coordinatorModelError, setCoordinatorModelError] = useState("");
+
+  useEffect(() => {
+    let current = true;
+    loadCoordinatorModels(apiRequest)
+      .then((loaded) => {
+        if (!current) return;
+        setCoordinatorModels(loaded.models);
+        setCoordinatorProfile(loaded.selectedProfileId);
+        setCoordinatorModelError(loaded.models.length ? "" : "No coordinator model is currently routable.");
+      })
+      .catch((error: unknown) => {
+        if (!current) return;
+        setCoordinatorModelError(error instanceof Error ? error.message : "Coordinator models are unavailable.");
+      });
+    return () => { current = false; };
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -211,13 +234,22 @@ function App() {
 
       <section class="workspace">
         <header class="toolbar">
-          <div>
+          {workMode === "normal" && <div>
             <label id="coordinatorModelLabel" for="coordinatorModel">Coordinator model</label>
-            <select id="coordinatorModel" aria-describedby="coordinatorModelDescription" disabled>
-              <option>Delivery Coordinator</option>
+            <select
+              id="coordinatorModel"
+              aria-describedby="coordinatorModelDescription"
+              value={coordinatorProfile}
+              onChange={(event) => setCoordinatorProfile(event.currentTarget.value)}
+            >
+              {coordinatorModels.length === 0 && <option value="">Loading registered models…</option>}
+              {coordinatorModels.map((model) => (
+                <option key={model.profileId} value={model.profileId}>{model.label}</option>
+              ))}
             </select>
             <p id="coordinatorModelDescription">Selects the model configuration that executes the Delivery Coordinator.</p>
-          </div>
+            {coordinatorModelError && <p role="status">{coordinatorModelError}</p>}
+          </div>}
 
           <div class="mode-control">
             <span id="workModeLabel">Work mode</span>
@@ -255,39 +287,6 @@ function App() {
             {settingsOpen ? "Close settings" : "Settings"}
           </button>
         </header>
-
-        <p
-          id="domainCapabilityDefinition"
-          class="definition"
-          data-vocabulary-term="domain-capability"
-        >
-          Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
-        </p>
-
-        <section id="capabilityWorkspace" class="capability-workspace" aria-labelledby="capabilityWorkspaceTitle">
-          <div>
-            <p class="eyebrow">Capability workspace</p>
-            <h2 id="capabilityWorkspaceTitle">Your Domain Capabilities</h2>
-            {capabilityState.view && (
-              <p class="workspace-identity">{capabilityState.view.actorId} · {capabilityState.view.accessLevel}</p>
-            )}
-          </div>
-          {capabilityState.status === "loading" && <p>Loading assigned capabilities…</p>}
-          {capabilityState.status === "error" && <p role="alert">{capabilityState.error}</p>}
-          {capabilityState.status === "ready" && capabilityState.view?.capabilities.length === 0 && (
-            <p id="capabilityEmptyState" class="capability-empty">{CAPABILITY_EMPTY_STATE}</p>
-          )}
-          {capabilityState.status === "ready" && Boolean(capabilityState.view?.capabilities.length) && (
-            <div class="capability-grid">
-              {capabilityState.view?.capabilities.map((capability) => (
-                <article key={capability.capabilityKey} class="capability-card">
-                  <strong>{capability.label}</strong>
-                  <p>Assigned to your workspace</p>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
 
         {settingsOpen && (
           <section id="settingsPanel" class="settings-panel" aria-label="Settings">
@@ -390,7 +389,53 @@ function App() {
           </section>
         )}
 
-        {!settingsOpen && <ChatPanel request={apiRequest} workMode={workMode} />}
+        {!settingsOpen && workMode === "normal" && (
+          <section class="work-surface" data-work-surface="normal-chat">
+            <ChatPanel request={apiRequest} workMode={workMode} profile={coordinatorProfile} />
+          </section>
+        )}
+        {!settingsOpen && workMode === "domain-capabilities" && (
+          <section class="work-surface" data-work-surface="domain-capabilities">
+            <p
+              id="domainCapabilityDefinition"
+              class="definition"
+              data-vocabulary-term="domain-capability"
+            >
+              Domain Capability: An assignable organizational role and workflow lens backed by governed knowledge.
+            </p>
+            <section id="capabilityWorkspace" class="capability-workspace" aria-labelledby="capabilityWorkspaceTitle">
+              <div>
+                <p class="eyebrow">Capability workspace</p>
+                <h2 id="capabilityWorkspaceTitle">Your Domain Capabilities</h2>
+                {capabilityState.view && (
+                  <p class="workspace-identity">{capabilityState.view.actorId} · {capabilityState.view.accessLevel}</p>
+                )}
+              </div>
+              {capabilityState.status === "loading" && <p>Loading assigned capabilities…</p>}
+              {capabilityState.status === "error" && <p role="alert">{capabilityState.error}</p>}
+              {capabilityState.status === "ready" && capabilityState.view?.capabilities.length === 0 && (
+                <p id="capabilityEmptyState" class="capability-empty">{CAPABILITY_EMPTY_STATE}</p>
+              )}
+              {capabilityState.status === "ready" && Boolean(capabilityState.view?.capabilities.length) && (
+                <div class="capability-grid">
+                  {capabilityState.view?.capabilities.map((capability) => (
+                    <article key={capability.capabilityKey} class="capability-card">
+                      <strong>{capability.label}</strong>
+                      <p>Assigned to your workspace</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section id="deliverySetup" class="delivery-setup" aria-labelledby="deliverySetupTitle">
+              <p class="eyebrow">Delivery setup</p>
+              <h2 id="deliverySetupTitle">Prepare a mission</h2>
+              {capabilityState.view
+                ? <MissionsPanel accessLevel={capabilityState.view.accessLevel} request={apiRequest} />
+                : <p>Loading delivery setup…</p>}
+            </section>
+          </section>
+        )}
       </section>
     </main>
   );
