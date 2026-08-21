@@ -5375,6 +5375,141 @@ def test_coordinator_state_snapshot_is_bounded_and_declares_omissions():
     assert "generatedAt" in snapshot and "repositoryCommits" in snapshot
 
 
+def test_coordinator_pending_decisions_come_from_live_mission_and_session_records(tmp_path):
+    cli = _load_cli_module()
+    mission_root = tmp_path / "missions"
+    escalated_dir = mission_root / "ms-aaaaaaaaaaaaaaaaaaaaaaaa"
+    escalated_dir.mkdir(parents=True)
+    escalated_path = escalated_dir / "mission.json"
+    escalated = {
+        "missionId": "ms-aaaaaaaaaaaaaaaaaaaaaaaa",
+        "taskId": "DEV-900187",
+        "state": "waiting_for_decision",
+        "objective": "Keep the redirected mission within its grant",
+        "updatedAt": "2026-08-21T15:00:00Z",
+        "decisionRequest": {
+            "id": "decision-scope-187",
+            "question": "Should mission 187 stay within the granted paths?",
+            "requestedAt": "2026-08-21T15:00:00Z",
+        },
+    }
+    escalated_path.write_text(json.dumps(escalated))
+
+    approval_dir = mission_root / "ms-bbbbbbbbbbbbbbbbbbbbbbbb"
+    approval_dir.mkdir()
+    approval_path = approval_dir / "mission.json"
+    approval = {
+        "missionId": "ms-bbbbbbbbbbbbbbbbbbbbbbbb",
+        "taskId": "DEV-900188",
+        "state": "waiting_for_approval",
+        "objective": "Publish the accepted delivery",
+        "currentNodeId": "publish-approval",
+        "updatedAt": "2026-08-21T15:01:00Z",
+        "nodes": [{
+            "nodeId": "publish-approval",
+            "title": "Publish approval",
+            "kind": "approval",
+            "capability": "delivery.approve",
+            "requiresApproval": True,
+            "state": "waiting_for_approval",
+        }],
+    }
+    approval_path.write_text(json.dumps(approval))
+
+    session = json.loads(
+        (WORKER_DIR / "schemas" / "fixtures" / "valid" / "agent-session-status-v1.working.json").read_text()
+    )
+    session["eventId"] = "ase-cccccccccccccccccccccccc"
+    session["lastEvent"] = {
+        "eventId": session["eventId"],
+        "sequence": session["sequence"],
+        "at": "2026-08-21T15:02:00Z",
+        "kind": "decision-requested",
+        "summary": "The review is blocked on the Person.",
+    }
+    session["state"] = "waiting-on-person"
+    session["stage"] = "review-loop"
+    session["pendingDecision"] = {
+        "decisionId": "decision-blocked-session",
+        "kind": "blocked",
+        "question": "Who can provide the missing acceptance account?",
+        "requestedAt": "2026-08-21T15:02:00Z",
+    }
+    feed_path = mission_root / "agent-session-status.jsonl"
+    feed_path.write_text(json.dumps(session) + "\n")
+
+    policy = {
+        "schemaVersion": 1,
+        "sourceProfile": "pending-decision-fixture",
+        "includeCollections": ["missions"],
+        "limits": {"missions": 10, "operatorAudit": 0},
+        "taskSelector": {"mode": "latest"},
+        "sources": {
+            "taskRoots": [],
+            "logRoots": [],
+            "buildJobRoots": [],
+            "verifyResultRoots": [],
+            "brokerStatePaths": [],
+            "missionRoots": [str(mission_root)],
+            "repositoryRoots": [],
+        },
+    }
+
+    snapshot = cli._coordinator_state_snapshot(policy)
+
+    assert {item["kind"] for item in snapshot["pendingDecisions"]} == {
+        "blocked-session", "escalated-mission", "mission-approval",
+    }
+    assert "Should mission 187 stay within the granted paths?" in snapshot["pendingDecisionSummary"]
+    assert "Who can provide the missing acceptance account?" in snapshot["pendingDecisionSummary"]
+    assert snapshot["pendingDecisionsOmittedFromSnapshot"] == 0
+    escalated_summary = next(item for item in snapshot["missions"] if item["missionId"] == escalated["missionId"])
+    assert escalated_summary["decisionRequest"] == escalated["decisionRequest"]
+
+    escalated_path.write_text(json.dumps({**escalated, "state": "done", "decisionRequest": None}))
+    approval_path.write_text(json.dumps({
+        **approval,
+        "state": "done",
+        "nodes": [{**approval["nodes"][0], "state": "done"}],
+    }))
+    finished = {
+        **session,
+        "eventId": "ase-dddddddddddddddddddddddd",
+        "sequence": 3,
+        "state": "succeeded",
+        "lastEvent": {
+            "eventId": "ase-dddddddddddddddddddddddd",
+            "sequence": 3,
+            "at": "2026-08-21T15:03:00Z",
+            "kind": "finished",
+            "summary": "The session finished.",
+        },
+        "outcome": {"status": "succeeded", "summary": "The session finished."},
+    }
+    finished.pop("pendingDecision")
+    feed_path.write_text(json.dumps(session) + "\n" + json.dumps(finished) + "\n")
+
+    empty = cli._coordinator_state_snapshot(policy)
+
+    assert empty["pendingDecisions"] == []
+    assert empty["pendingDecisionSummary"] == "Nothing currently needs the Person."
+
+
+def test_server_snapshot_policy_binds_the_configured_status_feed_and_attention_rule(tmp_path, monkeypatch):
+    feed_path = tmp_path / "live-status.jsonl"
+    monkeypatch.setenv("STEEL_MISSION_AGENT_SESSION_STATUS_FEED", str(feed_path))
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+
+    policy = chat["default_snapshot_policy"]()
+    resolved = chat["resolve_runtime_profile"]("dc13.claude")["snapshotPolicy"]
+    requirement = chat["build_requirement"]("What needs me?", [])
+
+    assert str(feed_path) in policy["sources"]["missionRoots"]
+    assert str(feed_path) in resolved["sources"]["missionRoots"]
+    assert "pendingDecisions" in requirement
+    assert "pendingDecisionSummary" in requirement
+
+
 def test_coordinator_snapshot_policy_attached_to_job_controls_snapshot_roots(tmp_path):
     cli = _load_cli_module()
     task_id = "DEV-900201"

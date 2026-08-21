@@ -162,10 +162,11 @@ INTEGRATION_REGISTRY_PATH = CONFIG_DIR / "integration-registry.json"
 AUTH_POLICY_PATH = CONFIG_DIR / "auth-policy.json"
 SCHEMA_REGISTRY_PATH = WORKER_DIR / "schemas" / "schema-registry.json"
 MISSION_ROOT = Path(os.environ.get("PRESENT_MISSIONS_DIR") or WORKER_DIR / "missions")
+AGENT_SESSION_STATUS_FEED_NAME = "agent-session-status.jsonl"
 AGENT_SESSION_STATUS_FEED_PATH = Path(
     os.environ.get("STEEL_MISSION_AGENT_SESSION_STATUS_FEED")
     or os.environ.get("PRESENT_AGENT_SESSION_STATUS_FEED")
-    or MISSION_ROOT / "agent-session-status.jsonl"
+    or MISSION_ROOT / AGENT_SESSION_STATUS_FEED_NAME
 )
 MUTATION_LEDGER_PATH = Path(os.environ.get("PRESENT_MUTATION_LEDGER") or MISSION_ROOT / "_mutation-ledger.jsonl")
 AUTH_SIGNING_KEY_PATH = Path(os.environ.get("PRESENT_AUTH_SIGNING_KEY_FILE") or MISSION_ROOT / "_auth-signing-key")
@@ -428,6 +429,25 @@ def authorize_mission_bindings(actor: dict[str, Any], user_ids: list[str], capab
             raise PermissionError(f"mission user {user_id} is outside the actor organization scope")
 
 
+def bind_agent_session_status_feed(snapshot_policy: dict[str, Any]) -> dict[str, Any]:
+    sources = snapshot_policy.get("sources") if isinstance(snapshot_policy.get("sources"), dict) else {}
+    mission_roots = list(sources.get("missionRoots", [])) if isinstance(sources.get("missionRoots"), list) else []
+    feed_path = AGENT_SESSION_STATUS_FEED_PATH
+    feed_is_covered = any(
+        isinstance(root, str) and (
+            Path(root) == feed_path
+            or (feed_path.name == AGENT_SESSION_STATUS_FEED_NAME and Path(root) == feed_path.parent)
+        )
+        for root in mission_roots
+    )
+    if not feed_is_covered:
+        mission_roots.append(str(feed_path))
+    return {
+        **snapshot_policy,
+        "sources": {**sources, "missionRoots": mission_roots},
+    }
+
+
 def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
     selected_profile = profile or active_runtime_profile()
     failure: dict[str, Any] = {}
@@ -442,7 +462,8 @@ def resolve_runtime_profile(profile: str | None = None) -> dict[str, Any]:
         )
         payload = json.loads(result.stdout or "{}")
         if result.returncode == 0 and isinstance(payload, dict) and isinstance(payload.get("runtimeProfile"), dict):
-            return payload
+            snapshot_policy = payload.get("snapshotPolicy") if isinstance(payload.get("snapshotPolicy"), dict) else {}
+            return {**payload, "snapshotPolicy": bind_agent_session_status_feed(snapshot_policy)}
         failure = payload if isinstance(payload, dict) else {}
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         pass
@@ -1935,7 +1956,7 @@ def default_snapshot_policy(provider: str = "claude", source_profile: str | None
         for item in general.get("documents", [])
         if isinstance(item, dict) and item.get("title") and item.get("path")
     ]
-    return {
+    return bind_agent_session_status_feed({
         "schemaVersion": 1,
         "sourceProfile": source_profile,
         "includeCollections": [
@@ -1970,7 +1991,7 @@ def default_snapshot_policy(provider: str = "claude", source_profile: str | None
             ],
             "documentPaths": general_documents,
         },
-    }
+    })
 
 
 def utc_now() -> str:
@@ -6201,7 +6222,9 @@ def build_requirement(question: str, messages: list[dict[str, str]],
         "state available to this run. Distinguish conversation-state, work-product, "
         "and canonical/execution state. Name anything material that was not checked "
         "or cannot be established. If active follow-up updates are present, say how "
-        "it changed the scope of the answer. Do not approve, adopt, certify, gate, or claim PASS."
+        "it changed the scope of the answer. When the question asks what needs the Person, "
+        "answer from pendingDecisions and repeat the worker-authored pendingDecisionSummary; "
+        "never fill gaps from conversation memory. Do not approve, adopt, certify, gate, or claim PASS."
     )
 
 

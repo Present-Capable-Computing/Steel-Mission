@@ -1873,6 +1873,8 @@ COORDINATOR_SNAPSHOT_MAX_GENERAL_DOCUMENTS = 12
 COORDINATOR_SNAPSHOT_MAX_MISSIONS = 25
 COORDINATOR_SNAPSHOT_DOCUMENT_EXCERPT_CHARS = 12000
 COORDINATOR_PROGRESS_MAX_TIMELINE = 12
+AGENT_SESSION_STATUS_SCHEMA = "canonical/agent-session-status-v1.json"
+AGENT_SESSION_STATUS_FEED_NAME = "agent-session-status.jsonl"
 # Advisory chat tasks are reported so the role can see its own footprint, but
 # they are by-product, not pipeline state, so they get a small fixed budget
 # instead of competing for the task window.
@@ -2435,7 +2437,11 @@ def _read_mission_audit(path: Path, limit: int) -> list[dict]:
     return _tail(rows, limit)
 
 
-def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = None) -> tuple[list[dict], int]:
+def _mission_summaries(
+    policy: dict,
+    limit: int,
+    task_ids: set[str] | None = None,
+) -> tuple[list[dict], int, int]:
     audit_limit = policy.get("limits", {}).get("operatorAudit", COORDINATOR_SNAPSHOT_MAX_OPERATOR_AUDIT)
     paths = _mission_record_paths(policy)
     summaries: list[dict] = []
@@ -2453,6 +2459,7 @@ def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = Non
             continue
         snapshot_summary = doc.get("snapshotPolicySummary") if isinstance(doc.get("snapshotPolicySummary"), dict) else {}
         progress = doc.get("progress") if isinstance(doc.get("progress"), dict) else {}
+        decision_request = doc.get("decisionRequest") if isinstance(doc.get("decisionRequest"), dict) else None
         nodes = [
             {
                 key: node[key] for key in (
@@ -2476,6 +2483,7 @@ def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = Non
             "jobId": doc.get("jobId"),
             "taskId": task_id,
             "state": doc.get("state"),
+            "currentNodeId": doc.get("currentNodeId"),
             "operatorRole": doc.get("operatorRole"),
             "missionKind": doc.get("missionKind"),
             "templateId": doc.get("templateId"),
@@ -2499,11 +2507,176 @@ def _mission_summaries(policy: dict, limit: int, task_ids: set[str] | None = Non
             "evidenceCount": len(evidence),
             "auditCount": doc.get("auditCount"),
             "recentAudit": _read_mission_audit(path, audit_limit),
+            "decisionRequest": decision_request,
             "source": str(path),
         }
         summaries.append({key: value for key, value in mission.items() if value not in (None, "", [], {})})
-    summaries.sort(key=lambda item: (str(item.get("updatedAt", "")), str(item.get("missionId", ""))))
-    return _tail(summaries, limit), len(paths)
+    summaries.sort(key=lambda item: (
+        item.get("state") in {"waiting_for_decision", "waiting_for_approval"},
+        str(item.get("updatedAt", "")),
+        str(item.get("missionId", "")),
+    ))
+    attention_total = 0
+    for item in summaries:
+        if item.get("state") == "waiting_for_decision":
+            attention_total += 1
+        elif item.get("state") == "waiting_for_approval":
+            waiting_nodes = [
+                node for node in item.get("nodes", [])
+                if isinstance(node, dict) and node.get("state") == "waiting_for_approval"
+            ]
+            attention_total += max(1, len(waiting_nodes))
+    return _tail(summaries, limit), len(paths), attention_total
+
+
+def _agent_session_status_feed_paths(policy: dict) -> list[Path]:
+    paths: list[Path] = []
+    for root in _policy_source_paths(policy, "missionRoots"):
+        if root.is_file() and root.name != "mission.json":
+            paths.append(root)
+        elif root.is_dir():
+            paths.append(root / AGENT_SESSION_STATUS_FEED_NAME)
+    return [path for path in _unique_paths(paths) if path.exists()]
+
+
+def _agent_session_status_records(policy: dict) -> tuple[list[dict], list[dict]]:
+    latest: dict[str, dict] = {}
+    issues: list[dict] = []
+    for path in _agent_session_status_feed_paths(policy):
+        try:
+            lines = path.read_text().splitlines()
+        except (OSError, UnicodeError) as exc:
+            issues.append({"source": str(path), "reason": f"status feed unreadable: {exc}"})
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                issues.append({
+                    "source": str(path),
+                    "line": line_number,
+                    "reason": f"invalid JSON: {exc.msg}",
+                })
+                continue
+            if not isinstance(record, dict):
+                issues.append({
+                    "source": str(path),
+                    "line": line_number,
+                    "reason": "status feed entry is not an object",
+                })
+                continue
+            errors = schema_check.validate(record, AGENT_SESSION_STATUS_SCHEMA)
+            if errors:
+                issues.append({
+                    "source": str(path),
+                    "line": line_number,
+                    "reason": "; ".join(errors),
+                })
+                continue
+            session_id = record["sessionId"]
+            current = latest.get(session_id)
+            if current is None or record["sequence"] > current["sequence"]:
+                latest[session_id] = {**record, "source": str(path)}
+    records = sorted(
+        latest.values(),
+        key=lambda item: (str(item.get("producedAt", "")), str(item.get("sessionId", ""))),
+    )
+    return records, issues
+
+
+def _mission_pending_decisions(missions: list[dict]) -> list[dict]:
+    pending: list[dict] = []
+    for mission in missions:
+        state = mission.get("state")
+        mission_id = str(mission.get("missionId") or "unknown mission")
+        subject = str(mission.get("objective") or mission_id)
+        if state == "waiting_for_decision":
+            request = mission.get("decisionRequest") if isinstance(mission.get("decisionRequest"), dict) else {}
+            pending.append({
+                "attentionId": str(request.get("id") or f"{mission_id}:decision"),
+                "kind": "escalated-mission",
+                "missionId": mission.get("missionId"),
+                "taskId": mission.get("taskId"),
+                "subject": subject,
+                "question": str(request.get("question") or f"A decision is required for {subject}."),
+                "requestedAt": request.get("requestedAt") or mission.get("updatedAt"),
+                "source": mission.get("source"),
+            })
+        if state == "waiting_for_approval":
+            waiting_nodes = [
+                node for node in mission.get("nodes", [])
+                if isinstance(node, dict) and node.get("state") == "waiting_for_approval"
+            ]
+            if not waiting_nodes:
+                waiting_nodes = [{"nodeId": mission.get("currentNodeId"), "title": "Mission approval"}]
+            for node in waiting_nodes:
+                title = str(node.get("title") or node.get("nodeId") or "Mission approval")
+                pending.append({
+                    "attentionId": f"{mission_id}:approval:{node.get('nodeId') or 'current'}",
+                    "kind": "mission-approval",
+                    "missionId": mission.get("missionId"),
+                    "taskId": mission.get("taskId"),
+                    "subject": subject,
+                    "question": f"Approval is required for {title}.",
+                    "requestedAt": node.get("waitingSince") or mission.get("updatedAt"),
+                    "source": mission.get("source"),
+                })
+    return pending
+
+
+def _session_pending_decisions(records: list[dict]) -> list[dict]:
+    pending: list[dict] = []
+    kind_names = {
+        "blocked": "blocked-session",
+        "plan-unclean": "escalated-session",
+        "approval": "session-approval",
+    }
+    for record in records:
+        request = record.get("pendingDecision")
+        if record.get("state") != "waiting-on-person" or not isinstance(request, dict):
+            continue
+        issue = record.get("issue") if isinstance(record.get("issue"), dict) else {}
+        subject = f"{issue.get('repository') or 'unknown repository'} #{issue.get('number') or '?'}"
+        pending.append({
+            "attentionId": str(request.get("decisionId") or f"{record['sessionId']}:decision"),
+            "kind": kind_names.get(str(request.get("kind")), "session-decision"),
+            "missionId": record.get("missionId"),
+            "sessionId": record.get("sessionId"),
+            "issue": issue,
+            "stage": record.get("stage"),
+            "subject": subject,
+            "question": str(request.get("question") or f"A decision is required for {subject}."),
+            "requestedAt": request.get("requestedAt") or record.get("producedAt"),
+            "url": request.get("url"),
+            "source": record.get("source"),
+        })
+    return pending
+
+
+def _pending_decision_summary(items: list[dict], omitted: int, issues: list[dict]) -> str:
+    if not items:
+        if omitted or issues:
+            reasons = []
+            if omitted:
+                reasons.append(f"{omitted} pending item(s) were outside the snapshot limit")
+            if issues:
+                reasons.append(f"{len(issues)} pending-decision source error(s) remain")
+            reason_text = " and ".join(reasons)
+            return f"No pending decision was established from the returned records; {reason_text}."
+        return "Nothing currently needs the Person."
+    descriptions = [
+        f"{item.get('subject') or item.get('attentionId')}: {item.get('question')}"
+        for item in items
+    ]
+    qualifications = []
+    if omitted:
+        qualifications.append(f"{omitted} additional pending item(s) were omitted by the snapshot limit")
+    if issues:
+        qualifications.append(f"{len(issues)} pending-decision source error(s) remain")
+    qualification = f" Limits: {'; '.join(qualifications)}." if qualifications else ""
+    return f"{len(items)} current item(s) need the Person: {'; '.join(descriptions)}{qualification}"
 
 
 def _status_counts(items: list[dict], *keys: str) -> dict[str, int]:
@@ -2725,11 +2898,30 @@ def _coordinator_state_snapshot(policy: dict) -> dict:
         general_documents, general_document_total = [], 0
     general_documents_omitted = max(0, general_document_total - len(general_documents))
     if "missions" in include:
-        missions, mission_total = _mission_summaries(
+        missions, mission_total, mission_attention_total = _mission_summaries(
             policy, limits.get("missions", COORDINATOR_SNAPSHOT_MAX_MISSIONS), selector_task_ids)
+        session_statuses, pending_decision_source_issues = _agent_session_status_records(policy)
     else:
-        missions, mission_total = [], 0
+        missions, mission_total, mission_attention_total = [], 0, 0
+        session_statuses = []
+        pending_decision_source_issues = [{
+            "source": "snapshotPolicy",
+            "reason": "missions collection is disabled, so pending-decision state was not checked",
+        }]
     missions_omitted = max(0, mission_total - len(missions))
+    mission_pending = _mission_pending_decisions(missions)
+    session_pending = _session_pending_decisions(session_statuses)
+    all_pending = sorted(
+        [*mission_pending, *session_pending],
+        key=lambda item: (str(item.get("requestedAt", "")), str(item.get("attentionId", ""))),
+    )
+    pending_limit = limits.get("missions", COORDINATOR_SNAPSHOT_MAX_MISSIONS)
+    pending_decisions = _tail(all_pending, pending_limit)
+    mission_pending_omitted = max(0, mission_attention_total - len(mission_pending))
+    pending_decisions_omitted = max(
+        0,
+        len(all_pending) + mission_pending_omitted - len(pending_decisions),
+    )
     source_exclusions = [
         {"collection": name, "reason": "disabled by snapshotPolicy"}
         for name in COORDINATOR_SNAPSHOT_COLLECTIONS if name not in include
@@ -2766,6 +2958,14 @@ def _coordinator_state_snapshot(policy: dict) -> dict:
         "generalDocumentsOmittedFromSnapshot": general_documents_omitted,
         "missions": missions,
         "missionsOmittedFromSnapshot": missions_omitted,
+        "pendingDecisions": pending_decisions,
+        "pendingDecisionsOmittedFromSnapshot": pending_decisions_omitted,
+        "pendingDecisionSummary": _pending_decision_summary(
+            pending_decisions,
+            pending_decisions_omitted,
+            pending_decision_source_issues,
+        ),
+        "pendingDecisionSourceIssues": pending_decision_source_issues,
         "brokerStateIssues": broker_state_issues,
     }
 
