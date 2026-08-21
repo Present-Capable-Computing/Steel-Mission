@@ -7,7 +7,7 @@
   "provenance": {
     "source": "control-plane"
   },
-  "state": "PLANNED",
+  "state": "ACTIVE",
   "taskIds": [],
   "milestoneId": "MS-0014",
   "title": "C1 - Chat, mission pipeline, and progress",

@@ -279,6 +279,20 @@ def test_application_statuses_are_live_instead_of_committed_literals():
     assert "/api/control-plane/readiness" in html
 
 
+def test_application_chat_surface_consumes_the_existing_pipeline():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+
+    for node_id in ("chatConversation", "chatComposer", "chatQuestion", "chatSend"):
+        assert f'id="{node_id}"' in html
+    for path in ("/api/chat", "/follow-up", "/decision"):
+        assert path in html
+
+    status, plain = route_response(chat, "/plain")
+    assert status == 200
+    assert 'action="/ask"' in plain
+
+
 def test_health_status_strip_reflects_a_started_job(monkeypatch):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["start_job"].__globals__
