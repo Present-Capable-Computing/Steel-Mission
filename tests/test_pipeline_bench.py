@@ -3,6 +3,7 @@ import runpy
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from http.server import ThreadingHTTPServer
 from urllib.request import Request, urlopen
@@ -17,6 +18,7 @@ from tooling.mission_pipeline_bench import (
     DecisionClient,
     GitHubPlatform,
     PipelineBench,
+    SubprocessRunner,
     reported_opus_major,
 )
 
@@ -106,7 +108,11 @@ class FakePlatform:
         path.mkdir(parents=True)
         return path
 
-    def run_command(self, argv, _cwd, timeout):
+    def run_command(self, argv, _cwd, timeout, extra_env):
+        assert all(
+            extra_env[account["tokenEnv"]] == ""
+            for account in grant()["machineAccounts"].values()
+        )
         label = " ".join(argv)
         self.calls.append(f"command:{label}:{timeout}")
         if argv == grant()["definitionOfDone"]["redTest"]:
@@ -190,8 +196,12 @@ class FakeAgents:
 
 
 class FakeDecision:
-    def __init__(self):
+    def __init__(self, answer=None):
         self.calls: list[str] = []
+        self.answer = answer or {
+            "selectedOptionId": "continue-narrow",
+            "freeText": "Stay inside the grant.",
+        }
 
     def request(self, context):
         self.calls.append("request")
@@ -208,7 +218,7 @@ class FakeDecision:
 
     def wait_for_answer(self, job_id, timeout):
         self.calls.append(f"wait:{job_id}:{timeout}")
-        return {"selectedOptionId": "continue-narrow", "freeText": "Stay inside the grant."}
+        return self.answer
 
 
 class ProtectionRunner:
@@ -218,6 +228,18 @@ class ProtectionRunner:
     def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
         assert argv[:2] == ["gh", "api"]
         return CommandResult(argv, 0, json.dumps(self.protection), "", 0.1)
+
+
+class DiffRunner:
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+        assert argv[:4] == ["git", "diff", "--name-status", "--find-renames"]
+        return CommandResult(
+            argv,
+            0,
+            "R100\tschemas/canonical/job-v2.json\tdocs/job-v2.json\nM\ttests/test_job.py\n",
+            "",
+            0.1,
+        )
 
 
 def protected_repository():
@@ -304,6 +326,31 @@ def test_unclean_plan_waits_on_existing_decision_flow_then_replans_inside_grant(
     assert waiting["pendingDecision"]["decisionId"] == "decision-1"
 
 
+def test_pause_decision_stops_the_unclean_mission_before_development(tmp_path):
+    platform = FakePlatform(tmp_path)
+    agents = FakeAgents(plans=[{
+        "clean": False,
+        "summary": "Unclean because an assumption is unresolved",
+        "steps": [],
+        "touchedPaths": [],
+    }])
+    decisions = FakeDecision(answer={"selectedOptionId": "pause", "freeText": "Wait."})
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=decisions,
+    )
+
+    with pytest.raises(BenchError, match="Person paused"):
+        bench.run()
+
+    assert [kind for kind, _prompt in agents.prompts] == ["plan"]
+    assert not any(call.startswith("commit:") for call in platform.calls)
+    assert "push" not in platform.calls
+
+
 def test_a_red_full_gate_prevents_every_push(tmp_path):
     platform = FakePlatform(tmp_path, gate_failure=True)
     bench = PipelineBench(
@@ -371,6 +418,25 @@ def test_isolated_worktree_keeps_main_clean_when_the_session_is_killed(tmp_path)
     assert status == ""
 
 
+def test_timeout_terminates_background_descendants_before_they_can_keep_working(tmp_path):
+    marker = tmp_path / "descendant-survived"
+    child_code = (
+        "import time; from pathlib import Path; time.sleep(1.2); "
+        f"Path({str(marker)!r}).write_text('survived')"
+    )
+    parent_code = (
+        "import subprocess, sys, time; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+        "time.sleep(60)"
+    )
+
+    with pytest.raises(BenchError, match="exceeded its 1s budget"):
+        SubprocessRunner().run([sys.executable, "-c", parent_code], tmp_path, 1)
+
+    time.sleep(0.5)
+    assert not marker.exists()
+
+
 def test_claude_stages_require_reported_opus_major_version_five_or_newer():
     assert reported_opus_major('{"modelUsage":{"claude-opus-5":{}}}') == 5
     assert reported_opus_major('{"model":"claude-opus-6-1"}') == 6
@@ -421,6 +487,16 @@ def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path
 
     with pytest.raises(BenchError, match="require an approving review"):
         platform.validate_repository_wall(grant())
+
+
+def test_changed_paths_include_both_ends_of_an_authority_file_rename(tmp_path):
+    paths = GitHubPlatform(tmp_path, DiffRunner()).changed_paths(grant(), tmp_path)
+
+    assert paths == [
+        "schemas/canonical/job-v2.json",
+        "docs/job-v2.json",
+        "tests/test_job.py",
+    ]
 
 
 def test_unclean_plan_client_uses_existing_decision_endpoint_and_observes_answer(tmp_path):

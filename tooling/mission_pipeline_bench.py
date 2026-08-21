@@ -13,6 +13,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import time
@@ -177,6 +178,28 @@ def command_tail(result: CommandResult, limit: int = 4000) -> str:
     return text[-limit:]
 
 
+def isolated_command_env(session_dir: Path, credential_envs: set[str]) -> dict[str, str]:
+    """Remove GitHub authority from repository-authored and model commands."""
+    gh_config = session_dir / "no-github-credentials"
+    gh_config.mkdir(parents=True, exist_ok=True)
+    environment = {
+        "GH_CONFIG_DIR": str(gh_config),
+        "GH_TOKEN": "",
+        "GITHUB_TOKEN": "",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_SSH_COMMAND": "false",
+        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
+        "GIT_CONFIG_VALUE_0": "disabled://mission-bench-command-cannot-push",
+        "GIT_CONFIG_KEY_1": "credential.helper",
+        "GIT_CONFIG_VALUE_1": "",
+        "GIT_CONFIG_KEY_2": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_2": "",
+    }
+    environment.update({name: "" for name in credential_envs})
+    return environment
+
+
 class SubprocessRunner:
     """Run argv-only commands with bounded output and no implicit shell."""
 
@@ -197,24 +220,31 @@ class SubprocessRunner:
         if extra_env:
             environment.update(extra_env)
         started = time.monotonic()
+        process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+            start_new_session=True,
+        )
         try:
-            completed = subprocess.run(
-                argv,
-                cwd=cwd,
-                input=input_text,
-                text=True,
-                capture_output=True,
-                timeout=max(1, timeout),
-                env=environment,
-                check=False,
-            )
+            stdout, stderr = process.communicate(input=input_text, timeout=max(1, timeout))
         except subprocess.TimeoutExpired as exc:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
             raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}") from exc
         return CommandResult(
             argv=list(argv),
-            returncode=completed.returncode,
-            stdout=completed.stdout[-20000:],
-            stderr=completed.stderr[-20000:],
+            returncode=process.returncode,
+            stdout=stdout[-20000:],
+            stderr=stderr[-20000:],
             elapsed_seconds=time.monotonic() - started,
         )
 
@@ -389,8 +419,14 @@ class GitHubPlatform:
         self._run(["git", "config", "user.email", local["email"]], cwd=worktree, label="git author email")
         return worktree
 
-    def run_command(self, argv: list[str], cwd: Path, timeout: int) -> CommandResult:
-        return self.runner.run(argv, cwd, timeout)
+    def run_command(
+        self,
+        argv: list[str],
+        cwd: Path,
+        timeout: int,
+        extra_env: dict[str, str],
+    ) -> CommandResult:
+        return self.runner.run(argv, cwd, timeout, extra_env=extra_env)
 
     def assert_machine_commit(
         self,
@@ -423,11 +459,20 @@ class GitHubPlatform:
     def changed_paths(self, grant: dict[str, Any], worktree: Path) -> list[str]:
         base_ref = f"origin/{grant['baseBranch']}"
         result = self._run(
-            ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+            ["git", "diff", "--name-status", "--find-renames", f"{base_ref}...HEAD"],
             cwd=worktree,
             label="changed path read",
         )
-        return [line for line in result.stdout.splitlines() if line]
+        paths: list[str] = []
+        for line in result.stdout.splitlines():
+            fields = line.split("\t")
+            if len(fields) < 2:
+                continue
+            candidates = fields[1:3] if fields[0].startswith(("R", "C")) else fields[1:2]
+            for path in candidates:
+                if path and path not in paths:
+                    paths.append(path)
+        return paths
 
     def push(self, grant: dict[str, Any], worktree: Path) -> None:
         token_env = grant["machineAccounts"]["local"]["tokenEnv"]
@@ -594,24 +639,7 @@ class AgentDriver:
         self.credential_envs = set(credential_envs or ())
 
     def _agent_env(self, session_dir: Path) -> dict[str, str]:
-        gh_config = session_dir / "no-github-credentials"
-        gh_config.mkdir(parents=True, exist_ok=True)
-        environment = {
-            "GH_CONFIG_DIR": str(gh_config),
-            "GH_TOKEN": "",
-            "GITHUB_TOKEN": "",
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_SSH_COMMAND": "false",
-            "GIT_CONFIG_COUNT": "3",
-            "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
-            "GIT_CONFIG_VALUE_0": "disabled://mission-bench-model-cannot-push",
-            "GIT_CONFIG_KEY_1": "credential.helper",
-            "GIT_CONFIG_VALUE_1": "",
-            "GIT_CONFIG_KEY_2": "http.https://github.com/.extraheader",
-            "GIT_CONFIG_VALUE_2": "",
-        }
-        environment.update({name: "" for name in self.credential_envs})
-        return environment
+        return isolated_command_env(session_dir, self.credential_envs)
 
     def _claude(
         self,
@@ -771,13 +799,13 @@ class PipelineBench:
         self.feed_path = self.state_root / "agent-session-status.jsonl"
         self.evidence_path = self.session_dir / "evidence.json"
         self.platform = platform or GitHubPlatform(self.repository_root)
-        credential_envs = {
+        self.credential_envs = {
             account["tokenEnv"] for account in self.grant["machineAccounts"].values()
         }
         decision_token_env = self.grant["decisionApi"].get("tokenEnv")
         if decision_token_env:
-            credential_envs.add(decision_token_env)
-        self.agents = agents or AgentDriver(credential_envs=credential_envs)
+            self.credential_envs.add(decision_token_env)
+        self.agents = agents or AgentDriver(credential_envs=self.credential_envs)
         self.decisions = decisions or DecisionClient(self.grant["decisionApi"])
         self.sequence = 0
         self.claimed_at = utc_now()
@@ -872,10 +900,15 @@ class PipelineBench:
 
     def _green_gates(self, worktree: Path, budget: StageBudget) -> dict[str, Any]:
         definition = self.grant["definitionOfDone"]
-        test_result = self.platform.run_command(definition["test"], worktree, budget.remaining())
+        environment = isolated_command_env(self.session_dir, self.credential_envs)
+        test_result = self.platform.run_command(
+            definition["test"], worktree, budget.remaining(), environment
+        )
         if test_result.returncode != 0:
             raise BenchError(f"full test gate failed: {command_tail(test_result)}")
-        release_result = self.platform.run_command(definition["releaseCheck"], worktree, budget.remaining())
+        release_result = self.platform.run_command(
+            definition["releaseCheck"], worktree, budget.remaining(), environment
+        )
         if release_result.returncode != 0:
             raise BenchError(f"release check failed: {command_tail(release_result)}")
         return {
@@ -1001,6 +1034,8 @@ class PipelineBench:
             answer = self.decisions.wait_for_answer(handle["jobId"], budgets["plan"].remaining())
             self.evidence["decision"]["answer"] = answer
             self._save_evidence()
+            if answer.get("selectedOptionId") == "pause":
+                raise BenchError("the Person paused the mission during plan escalation")
             plan = self.agents.plan(
                 plan_prompt + "\n\nThe Person answered through the decision flow: " + json.dumps(answer, sort_keys=True),
                 worktree,
@@ -1014,7 +1049,10 @@ class PipelineBench:
         self._emit("plan", "idle", require_text(plan.get("summary"), "plan summary"), budgets["plan"], event_kind="stage-completed")
 
         red_result = self.platform.run_command(
-            self.grant["definitionOfDone"]["redTest"], worktree, budgets["develop"].remaining()
+            self.grant["definitionOfDone"]["redTest"],
+            worktree,
+            budgets["develop"].remaining(),
+            isolated_command_env(self.session_dir, self.credential_envs),
         )
         if red_result.returncode == 0:
             raise BenchError("the acceptance regression was not observed failing before development")
