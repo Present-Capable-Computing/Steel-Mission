@@ -100,6 +100,7 @@ class FakePlatform:
         self.head_changes_after_ci = head_changes_after_ci
         self.path_batches = list(path_batches or [])
         self.calls: list[str] = []
+        self.remote_timeouts: list[tuple[str, int | None]] = []
         self.commit = 0
 
     def issue(self, _grant, _timeout=None):
@@ -109,8 +110,9 @@ class FakePlatform:
     def validate_machine_accounts(self, _grant):
         self.calls.append("accounts")
 
-    def validate_repository_wall(self, _grant):
+    def validate_repository_wall(self, _grant, timeout=None):
         self.calls.append("branch-protection")
+        self.remote_timeouts.append(("branch-protection", timeout))
 
     def claim_issue(self, _grant, session_id):
         self.calls.append(f"claim:{session_id}")
@@ -158,11 +160,13 @@ class FakePlatform:
             return self.path_batches.pop(0)
         return ["tests/test_rehearsal.py"]
 
-    def push(self, _grant, _worktree):
+    def push(self, _grant, _worktree, timeout=None):
         self.calls.append("push")
+        self.remote_timeouts.append(("push", timeout))
 
-    def create_pr(self, _grant, _worktree, body_path):
+    def create_pr(self, _grant, _worktree, body_path, timeout=None):
         self.calls.append("create-pr")
+        self.remote_timeouts.append(("create-pr", timeout))
         assert "failing test" in body_path.read_text().lower()
         return {"number": 321, "url": "https://github.test/pull/321"}
 
@@ -371,6 +375,11 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     ]
     assert acceptance_calls
     assert all(not call.endswith(":None") for call in acceptance_calls)
+    assert all(
+        timeout is not None
+        for operation, timeout in platform.remote_timeouts
+        if operation in {"push", "create-pr"}
+    )
     assert "update-pr-body" in platform.calls
     assert all(REQUIREMENT in prompt and ACCEPTANCE in prompt for _, prompt in agents.prompts)
 
@@ -649,6 +658,55 @@ def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tm
     assert not any(call.startswith("approve:") for call in platform.calls)
 
 
+def test_branch_wall_is_revalidated_before_auto_merge_is_armed(tmp_path):
+    class WeakeningWallPlatform(FakePlatform):
+        def validate_repository_wall(self, grant_value, timeout=None):
+            if any(operation == "branch-protection" for operation, _timeout in self.remote_timeouts):
+                raise BenchError("branch protection changed before auto-merge")
+            super().validate_repository_wall(grant_value, timeout)
+
+    platform = WeakeningWallPlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="branch protection changed"):
+        bench.run()
+
+    assert not any(call.startswith("auto-merge:") for call in platform.calls)
+
+
+def test_develop_budget_expiry_after_push_prevents_pr_creation(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    class SlowPushPlatform(FakePlatform):
+        def push(self, grant_value, worktree, timeout=None):
+            super().push(grant_value, worktree, timeout)
+            clock[0] += timeout
+
+    value = grant()
+    value["budgets"]["develop"]["elapsedSeconds"] = 1
+    platform = SlowPushPlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json", value),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="elapsed-time budget is exhausted"):
+        bench.run()
+
+    assert ("push", 1) in platform.remote_timeouts
+    assert "create-pr" not in platform.calls
+
+
 def test_expired_acceptance_read_cannot_arm_auto_merge(tmp_path, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
@@ -770,6 +828,36 @@ def test_successful_command_reaps_background_descendants_before_returning(tmp_pa
     assert not marker.exists()
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux subreaper containment")
+def test_detached_descendants_cannot_escape_linux_subreaper_containment(tmp_path):
+    marker = tmp_path / "detached-descendant-survived"
+    script = (
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "from tooling.mission_pipeline_bench import protect_parent_credentials, SubprocessRunner\n"
+        "protect_parent_credentials()\n"
+        f"marker = Path({str(marker)!r})\n"
+        "child = \"import time; from pathlib import Path; time.sleep(1); \" "
+        "+ f\"Path({str(marker)!r}).write_text('survived')\"\n"
+        "parent = \"import subprocess, sys; subprocess.Popen([sys.executable, '-c', \" "
+        "+ repr(child) + \"] , start_new_session=True, stdin=subprocess.DEVNULL, \" "
+        "+ \"stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\"\n"
+        "SubprocessRunner().run([sys.executable, '-c', parent], Path.cwd(), 5)\n"
+        "time.sleep(1.2)\n"
+        "raise SystemExit(1 if marker.exists() else 0)\n"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_subprocess_output_is_drained_into_fixed_size_tail_buffers(tmp_path):
     result = SubprocessRunner().run([
         sys.executable,
@@ -844,6 +932,23 @@ def test_non_linux_hosts_fail_closed_before_untrusted_execution(monkeypatch):
 
     with pytest.raises(BenchError, match="requires Linux parent credential isolation"):
         mission_bench.protect_parent_credentials()
+
+
+def test_linux_parent_protection_enables_child_subreaper(monkeypatch):
+    calls = []
+
+    class FakeLibc:
+        def prctl(self, option, value, _arg2, _arg3, _arg4):
+            calls.append((option, value))
+            return 0
+
+    monkeypatch.setattr(mission_bench.sys, "platform", "linux")
+    monkeypatch.setattr(mission_bench.ctypes, "CDLL", lambda *_args, **_kwargs: FakeLibc())
+    monkeypatch.setattr(mission_bench, "PARENT_CONTAINMENT_READY", False, raising=False)
+
+    mission_bench.protect_parent_credentials()
+
+    assert calls == [(4, 0), (36, 1)]
 
 
 def test_claude_stages_require_reported_opus_major_version_five_or_newer():
@@ -924,6 +1029,25 @@ def test_repository_wall_refuses_auto_merge_without_a_required_approval(tmp_path
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
 
     with pytest.raises(BenchError, match="require an approving review"):
+        platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_refuses_more_approvals_than_the_pipeline_produces(tmp_path, monkeypatch):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(
+        "* @sm-agent-claude\n"
+        "/schemas/canonical/ @andrewHermann\n"
+        "/schemas/schema-registry.json @andrewHermann\n"
+        "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
+    )
+    protection = protected_repository()
+    protection["required_pull_request_reviews"]["required_approving_review_count"] = 2
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protection))
+
+    with pytest.raises(BenchError, match="exactly one approving review"):
         platform.validate_repository_wall(grant())
 
 
@@ -1015,7 +1139,7 @@ def test_authenticated_push_disables_hooks_and_scrubs_every_unrelated_credential
         PushRunner(credential_names | {"UNRELATED_API_TOKEN"}),
     )
 
-    platform.push(value, worktree)
+    platform.push(value, worktree, 30)
 
 
 def test_merge_poll_and_sleep_never_exceed_the_remaining_acceptance_budget(tmp_path, monkeypatch):

@@ -62,6 +62,7 @@ UNTRUSTED_BASE_ENV = (
 )
 DIAGNOSTIC_TAIL_BYTES = 20_000
 COMPLETE_STDOUT_BYTES = 1_000_000
+PARENT_CONTAINMENT_READY = False
 
 
 class BenchError(RuntimeError):
@@ -238,11 +239,17 @@ def protect_parent_credentials() -> None:
     """Deny same-UID Linux children access to this process through /proc."""
     if not sys.platform.startswith("linux"):
         raise BenchError("mission execution requires Linux parent credential isolation")
-    pr_set_dumpable = 4
+    global PARENT_CONTAINMENT_READY
     libc = ctypes.CDLL(None, use_errno=True)
-    if libc.prctl(pr_set_dumpable, 0, 0, 0, 0) != 0:
-        error_number = ctypes.get_errno()
-        raise BenchError(f"cannot protect parent credential memory: {os.strerror(error_number)}")
+    protections = (
+        (4, 0, "protect parent credential memory"),
+        (36, 1, "enable child-subreaper containment"),
+    )
+    for option, value, label in protections:
+        if libc.prctl(option, value, 0, 0, 0) != 0:
+            error_number = ctypes.get_errno()
+            raise BenchError(f"cannot {label}: {os.strerror(error_number)}")
+    PARENT_CONTAINMENT_READY = True
 
 
 def isolated_command_env(
@@ -287,6 +294,39 @@ def isolated_command_env(
 
 class SubprocessRunner:
     """Run argv-only commands with bounded output and no implicit shell."""
+
+    @staticmethod
+    def _kill_adopted_descendants() -> None:
+        if not PARENT_CONTAINMENT_READY:
+            return
+        task_root = Path("/proc/self/task")
+        for _attempt in range(100):
+            children: set[int] = set()
+            try:
+                child_files = list(task_root.glob("*/children"))
+                for child_file in child_files:
+                    try:
+                        children.update(int(value) for value in child_file.read_text().split())
+                    except FileNotFoundError:
+                        continue
+            except OSError as exc:
+                raise BenchError(f"cannot enumerate contained descendants: {exc}") from exc
+            for pid in children:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            while True:
+                try:
+                    waited, _status = os.waitpid(-1, os.WNOHANG)
+                except ChildProcessError:
+                    break
+                if waited == 0:
+                    break
+            if not children:
+                return
+            time.sleep(0.01)
+        raise BenchError("contained descendants could not be reaped")
 
     def run(
         self,
@@ -355,10 +395,6 @@ class SubprocessRunner:
                             if len(buffer) > DIAGNOSTIC_TAIL_BYTES:
                                 del buffer[:-DIAGNOSTIC_TAIL_BYTES]
                 process.wait(timeout=max(0.001, deadline - time.monotonic()))
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
             except subprocess.TimeoutExpired as exc:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
@@ -374,6 +410,11 @@ class SubprocessRunner:
                     process.wait()
                 raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}") from exc
             finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self._kill_adopted_descendants()
                 streams.close()
                 for stream in (process.stdout, process.stderr):
                     if stream is not None and not stream.closed:
@@ -524,11 +565,11 @@ class GitHubPlatform:
                     f"{worker} commit email is not verified by its authenticated GitHub account"
                 )
 
-    def validate_repository_wall(self, grant: dict[str, Any]) -> None:
+    def validate_repository_wall(self, grant: dict[str, Any], timeout: float = 120) -> None:
         result = self._run([
             "gh", "api",
             f"repos/{grant['repository']}/branches/{grant['baseBranch']}/protection",
-        ], extra_env=self._account_env(grant, "local"), complete_stdout=True,
+        ], timeout=timeout, extra_env=self._account_env(grant, "local"), complete_stdout=True,
             label="branch protection read")
         try:
             protection = json.loads(result.stdout)
@@ -541,6 +582,8 @@ class GitHubPlatform:
         required_checks = checks.get("checks") if isinstance(checks, dict) else []
         if not isinstance(approvals, int) or approvals < 1:
             raise BenchError("branch protection must require an approving review so acceptance triggers merge")
+        if approvals != 1:
+            raise BenchError("branch protection must require exactly one approving review")
         if not isinstance(reviews, dict) or reviews.get("require_code_owner_reviews") is not True:
             raise BenchError("branch protection must require code-owner review")
         if reviews.get("dismiss_stale_reviews") is not True:
@@ -706,7 +749,7 @@ class GitHubPlatform:
                     paths.append(path)
         return paths
 
-    def push(self, grant: dict[str, Any], worktree: Path) -> None:
+    def push(self, grant: dict[str, Any], worktree: Path, timeout: float) -> None:
         token_env = grant["machineAccounts"]["local"]["tokenEnv"]
         token = os.environ.get(token_env)
         if not token:
@@ -733,19 +776,32 @@ class GitHubPlatform:
         self._run([
             "git", "push", f"https://github.com/{grant['repository']}.git",
             f"HEAD:refs/heads/{grant['branch']}",
-        ], cwd=worktree, timeout=300, extra_env=environment, inherit_env=False, label="machine-account push")
+        ], cwd=worktree, timeout=timeout, extra_env=environment, inherit_env=False,
+            label="machine-account push")
 
-    def create_pr(self, grant: dict[str, Any], worktree: Path, body_path: Path) -> dict[str, Any]:
+    def create_pr(
+        self,
+        grant: dict[str, Any],
+        worktree: Path,
+        body_path: Path,
+        timeout: float,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
         result = self._run([
             "gh", "pr", "create", "--repo", grant["repository"],
             "--base", grant["baseBranch"], "--head", grant["branch"],
             "--title", f"Mission #{grant['issueNumber']}: {grant['branch'].split('/', 1)[-1].replace('-', ' ')}",
             "--body-file", str(body_path),
-        ], cwd=worktree, timeout=120, extra_env=self._account_env(grant, "local"), label="pull request creation")
+        ], cwd=worktree, timeout=timeout, extra_env=self._account_env(grant, "local"),
+            label="pull request creation")
         url = result.stdout.strip().splitlines()[-1]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise BenchError("pull request creation exceeded the develop budget")
         viewed = self._run([
             "gh", "pr", "view", url, "--repo", grant["repository"], "--json", "number,url",
-        ], extra_env=self._account_env(grant, "local"), complete_stdout=True, label="pull request read")
+        ], timeout=remaining, extra_env=self._account_env(grant, "local"), complete_stdout=True,
+            label="pull request read")
         value = json.loads(viewed.stdout)
         if not isinstance(value, dict):
             raise BenchError("pull request read returned a non-object")
@@ -1521,10 +1577,15 @@ class PipelineBench:
         self._emit("develop", "idle", "Local developer commit and all pre-push gates are green.", develop_budget, event_kind="stage-completed")
 
         self._enforce_live_issue_guards(develop_budget)
-        self.platform.push(self.grant, worktree)
+        self.platform.push(self.grant, worktree, develop_budget.remaining())
         body_path = self.session_dir / "pull-request.md"
         body_path.write_text(self._pr_body())
-        pull_request = self.platform.create_pr(self.grant, worktree, body_path)
+        pull_request = self.platform.create_pr(
+            self.grant,
+            worktree,
+            body_path,
+            develop_budget.remaining(),
+        )
         self.evidence["pullRequest"] = pull_request
         self._save_evidence()
 
@@ -1579,7 +1640,7 @@ class PipelineBench:
             self.evidence["reviewCorrectionRounds"] = corrections
             self._save_evidence()
             self._enforce_live_issue_guards(develop_budget)
-            self.platform.push(self.grant, worktree)
+            self.platform.push(self.grant, worktree, develop_budget.remaining())
         if clean_review is None:
             raise BenchError("Codex review loop exhausted its bounded correction rounds")
         self._emit("review", "idle", require_text(clean_review.get("summary"), "review summary"), review_budget, event_kind="stage-completed")
@@ -1591,6 +1652,10 @@ class PipelineBench:
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
         self._enforce_live_issue_guards(acceptance_budget)
+        self.platform.validate_repository_wall(
+            self.grant,
+            acceptance_budget.remaining(),
+        )
         self.platform.assert_pr_head(
             self.grant,
             int(pull_request["number"]),
