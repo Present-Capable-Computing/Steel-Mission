@@ -14,9 +14,11 @@ import json
 import os
 import re
 import secrets
+import selectors
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -45,6 +47,19 @@ STAGE_DETAILS = {
     "review": ("review-loop", "codex", "reviewer", "codex"),
     "acceptance": ("final-review-and-merge", "claude", "acceptance", "opus"),
 }
+PROVIDER_AUTH_ENV = {
+    "claude": ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
+    "codex": ("OPENAI_API_KEY",),
+    "local": (),
+}
+UNTRUSTED_BASE_ENV = (
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM",
+    "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE",
+    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+    "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY",
+    "CODEX_HOME", "CLAUDE_CONFIG_DIR", "OLLAMA_HOST",
+)
 
 
 class BenchError(RuntimeError):
@@ -230,7 +245,7 @@ def isolated_command_env(
         "GITHUB_TOKEN": "",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_SSH_COMMAND": "false",
-        "GIT_CONFIG_COUNT": "4",
+        "GIT_CONFIG_COUNT": "6",
         "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
         "GIT_CONFIG_VALUE_0": "disabled://mission-bench-command-cannot-push",
         "GIT_CONFIG_KEY_1": "credential.helper",
@@ -239,6 +254,10 @@ def isolated_command_env(
         "GIT_CONFIG_VALUE_2": "",
         "GIT_CONFIG_KEY_3": "core.hooksPath",
         "GIT_CONFIG_VALUE_3": str(hooks),
+        "GIT_CONFIG_KEY_4": "core.fsmonitor",
+        "GIT_CONFIG_VALUE_4": "false",
+        "GIT_CONFIG_KEY_5": "diff.external",
+        "GIT_CONFIG_VALUE_5": "",
     }
     environment.update({name: "" for name in credential_envs})
     if scrub_all_credentials:
@@ -254,47 +273,85 @@ class SubprocessRunner:
         self,
         argv: list[str],
         cwd: Path,
-        timeout: int,
+        timeout: float,
         *,
         input_text: str = "",
         extra_env: dict[str, str] | None = None,
+        inherit_env: bool = True,
     ) -> CommandResult:
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise BenchError("refusing a non-argv command")
-        environment = os.environ.copy()
+        environment = os.environ.copy() if inherit_env else {
+            name: os.environ[name] for name in UNTRUSTED_BASE_ENV if name in os.environ
+        }
         environment.pop("GH_TOKEN", None)
         environment.pop("GITHUB_TOKEN", None)
         if extra_env:
             environment.update(extra_env)
         started = time.monotonic()
-        try:
-            process = subprocess.Popen(
-                argv,
-                cwd=cwd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=environment,
-                start_new_session=True,
-            )
-        except OSError as exc:
-            raise BenchError(f"command failed to start: {argv[0]}: {exc}") from exc
-        try:
-            stdout, stderr = process.communicate(input=input_text, timeout=max(1, timeout))
-        except subprocess.TimeoutExpired as exc:
-            os.killpg(process.pid, signal.SIGTERM)
+        if timeout <= 0:
+            raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}")
+        with tempfile.TemporaryFile() as stdin:
+            stdin.write(input_text.encode())
+            stdin.seek(0)
             try:
-                process.communicate(timeout=2)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.communicate()
-            raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}") from exc
+                process = subprocess.Popen(
+                    argv,
+                    cwd=cwd,
+                    stdin=stdin,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=environment,
+                    start_new_session=True,
+                )
+            except OSError as exc:
+                raise BenchError(f"command failed to start: {argv[0]}: {exc}") from exc
+            deadline = started + timeout
+            streams = selectors.DefaultSelector()
+            buffers = {"stdout": bytearray(), "stderr": bytearray()}
+            assert process.stdout is not None and process.stderr is not None
+            streams.register(process.stdout, selectors.EVENT_READ, "stdout")
+            streams.register(process.stderr, selectors.EVENT_READ, "stderr")
+            try:
+                while streams.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(argv, timeout)
+                    for key, _mask in streams.select(timeout=min(0.25, remaining)):
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                        if not chunk:
+                            streams.unregister(key.fileobj)
+                            key.fileobj.close()
+                            continue
+                        buffer = buffers[key.data]
+                        buffer.extend(chunk)
+                        if len(buffer) > 20000:
+                            del buffer[:-20000]
+                process.wait(timeout=max(0.001, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired as exc:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
+                raise BenchError(f"command exceeded its {timeout}s budget: {argv[0]}") from exc
+            finally:
+                streams.close()
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None and not stream.closed:
+                        stream.close()
         return CommandResult(
             argv=list(argv),
             returncode=process.returncode,
-            stdout=stdout[-20000:],
-            stderr=stderr[-20000:],
+            stdout=bytes(buffers["stdout"]).decode(errors="replace"),
+            stderr=bytes(buffers["stderr"]).decode(errors="replace"),
             elapsed_seconds=time.monotonic() - started,
         )
 
@@ -334,6 +391,7 @@ class GitHubPlatform:
     def __init__(self, repository_root: Path, runner: SubprocessRunner | None = None):
         self.repository_root = repository_root.resolve()
         self.runner = runner or SubprocessRunner()
+        self.worktree_bases: dict[Path, str] = {}
 
     def _run(
         self,
@@ -343,15 +401,13 @@ class GitHubPlatform:
         timeout: int = 120,
         input_text: str = "",
         extra_env: dict[str, str] | None = None,
+        inherit_env: bool = True,
         label: str | None = None,
     ) -> CommandResult:
-        result = self.runner.run(
-            argv,
-            cwd or self.repository_root,
-            timeout,
-            input_text=input_text,
-            extra_env=extra_env,
-        )
+        kwargs = {"input_text": input_text, "extra_env": extra_env}
+        if not inherit_env:
+            kwargs["inherit_env"] = False
+        result = self.runner.run(argv, cwd or self.repository_root, timeout, **kwargs)
         if result.returncode != 0:
             detail = command_tail(result) or f"exit {result.returncode}"
             raise BenchError(f"{label or argv[0]} failed: {detail}")
@@ -365,6 +421,21 @@ class GitHubPlatform:
         if not token:
             raise BenchError(f"machine-account credential {token_env} is not available")
         return {"GH_TOKEN": token}
+
+    @staticmethod
+    def _credential_envs(grant: dict[str, Any]) -> set[str]:
+        names = {account["tokenEnv"] for account in grant["machineAccounts"].values()}
+        decision_token_env = grant["decisionApi"].get("tokenEnv")
+        if decision_token_env:
+            names.add(decision_token_env)
+        return names
+
+    def _untrusted_git_env(self, grant: dict[str, Any], worktree: Path) -> dict[str, str]:
+        return isolated_command_env(
+            worktree.parent,
+            self._credential_envs(grant),
+            scrub_all_credentials=True,
+        )
 
     def issue(self, grant: dict[str, Any]) -> dict[str, Any]:
         result = self._run([
@@ -431,6 +502,8 @@ class GitHubPlatform:
             raise BenchError("branch protection must require an approving review so acceptance triggers merge")
         if not isinstance(reviews, dict) or reviews.get("require_code_owner_reviews") is not True:
             raise BenchError("branch protection must require code-owner review")
+        if reviews.get("dismiss_stale_reviews") is not True:
+            raise BenchError("branch protection must dismiss approvals after a new push")
         if not isinstance(conversations, dict) or conversations.get("enabled") is not True:
             raise BenchError("branch protection must require review conversation resolution")
         if not isinstance(required_checks, list) or not required_checks:
@@ -491,9 +564,11 @@ class GitHubPlatform:
         self._run([
             "git", "worktree", "add", "-b", grant["branch"], str(worktree), base_ref,
         ], timeout=120, label="isolated worktree creation")
-        local = grant["machineAccounts"]["local"]
-        self._run(["git", "config", "user.name", local["login"]], cwd=worktree, label="git author name")
-        self._run(["git", "config", "user.email", local["email"]], cwd=worktree, label="git author email")
+        self.worktree_bases[worktree.resolve()] = self._run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=worktree,
+            label="isolated worktree base read",
+        ).stdout.strip()
         return worktree
 
     def run_command(
@@ -503,7 +578,7 @@ class GitHubPlatform:
         timeout: int,
         extra_env: dict[str, str],
     ) -> CommandResult:
-        return self.runner.run(argv, cwd, timeout, extra_env=extra_env)
+        return self.runner.run(argv, cwd, timeout, extra_env=extra_env, inherit_env=False)
 
     def assert_machine_commit(
         self,
@@ -511,10 +586,15 @@ class GitHubPlatform:
         worktree: Path,
         previous_commit: str | None = None,
     ) -> str:
-        baseline = previous_commit or f"origin/{grant['baseBranch']}"
+        environment = self._untrusted_git_env(grant, worktree)
+        baseline = previous_commit or self.worktree_bases.get(worktree.resolve())
+        if not baseline:
+            raise BenchError("isolated worktree base commit is unavailable")
         commits = self._run(
             ["git", "rev-list", "--reverse", f"{baseline}..HEAD"],
             cwd=worktree,
+            extra_env=environment,
+            inherit_env=False,
             label="new commit read",
         ).stdout.splitlines()
         if len(commits) != 1:
@@ -523,21 +603,48 @@ class GitHubPlatform:
         identity = self._run(
             ["git", "show", "-s", "--format=%an%x00%ae", "HEAD"],
             cwd=worktree,
+            extra_env=environment,
+            inherit_env=False,
             label="commit identity read",
         ).stdout.strip().split("\x00", 1)
         expected = grant["machineAccounts"]["local"]
         if identity != [expected["login"], expected["email"]]:
             raise BenchError("local developer commit does not use its machine-account identity")
-        status = self._run(["git", "status", "--porcelain"], cwd=worktree, label="worktree status")
+        status = self._run(
+            ["git", "status", "--porcelain"],
+            cwd=worktree,
+            extra_env=environment,
+            inherit_env=False,
+            label="worktree status",
+        )
         if status.stdout.strip():
             raise BenchError("local developer left uncommitted changes after its commit")
         return head
 
+    def assert_unchanged_machine_commit(
+        self,
+        grant: dict[str, Any],
+        worktree: Path,
+        expected_commit: str,
+        previous_commit: str | None = None,
+    ) -> None:
+        actual = self.assert_machine_commit(grant, worktree, previous_commit=previous_commit)
+        if actual != expected_commit:
+            raise BenchError("repository gate changed the reviewed machine commit")
+
     def changed_paths(self, grant: dict[str, Any], worktree: Path) -> list[str]:
-        base_ref = f"origin/{grant['baseBranch']}"
+        base_ref = self.worktree_bases.get(worktree.resolve())
+        if not base_ref:
+            raise BenchError("isolated worktree base commit is unavailable")
+        environment = self._untrusted_git_env(grant, worktree)
         result = self._run(
-            ["git", "diff", "--name-status", "--find-renames", f"{base_ref}...HEAD"],
+            [
+                "git", "diff", "--no-ext-diff", "--no-textconv",
+                "--name-status", "--find-renames", f"{base_ref}...HEAD",
+            ],
             cwd=worktree,
+            extra_env=environment,
+            inherit_env=False,
             label="changed path read",
         )
         paths: list[str] = []
@@ -565,15 +672,9 @@ class GitHubPlatform:
             "esac\n"
         )
         askpass.chmod(0o700)
-        credential_envs = {
-            account["tokenEnv"] for account in grant["machineAccounts"].values()
-        }
-        decision_token_env = grant["decisionApi"].get("tokenEnv")
-        if decision_token_env:
-            credential_envs.add(decision_token_env)
         environment = isolated_command_env(
             worktree.parent,
-            credential_envs,
+            self._credential_envs(grant),
             scrub_all_credentials=True,
         )
         environment.update({
@@ -584,7 +685,7 @@ class GitHubPlatform:
         self._run([
             "git", "push", f"https://github.com/{grant['repository']}.git",
             f"HEAD:refs/heads/{grant['branch']}",
-        ], cwd=worktree, timeout=300, extra_env=environment, label="machine-account push")
+        ], cwd=worktree, timeout=300, extra_env=environment, inherit_env=False, label="machine-account push")
 
     def create_pr(self, grant: dict[str, Any], worktree: Path, body_path: Path) -> dict[str, Any]:
         result = self._run([
@@ -620,9 +721,19 @@ class GitHubPlatform:
             "--comment", "--body", body,
         ], extra_env=self._account_env(grant, "codex"), label="Codex machine-account review")
 
-    def arm_auto_merge(self, grant: dict[str, Any], pr_number: int) -> None:
+    def assert_pr_head(self, grant: dict[str, Any], pr_number: int, expected_commit: str) -> None:
+        result = self._run([
+            "gh", "pr", "view", str(pr_number), "--repo", grant["repository"],
+            "--json", "headRefOid",
+        ], extra_env=self._account_env(grant, "local"), label="pull request head read")
+        value = json.loads(result.stdout)
+        if not isinstance(value, dict) or value.get("headRefOid") != expected_commit:
+            raise BenchError("pull request head changed outside the granted mission")
+
+    def arm_auto_merge(self, grant: dict[str, Any], pr_number: int, head_commit: str) -> None:
         self._run([
             "gh", "pr", "merge", str(pr_number), "--repo", grant["repository"], "--auto", "--merge",
+            "--match-head-commit", head_commit,
         ], extra_env=self._account_env(grant, "local"), label="auto-merge arming")
 
     def disable_auto_merge(self, grant: dict[str, Any], pr_number: int) -> None:
@@ -637,23 +748,33 @@ class GitHubPlatform:
         ], timeout=timeout, extra_env=self._account_env(grant, "local"), label="continuous integration")
         return command_tail(result)
 
-    def approve(self, grant: dict[str, Any], pr_number: int, summary: str) -> None:
+    def approve(
+        self,
+        grant: dict[str, Any],
+        pr_number: int,
+        summary: str,
+        head_commit: str,
+    ) -> None:
         self._run([
-            "gh", "pr", "review", str(pr_number), "--repo", grant["repository"],
-            "--approve", "--body", summary,
+            "gh", "api", "--method", "POST",
+            f"repos/{grant['repository']}/pulls/{pr_number}/reviews",
+            "-f", "event=APPROVE", "-f", f"body={summary}", "-f", f"commit_id={head_commit}",
         ], extra_env=self._account_env(grant, "claude"), label="Claude machine-account approval")
 
     def wait_for_merge(self, grant: dict[str, Any], pr_number: int, timeout: int) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             result = self._run([
                 "gh", "pr", "view", str(pr_number), "--repo", grant["repository"],
                 "--json", "state,mergedAt,url",
-            ], extra_env=self._account_env(grant, "local"), label="pull request merge read")
+            ], timeout=remaining, extra_env=self._account_env(grant, "local"), label="pull request merge read")
             value = json.loads(result.stdout)
             if isinstance(value, dict) and value.get("state") == "MERGED":
                 return value
-            time.sleep(5)
+            time.sleep(min(5, max(0, deadline - time.monotonic())))
         raise BenchError("auto-merge did not land within the acceptance budget")
 
 
@@ -745,12 +866,37 @@ class AgentDriver:
         },
     }
 
-    def __init__(self, runner: SubprocessRunner | None = None, credential_envs: set[str] | None = None):
+    def __init__(
+        self,
+        runner: SubprocessRunner | None = None,
+        credential_envs: set[str] | None = None,
+        developer_identity: tuple[str, str] | None = None,
+    ):
         self.runner = runner or SubprocessRunner()
         self.credential_envs = set(credential_envs or ())
+        self.developer_identity = developer_identity
 
-    def _agent_env(self, session_dir: Path) -> dict[str, str]:
-        return isolated_command_env(session_dir, self.credential_envs)
+    def _agent_env(self, session_dir: Path, provider: str) -> dict[str, str]:
+        environment = isolated_command_env(
+            session_dir,
+            self.credential_envs,
+            scrub_all_credentials=True,
+        )
+        environment.update({
+            name: os.environ[name]
+            for name in PROVIDER_AUTH_ENV[provider]
+            if name in os.environ
+        })
+        if provider == "local" and self.developer_identity:
+            name, email = self.developer_identity
+            environment.update({
+                "GIT_CONFIG_COUNT": "8",
+                "GIT_CONFIG_KEY_6": "user.name",
+                "GIT_CONFIG_VALUE_6": name,
+                "GIT_CONFIG_KEY_7": "user.email",
+                "GIT_CONFIG_VALUE_7": email,
+            })
+        return environment
 
     def _claude(
         self,
@@ -765,7 +911,7 @@ class AgentDriver:
             "claude", "-p", "--model", "opus", "--effort", "high",
             "--permission-mode", "plan", "--no-session-persistence",
             "--output-format", "json", "--json-schema", json.dumps(schema, separators=(",", ":")),
-        ], cwd, timeout, input_text=prompt, extra_env=self._agent_env(session_dir))
+        ], cwd, timeout, input_text=prompt, extra_env=self._agent_env(session_dir, "claude"), inherit_env=False)
         if result.returncode != 0:
             raise BenchError(f"Claude Opus stage failed: {command_tail(result)}")
         value = structured_value(result)
@@ -790,7 +936,7 @@ class AgentDriver:
         result = self.runner.run([
             "codex", "exec", "--ephemeral", "-s", "read-only", "-C", str(cwd),
             "--output-schema", str(schema_path), "-o", str(output_path), "-",
-        ], cwd, timeout, input_text=prompt, extra_env=self._agent_env(session_dir))
+        ], cwd, timeout, input_text=prompt, extra_env=self._agent_env(session_dir, "codex"), inherit_env=False)
         if result.returncode != 0:
             raise BenchError(f"Codex {label} stage failed: {command_tail(result)}")
         try:
@@ -810,7 +956,7 @@ class AgentDriver:
             "codex", "exec", "--oss", "--local-provider", "ollama",
             "-m", "qwen2.5-coder:14b", "--ephemeral", "-s", "workspace-write",
             "-C", str(worktree), "-",
-        ], worktree, timeout, input_text=prompt, extra_env=self._agent_env(_session_dir))
+        ], worktree, timeout, input_text=prompt, extra_env=self._agent_env(_session_dir, "local"), inherit_env=False)
         if result.returncode != 0:
             raise BenchError(f"local developer stage failed: {command_tail(result)}")
 
@@ -917,7 +1063,11 @@ class PipelineBench:
         decision_token_env = self.grant["decisionApi"].get("tokenEnv")
         if decision_token_env:
             self.credential_envs.add(decision_token_env)
-        self.agents = agents or AgentDriver(credential_envs=self.credential_envs)
+        local_account = self.grant["machineAccounts"]["local"]
+        self.agents = agents or AgentDriver(
+            credential_envs=self.credential_envs,
+            developer_identity=(local_account["login"], local_account["email"]),
+        )
         self.decisions = decisions or DecisionClient(self.grant["decisionApi"])
         self.sequence = 0
         self.claimed_at = utc_now()
@@ -1247,6 +1397,13 @@ class PipelineBench:
         paths = self.platform.changed_paths(self.grant, worktree)
         self._stop_for_authority_paths(paths, develop_budget, contract)
         gates = self._green_gates(worktree, develop_budget)
+        self.platform.assert_unchanged_machine_commit(
+            self.grant,
+            worktree,
+            expected_commit=commit,
+        )
+        paths = self.platform.changed_paths(self.grant, worktree)
+        self._stop_for_authority_paths(paths, develop_budget, contract)
         self.evidence["stages"]["develop"] = {"commit": commit, "paths": paths, "gates": gates}
         self._save_evidence()
         self._emit("develop", "idle", "Local developer commit and all pre-push gates are green.", develop_budget, event_kind="stage-completed")
@@ -1285,12 +1442,22 @@ class PipelineBench:
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
             self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
-            previous_commit = self.platform.assert_machine_commit(
-                self.grant, worktree, previous_commit=previous_commit
+            baseline_commit = previous_commit
+            correction_commit = self.platform.assert_machine_commit(
+                self.grant, worktree, previous_commit=baseline_commit
             )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
             self._stop_for_authority_paths(correction_paths, develop_budget, contract)
             correction_gates = self._green_gates(worktree, develop_budget)
+            self.platform.assert_unchanged_machine_commit(
+                self.grant,
+                worktree,
+                expected_commit=correction_commit,
+                previous_commit=baseline_commit,
+            )
+            correction_paths = self.platform.changed_paths(self.grant, worktree)
+            self._stop_for_authority_paths(correction_paths, develop_budget, contract)
+            previous_commit = correction_commit
             self.evidence["stages"].setdefault("corrections", []).append({
                 "round": round_number,
                 "commit": previous_commit,
@@ -1309,11 +1476,25 @@ class PipelineBench:
         )
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
+        self.platform.assert_pr_head(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+        )
         self.auto_merge_armed = True
-        self.platform.arm_auto_merge(self.grant, int(pull_request["number"]))
+        self.platform.arm_auto_merge(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+        )
         self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
+        )
+        self.platform.assert_pr_head(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
         )
         acceptance_prompt = (
             "Perform the final read-only acceptance review. Approve only if the committed diff, failing-test evidence, "
@@ -1326,7 +1507,17 @@ class PipelineBench:
         if acceptance.get("verdict") != "approve":
             raise BenchError(f"Claude acceptance rejected the mission: {acceptance.get('summary')}")
         summary = require_text(acceptance.get("summary"), "acceptance summary")
-        self.platform.approve(self.grant, int(pull_request["number"]), summary)
+        self.platform.assert_pr_head(
+            self.grant,
+            int(pull_request["number"]),
+            previous_commit,
+        )
+        self.platform.approve(
+            self.grant,
+            int(pull_request["number"]),
+            summary,
+            previous_commit,
+        )
         merged = self.platform.wait_for_merge(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )

@@ -86,6 +86,8 @@ class FakePlatform:
         red_output: str = "1 failed",
         arm_failure: bool = False,
         merge_failure: bool = False,
+        gate_mutates: bool = False,
+        head_changes_after_ci: bool = False,
         path_batches: list[list[str]] | None = None,
     ):
         self.root = root
@@ -94,6 +96,8 @@ class FakePlatform:
         self.red_output = red_output
         self.arm_failure = arm_failure
         self.merge_failure = merge_failure
+        self.gate_mutates = gate_mutates
+        self.head_changes_after_ci = head_changes_after_ci
         self.path_batches = list(path_batches or [])
         self.calls: list[str] = []
         self.commit = 0
@@ -137,6 +141,17 @@ class FakePlatform:
         assert value != previous_commit
         return value
 
+    def assert_unchanged_machine_commit(
+        self,
+        _grant,
+        _worktree,
+        expected_commit,
+        previous_commit=None,
+    ):
+        self.calls.append(f"revalidate:{expected_commit}:{previous_commit}")
+        if self.gate_mutates:
+            raise BenchError("repository gate changed the reviewed machine commit")
+
     def changed_paths(self, _grant, _worktree):
         self.calls.append("paths")
         if self.path_batches:
@@ -161,8 +176,13 @@ class FakePlatform:
     def post_codex_review(self, _grant, _pr_number, review):
         self.calls.append(f"codex-review:{review['verdict']}")
 
-    def arm_auto_merge(self, _grant, _pr_number):
-        self.calls.append("auto-merge")
+    def assert_pr_head(self, _grant, _pr_number, expected_commit):
+        self.calls.append(f"pr-head:{expected_commit}")
+        if self.head_changes_after_ci and any(call.startswith("ci:") for call in self.calls):
+            raise BenchError("pull request head changed outside the granted mission")
+
+    def arm_auto_merge(self, _grant, _pr_number, head_commit):
+        self.calls.append(f"auto-merge:{head_commit}")
         if self.arm_failure:
             raise BenchError("auto-merge response was lost")
 
@@ -173,8 +193,8 @@ class FakePlatform:
         self.calls.append(f"ci:{timeout}")
         return "all checks passed"
 
-    def approve(self, _grant, _pr_number, summary):
-        self.calls.append(f"approve:{summary}")
+    def approve(self, _grant, _pr_number, summary, head_commit):
+        self.calls.append(f"approve:{head_commit}:{summary}")
 
     def wait_for_merge(self, _grant, _pr_number, timeout):
         self.calls.append(f"merged:{timeout}")
@@ -247,8 +267,9 @@ class ProtectionRunner:
 
 
 class DiffRunner:
-    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
-        assert argv[:4] == ["git", "diff", "--name-status", "--find-renames"]
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
+        assert argv[:4] == ["git", "diff", "--no-ext-diff", "--no-textconv"]
+        assert inherit_env is False
         return CommandResult(
             argv,
             0,
@@ -277,8 +298,9 @@ class PushRunner:
     def __init__(self, expected_blank):
         self.expected_blank = expected_blank
 
-    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None, inherit_env=True):
         assert argv[:2] == ["git", "push"]
+        assert inherit_env is False
         assert all(extra_env[name] == "" for name in self.expected_blank)
         assert extra_env["SM_BENCH_PUSH_TOKEN"] == "local-token"
         assert extra_env["GIT_CONFIG_KEY_3"] == "core.hooksPath"
@@ -286,11 +308,24 @@ class PushRunner:
         return CommandResult(argv, 0, "pushed", "", 0.1)
 
 
+class MergePollRunner:
+    def __init__(self, clock):
+        self.clock = clock
+        self.timeouts = []
+
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+        assert argv[:3] == ["gh", "pr", "view"]
+        self.timeouts.append(timeout)
+        self.clock[0] += min(0.6, timeout)
+        return CommandResult(argv, 0, '{"state":"OPEN"}', "", 0.1)
+
+
 def protected_repository():
     return {
         "required_pull_request_reviews": {
             "required_approving_review_count": 1,
             "require_code_owner_reviews": True,
+            "dismiss_stale_reviews": True,
         },
         "required_conversation_resolution": {"enabled": True},
         "required_status_checks": {"checks": [{"context": "interpreter-checks"}]},
@@ -318,7 +353,7 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     first_push = platform.calls.index("push")
     assert any(call.startswith("command:make test") for call in platform.calls[:first_push])
     assert any(call.startswith("command:make release-check") for call in platform.calls[:first_push])
-    assert platform.calls.index("auto-merge") < next(
+    assert next(index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")) < next(
         index for index, call in enumerate(platform.calls) if call.startswith("approve:")
     )
     assert "update-pr-body" in platform.calls
@@ -458,6 +493,22 @@ def test_red_test_runner_error_is_not_accepted_as_the_granted_assertion_failure(
     assert "push" not in platform.calls
 
 
+def test_repository_gate_cannot_change_head_before_the_bench_pushes(tmp_path):
+    platform = FakePlatform(tmp_path, gate_mutates=True)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="gate changed the reviewed machine commit"):
+        bench.run()
+
+    assert "push" not in platform.calls
+
+
 def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaustion(tmp_path):
     platform = FakePlatform(tmp_path, merge_failure=True)
     bench = PipelineBench(
@@ -471,7 +522,9 @@ def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaust
     with pytest.raises(BenchError, match="acceptance budget"):
         bench.run()
 
-    assert platform.calls.index("auto-merge") < platform.calls.index("disable-auto-merge")
+    assert next(
+        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
+    ) < platform.calls.index("disable-auto-merge")
     feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
     assert feed[-1]["state"] == "budget-exhausted"
     assert feed[-1]["outcome"]["status"] == "budget-exhausted"
@@ -490,13 +543,36 @@ def test_lost_auto_merge_response_is_treated_as_armed_and_cancelled(tmp_path):
     with pytest.raises(BenchError, match="auto-merge response was lost"):
         bench.run()
 
-    assert platform.calls.index("auto-merge") < platform.calls.index("disable-auto-merge")
+    assert next(
+        index for index, call in enumerate(platform.calls) if call.startswith("auto-merge:")
+    ) < platform.calls.index("disable-auto-merge")
+
+
+def test_pull_request_head_change_after_ci_cancels_auto_merge_before_approval(tmp_path):
+    platform = FakePlatform(tmp_path, head_changes_after_ci=True)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="pull request head changed"):
+        bench.run()
+
+    assert "disable-auto-merge" in platform.calls
+    assert not any(call.startswith("approve:") for call in platform.calls)
 
 
 def test_review_correction_that_touches_authority_stops_before_another_push(tmp_path):
     platform = FakePlatform(
         tmp_path,
-        path_batches=[["tests/test_rehearsal.py"], ["docs/workplan.md"]],
+        path_batches=[
+            ["tests/test_rehearsal.py"],
+            ["tests/test_rehearsal.py"],
+            ["docs/workplan.md"],
+        ],
     )
     decisions = FakeDecision()
     bench = PipelineBench(
@@ -562,6 +638,35 @@ def test_timeout_terminates_background_descendants_before_they_can_keep_working(
     assert not marker.exists()
 
 
+def test_subprocess_output_is_drained_into_fixed_size_tail_buffers(tmp_path):
+    result = SubprocessRunner().run([
+        sys.executable,
+        "-c",
+        "import sys; sys.stdout.write('a' * 100000 + 'stdout-end'); "
+        "sys.stderr.write('b' * 100000 + 'stderr-end')",
+    ], tmp_path, 5)
+
+    assert len(result.stdout.encode()) <= 20000
+    assert len(result.stderr.encode()) <= 20000
+    assert result.stdout.endswith("stdout-end")
+    assert result.stderr.endswith("stderr-end")
+
+
+def test_untrusted_subprocess_inherits_only_allowlisted_parent_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgres://unrelated-secret")
+    result = SubprocessRunner().run(
+        [sys.executable, "-c", "import json, os; print(json.dumps(dict(os.environ)))"],
+        tmp_path,
+        5,
+        extra_env={"ANTHROPIC_API_KEY": "provider-only"},
+        inherit_env=False,
+    )
+    environment = json.loads(result.stdout)
+
+    assert "DATABASE_URL" not in environment
+    assert environment["ANTHROPIC_API_KEY"] == "provider-only"
+
+
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc isolation")
 def test_linux_children_cannot_read_the_credential_bearing_parent_environment():
     script = (
@@ -602,15 +707,27 @@ def test_claude_stages_require_reported_opus_major_version_five_or_newer():
     assert reported_opus_major('{"structured_output":{"summary":"opus-5"}}') is None
 
 
-def test_model_subprocess_environment_scrubs_grant_credentials_and_git_helpers(tmp_path):
-    environment = AgentDriver(credential_envs={"MISSION_GITHUB_TOKEN", "DECISION_TOKEN"})._agent_env(tmp_path)
+def test_model_subprocess_environment_allows_only_its_provider_credential(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "claude-only")
+    monkeypatch.setenv("UNRELATED_API_TOKEN", "must-not-leak")
+    driver = AgentDriver(
+        credential_envs={"MISSION_GITHUB_TOKEN", "DECISION_TOKEN"},
+        developer_identity=("sm-agent-qwen", "qwen@example.invalid"),
+    )
+    environment = driver._agent_env(tmp_path, "claude")
 
     assert environment["MISSION_GITHUB_TOKEN"] == ""
     assert environment["DECISION_TOKEN"] == ""
     assert environment["GH_TOKEN"] == ""
+    assert environment["ANTHROPIC_API_KEY"] == "claude-only"
+    assert environment["UNRELATED_API_TOKEN"] == ""
     assert environment["GIT_CONFIG_KEY_1"] == "credential.helper"
     assert environment["GIT_CONFIG_VALUE_1"] == ""
     assert environment["GIT_CONFIG_KEY_3"] == "core.hooksPath"
+    local_environment = driver._agent_env(tmp_path, "local")
+    assert local_environment["ANTHROPIC_API_KEY"] == ""
+    assert local_environment["GIT_CONFIG_VALUE_6"] == "sm-agent-qwen"
+    assert local_environment["GIT_CONFIG_VALUE_7"] == "qwen@example.invalid"
 
 
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
@@ -700,8 +817,32 @@ def test_authenticated_push_disables_hooks_and_scrubs_every_unrelated_credential
     platform.push(value, worktree)
 
 
+def test_merge_poll_and_sleep_never_exceed_the_remaining_acceptance_budget(tmp_path, monkeypatch):
+    value = grant()
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    clock = [0.0]
+    sleeps = []
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    def advance_sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(mission_bench.time, "sleep", advance_sleep)
+    runner = MergePollRunner(clock)
+    platform = GitHubPlatform(tmp_path, runner)
+
+    with pytest.raises(BenchError, match="acceptance budget"):
+        platform.wait_for_merge(value, 321, 1)
+
+    assert runner.timeouts == [1.0]
+    assert sleeps == [pytest.approx(0.4)]
+
+
 def test_changed_paths_include_both_ends_of_an_authority_file_rename(tmp_path):
-    paths = GitHubPlatform(tmp_path, DiffRunner()).changed_paths(grant(), tmp_path)
+    platform = GitHubPlatform(tmp_path, DiffRunner())
+    platform.worktree_bases[tmp_path.resolve()] = "base-commit"
+    paths = platform.changed_paths(grant(), tmp_path)
 
     assert paths == [
         "schemas/canonical/job-v2.json",
