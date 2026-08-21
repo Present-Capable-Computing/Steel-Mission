@@ -72,7 +72,16 @@ function App() {
         };
         if (!identityResponse.ok || !identity.ok) throw new Error(identity.error || "Identity is unavailable");
         if (!vocabularyResponse.ok || !vocabulary.ok) throw new Error(vocabulary.error || "Vocabulary is unavailable");
-        const view = capabilityWorkspaceView(identity.actor, vocabulary);
+        const actor = identity.actor && typeof identity.actor === "object"
+          ? identity.actor as {role?: unknown}
+          : {};
+        const actorRole = ["owner", "admin", "publisher"].includes(String(actor.role))
+          ? String(actor.role)
+          : "user";
+        const workspaceResponse = await apiRequest(`/api/${actorRole}/workspace`, {cache: "no-store"});
+        const workspace = await workspaceResponse.json() as {ok?: boolean; error?: string};
+        if (!workspaceResponse.ok || !workspace.ok) throw new Error(workspace.error || "Capability workspace is unavailable");
+        const view = capabilityWorkspaceView(identity.actor, workspace);
         if (current) {
           setCapabilityState({status: "ready", view});
           const registeredCapabilities = Array.isArray(vocabulary.capabilities)

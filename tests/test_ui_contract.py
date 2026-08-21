@@ -257,6 +257,16 @@ def test_application_capability_workspace_has_an_actionable_empty_state():
     assert "Settings → Users" in empty_text
 
 
+def test_application_capability_workspace_consumes_the_server_grant():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    html = chat["application_chat_index"]()
+    source = (WORKER_DIR / "steel-mission-ui" / "src" / "capabilities.ts").read_text()
+
+    assert "/workspace" in html
+    assert "visibleCapabilities" in source
+    assert "actor.capabilities" not in source
+
+
 def test_application_has_an_owner_capability_assignment_interface():
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     html = chat["application_chat_index"]()

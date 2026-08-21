@@ -1650,7 +1650,10 @@ def save_domain_capability_registry(payload: dict[str, Any], actor: str) -> dict
     return domain_capability_registry()
 
 
-def corporate_workspace(role: str) -> dict[str, Any]:
+def corporate_workspace(
+    role: str,
+    actor: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     selected = corporate_role(role)
     assignments = domain_capability_registry()
     users = user_registry().get("users", [])
@@ -1662,13 +1665,21 @@ def corporate_workspace(role: str) -> dict[str, Any]:
         if isinstance(item, dict)
     }
     active_users = [user for user in users if isinstance(user, dict) and user.get("status") == "active"]
-    user_assigned_keys = {
-        str(key)
-        for user in active_users
-        if selected in {"owner", "admin"} or user.get("role") == selected
-        for key in user.get("assignedCapabilities", [])
-        if str(key) in by_key
-    }
+    if actor is not None and selected not in {"owner", "admin"}:
+        actor_role = corporate_role(str(actor.get("role") or "user"))
+        user_assigned_keys = {
+            str(key)
+            for key in clean_string_list(actor.get("capabilities"), limit=200)
+            if actor_role == selected and str(key) in by_key
+        }
+    else:
+        user_assigned_keys = {
+            str(key)
+            for user in active_users
+            if selected in {"owner", "admin"} or user.get("role") == selected
+            for key in user.get("assignedCapabilities", [])
+            if str(key) in by_key
+        }
     visible = []
     for role_key, role_payload in by_key.items():
         allowed = selected in {"owner", "admin"} or role_key in user_assigned_keys
@@ -9153,7 +9164,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
         if path in {"/api/owner/workspace", "/api/admin/workspace", "/api/publisher/workspace", "/api/user/workspace"}:
             role = corporate_role(str(actor.get("role") if actor else "user"))
-            json_response(self, 200, corporate_workspace(role))
+            json_response(self, 200, corporate_workspace(role, actor=actor))
             return
         if path in {"/api/owner/assignments", "/api/admin/assignments"}:
             role = corporate_role(str(actor.get("role") if actor else "user"))

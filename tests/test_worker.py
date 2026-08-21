@@ -6978,6 +6978,7 @@ def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_acc
             {"id": "owner", "name": "Owner", "role": "owner", "status": "active", "assignedCapabilities": []},
             {"id": "admin", "name": "Admin", "role": "admin", "status": "active", "assignedCapabilities": []},
             {"id": "pub-a", "name": "Publisher A", "role": "publisher", "status": "active", "assignedCapabilities": ["DC03", "DC13"]},
+            {"id": "pub-b", "name": "Publisher B", "role": "publisher", "status": "active", "assignedCapabilities": ["DC11"]},
             {"id": "user-a", "name": "User A", "role": "user", "status": "active", "assignedCapabilities": ["DC11", "DC13"]},
         ],
     }))
@@ -6989,11 +6990,17 @@ def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_acc
     globals_["MUTATION_LEDGER_PATH"] = tmp_path / "mutation-ledger.jsonl"
 
     publisher = chat["corporate_workspace"]("publisher")
+    publisher_a = chat["corporate_workspace"]("publisher", actor={
+        "actorId": "pub-a",
+        "role": "publisher",
+        "capabilities": ["DC03", "DC13"],
+    })
     user = chat["corporate_workspace"]("user")
     admin = chat["corporate_workspace"]("admin")
 
     assert publisher["canAssign"] is False
-    assert {item["roleKey"] for item in publisher["visibleRoles"]} == {"DC03", "DC13"}
+    assert {item["roleKey"] for item in publisher["visibleRoles"]} == {"DC03", "DC11", "DC13"}
+    assert {item["roleKey"] for item in publisher_a["visibleRoles"]} == {"DC03", "DC13"}
     assert {item["roleKey"] for item in user["visibleRoles"]} == {"DC11", "DC13"}
     assert {item["roleKey"] for item in admin["visibleRoles"]} == {"DC03", "DC11", "DC13"}
     assert admin["canAssign"] is True
@@ -7015,6 +7022,31 @@ def test_steel_mission_corporate_workspace_filters_by_user_domain_capability_acc
     assert json.loads(user_registry.read_text())["users"] == saved["users"]
     with pytest.raises(ValueError, match="only owner and admin"):
         chat["save_user_registry"]({"users": []}, "publisher")
+
+
+def test_steel_mission_workspace_route_scopes_the_grant_to_the_authenticated_actor():
+    chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
+    globals_ = chat["Handler"].do_GET.__globals__
+    responses = []
+    globals_["corporate_workspace"] = lambda role, actor=None: {
+        "ok": True,
+        "role": role,
+        "actorId": actor.get("actorId") if actor else "",
+    }
+    globals_["json_response"] = lambda _handler, status, payload: responses.append(
+        (status, payload)
+    )
+    handler = object.__new__(chat["Handler"])
+    handler.path = "/api/publisher/workspace"
+    handler.authenticate = lambda _path, _method: {
+        "actorId": "pub-a",
+        "role": "publisher",
+        "capabilities": ["DC03"],
+    }
+
+    handler.do_GET()
+
+    assert responses == [(200, {"ok": True, "role": "publisher", "actorId": "pub-a"})]
 
 
 def test_steel_mission_general_knowledge_accepts_repositories_and_documents(tmp_path):

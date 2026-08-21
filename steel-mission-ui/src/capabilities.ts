@@ -23,21 +23,19 @@ function accessLevel(value: unknown): AccessLevel {
   return value === "owner" || value === "admin" || value === "publisher" ? value : "user";
 }
 
-export function capabilityWorkspaceView(actorValue: unknown, vocabularyValue: unknown): CapabilityWorkspaceView {
+export function capabilityWorkspaceView(actorValue: unknown, workspaceValue: unknown): CapabilityWorkspaceView {
   const actor = asRecord(actorValue);
-  const vocabulary = asRecord(vocabularyValue);
-  const registered = new Map(
-    (Array.isArray(vocabulary.capabilities) ? vocabulary.capabilities : [])
-      .map(asRecord)
-      .filter((item) => typeof item.capabilityKey === "string")
-      .map((item) => [String(item.capabilityKey), String(item.displayName || "Domain Capability")]),
-  );
-  const assigned = Array.isArray(actor.capabilities) ? actor.capabilities : [];
-  const capabilities = assigned
-    .map(String)
-    .filter((key, index, all) => registered.has(key) && all.indexOf(key) === index)
-    .map((capabilityKey) => {
-      const displayName = registered.get(capabilityKey) || "Domain Capability";
+  const workspace = asRecord(workspaceValue);
+  const granted = (Array.isArray(workspace.visibleCapabilities) ? workspace.visibleCapabilities : [])
+    .map(asRecord)
+    .filter((item) => typeof item.capabilityKey === "string");
+  const capabilities = granted
+    .filter((item, index, all) => (
+      all.findIndex((candidate) => candidate.capabilityKey === item.capabilityKey) === index
+    ))
+    .map((item) => {
+      const capabilityKey = String(item.capabilityKey);
+      const displayName = String(item.displayName || "Domain Capability");
       return {capabilityKey, displayName, label: `${capabilityKey} · ${displayName}`};
     });
 
