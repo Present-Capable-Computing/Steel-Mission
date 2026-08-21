@@ -2323,6 +2323,7 @@ select {
             /* @__PURE__ */ u3("select", { value: String(profile.modelProvider || "auto"), onChange: (event) => update("modelProvider", event.currentTarget.value), children: [
               /* @__PURE__ */ u3("option", { value: "auto", children: "auto" }),
               /* @__PURE__ */ u3("option", { value: "claude", children: "claude" }),
+              /* @__PURE__ */ u3("option", { value: "codex", children: "codex" }),
               /* @__PURE__ */ u3("option", { value: "glimmer", children: "glimmer" })
             ] })
           ] }),
@@ -2801,6 +2802,7 @@ select {
       connection: typeof provider.connection === "string" ? provider.connection : "unavailable",
       activity: provider.activity === "working" ? "working" : "idle",
       jobCount: typeof provider.jobCount === "number" ? provider.jobCount : 0,
+      ...typeof provider.model === "string" && provider.model ? { model: provider.model } : {},
       ...thinkingTokens === void 0 ? {} : { thinkingTokens }
     };
   }
@@ -3090,14 +3092,18 @@ select {
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Coordinator models are unavailable");
     const profiles = Array.isArray(payload.registry?.profiles) ? payload.registry.profiles.filter((item) => Boolean(item) && typeof item === "object" && item.status === "active" && item.modelRole === "dc13.coordination-report" && typeof item.id === "string") : [];
     const resolved = (await Promise.all(profiles.map((profile) => resolveProfile(request, profile)))).filter((model) => Boolean(model));
+    const activeProfile = typeof payload.activeProfile === "string" ? payload.activeProfile : "";
     const byProvider = /* @__PURE__ */ new Map();
     for (const model of resolved) {
       const profile = profiles.find((item) => item.id === model.profileId);
       const explicit = profile?.modelProvider === model.provider;
       const current = byProvider.get(model.provider);
-      if (!current || explicit && !current.explicit) byProvider.set(model.provider, { model, explicit });
+      const active = model.profileId === activeProfile;
+      const currentIsActive = current?.model.profileId === activeProfile;
+      if (!current || active || !currentIsActive && explicit && !current.explicit) {
+        byProvider.set(model.provider, { model, explicit });
+      }
     }
-    const activeProfile = typeof payload.activeProfile === "string" ? payload.activeProfile : "";
     const models = [...byProvider.values()].map((item) => item.model).sort((left, right) => {
       if (left.profileId === activeProfile) return -1;
       if (right.profileId === activeProfile) return 1;
@@ -3407,6 +3413,7 @@ select {
               /* @__PURE__ */ u3("span", { "data-connection": provider.connection, children: provider.connection }),
               " \xB7 ",
               /* @__PURE__ */ u3("span", { "data-activity": provider.activity, children: provider.activity }),
+              provider.model && ` \xB7 ${provider.model}`,
               provider.thinkingTokens !== void 0 && ` \xB7 ${provider.thinkingTokens.toLocaleString()} thinking tokens`
             ] })
           ] }, provider.id)),

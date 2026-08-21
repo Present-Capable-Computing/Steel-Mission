@@ -6,6 +6,7 @@ export interface ProviderStatus {
   connection: string;
   activity: "idle" | "working";
   jobCount: number;
+  model?: string;
   thinkingTokens?: number;
 }
 
@@ -40,6 +41,7 @@ function providerStatus(value: unknown, expected: Pick<ProviderStatus, "id" | "l
     connection: typeof provider.connection === "string" ? provider.connection : "unavailable",
     activity: provider.activity === "working" ? "working" : "idle",
     jobCount: typeof provider.jobCount === "number" ? provider.jobCount : 0,
+    ...(typeof provider.model === "string" && provider.model ? {model: provider.model} : {}),
     ...(thinkingTokens === undefined ? {} : {thinkingTokens}),
   };
 }

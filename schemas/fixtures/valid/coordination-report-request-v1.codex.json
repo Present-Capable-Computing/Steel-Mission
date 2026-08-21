@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "taskId": "DEV-900188",
+  "producedAt": "2026-08-21T15:00:00Z",
+  "producer": "steel-mission-chat-local",
+  "provenance": {"source": "worker-local-advisory-client"},
+  "verb": "coordination-report",
+  "advisory": true,
+  "verificationAuthority": false,
+  "runtimeProfile": {
+    "schemaVersion": 1,
+    "id": "dc13.codex",
+    "label": "Delivery Coordinator Codex",
+    "status": "active",
+    "modelRole": "dc13.coordination-report",
+    "modelProvider": "codex",
+    "snapshotProfile": "worker-local-default",
+    "defaultFor": [],
+    "editableBy": ["owner"],
+    "visibilityRoleKeys": ["DC13"],
+    "registryPath": "/tmp/config/runtime-profiles.json",
+    "registryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "resolvedAt": "2026-08-21T15:00:00Z"
+  },
+  "modelPolicy": {
+    "schemaVersion": 1,
+    "role": "dc13.coordination-report",
+    "selectedModel": "codex-cli-default",
+    "provider": "codex",
+    "transport": "codex-cli",
+    "snapshotProfile": "worker-local-default"
+  },
+  "snapshotPolicy": {
+    "schemaVersion": 1,
+    "sourceProfile": "worker-local-default",
+    "includeCollections": ["tasks"],
+    "limits": {},
+    "sources": {
+      "taskRoots": ["/tmp/tasks"],
+      "logRoots": ["/tmp/logs"],
+      "buildJobRoots": ["/tmp/jobs"],
+      "verifyResultRoots": ["/tmp/results"],
+      "brokerStatePaths": []
+    }
+  }
+}

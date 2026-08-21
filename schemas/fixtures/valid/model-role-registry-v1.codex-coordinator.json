@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-21T15:00:00Z",
+  "producer": "steel-mission",
+  "models": [
+    {
+      "id": "codex-cli-default",
+      "provider": "codex",
+      "transport": "codex-cli",
+      "roles": ["dc13.coordination-report"],
+      "nativeCapabilities": ["provider-native-cli", "structured-output"],
+      "requiresNetwork": true,
+      "local": false
+    }
+  ],
+  "roles": [
+    {
+      "id": "dc13.coordination-report",
+      "title": "Delivery Coordinator",
+      "primaryModel": "codex-cli-default",
+      "fallbackModels": [],
+      "governanceCapabilities": ["bounded-snapshot"],
+      "snapshotProfile": "worker-local-default"
+    }
+  ]
+}

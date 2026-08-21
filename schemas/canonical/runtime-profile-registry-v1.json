@@ -40,7 +40,7 @@
         "label": {"type": "string", "minLength": 1, "maxLength": 128},
         "status": {"enum": ["active", "disabled"]},
         "modelRole": {"type": "string", "minLength": 1, "maxLength": 128},
-        "modelProvider": {"enum": ["auto", "claude", "glimmer"]},
+        "modelProvider": {"enum": ["auto", "claude", "codex", "glimmer"]},
         "requiredProviderCapabilities": {"type": "array", "maxItems": 50, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
         "snapshotProfile": {"type": "string", "minLength": 1, "maxLength": 128},
         "defaultFor": {

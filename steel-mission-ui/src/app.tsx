@@ -253,6 +253,7 @@ function App() {
               <p>
                 <span data-connection={provider.connection}>{provider.connection}</span>
                 {" · "}<span data-activity={provider.activity}>{provider.activity}</span>
+                {provider.model && ` · ${provider.model}`}
                 {provider.thinkingTokens !== undefined && ` · ${provider.thinkingTokens.toLocaleString()} thinking tokens`}
               </p>
             </article>

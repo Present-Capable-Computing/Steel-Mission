@@ -25,7 +25,7 @@
       "id": "codex-cli-default",
       "provider": "codex",
       "transport": "codex-cli",
-      "roles": ["delivery.reviewer"],
+      "roles": ["dc13.coordination-report", "delivery.reviewer"],
       "nativeCapabilities": ["provider-native-cli", "structured-output", "read-only-review", "non-interactive-execution"],
       "requiresNetwork": true,
       "local": false
@@ -35,8 +35,8 @@
     {
       "id": "dc13.coordination-report",
       "title": "Delivery Coordinator",
-      "primaryModel": "claude-sonnet-5",
-      "fallbackModels": ["qwen2.5-coder:14b"],
+      "primaryModel": "codex-cli-default",
+      "fallbackModels": ["claude-sonnet-5", "qwen2.5-coder:14b"],
       "governanceCapabilities": ["role-binding", "bounded-snapshot", "guarded-execution", "audit-evidence"],
       "snapshotProfile": "steel-mission-starter"
     },

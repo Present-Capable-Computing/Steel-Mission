@@ -60,6 +60,7 @@ DOMAIN_CAPABILITY_ROLE_KEYS = {
 }
 PROVIDER_RUNTIME_PROFILES = {
     "claude": "dc13.claude",
+    "codex": "dc13.codex",
     "glimmer": "dc13.local",
 }
 PROFILE_OPERATOR_ROLES = {"owner", "admin", "publisher", "user", "local-user", "org-admin"}
@@ -814,9 +815,9 @@ def _capability_registry(provider_capabilities: dict, *, git_ready: bool) -> dic
             output_schemas=["adversarial-result-v1"], evidence_roles=["advisory-security"],
             constraints={"requiresRequirement": True}),
         "coordination-report": _capability_entry(
-            "coordination-report", verb="coordination-report", provider="claude", authority="advisory-status",
-            available=claude_ready or glimmer_ready,
-            missing=[] if (claude_ready or glimmer_ready) else ["claude", "glimmer"],
+            "coordination-report", verb="coordination-report", provider="codex", authority="advisory-status",
+            available=codex_ready or claude_ready or glimmer_ready,
+            missing=[] if (codex_ready or claude_ready or glimmer_ready) else ["codex", "claude", "glimmer"],
             targets=["worker"],
             input_kinds=[
                 "worker-state-snapshot",
@@ -835,7 +836,11 @@ def _capability_registry(provider_capabilities: dict, *, git_ready: bool) -> dic
         "roles": [DEFAULT_COORDINATOR_ROLE],
                 "providers": {
                     "default": "role-registry",
-                    "available": [name for name, ready in (("claude", claude_ready), ("glimmer", glimmer_ready)) if ready],
+                    "available": [
+                        name for name, ready in (
+                            ("codex", codex_ready), ("claude", claude_ready), ("glimmer", glimmer_ready)
+                        ) if ready
+                    ],
                 },
             }),
         "candidate": _capability_entry(
@@ -3029,9 +3034,18 @@ def _coordinator_progress_writer(task_id: str, requirement: str = "", snapshot: 
     subject = _coordinator_progress_subject(requirement)
     scope = _coordinator_progress_scope(snapshot or {})
     started_epoch = time.time()
-    provider_label = "Glimmer" if provider == "glimmer" else "Claude"
-    active_model = model or (glimmer_adapter.DEFAULT_MODEL if provider == "glimmer" else claude_adapter.COORDINATOR_MODEL)
-    transport_label = "Claude process" if provider == "claude" else "Glimmer request"
+    provider_label = {"claude": "Claude", "codex": "Codex", "glimmer": "Glimmer"}.get(provider, provider.title())
+    default_model = {
+        "claude": claude_adapter.COORDINATOR_MODEL,
+        "codex": "codex-cli-default",
+        "glimmer": glimmer_adapter.DEFAULT_MODEL,
+    }.get(provider)
+    active_model = model or default_model
+    transport_label = {
+        "claude": "Claude process",
+        "codex": "Codex process",
+        "glimmer": "Glimmer request",
+    }.get(provider, f"{provider_label} process")
 
     def timeline_event(label: str, detail: str = "", **fields) -> dict:
         event = {
@@ -3201,7 +3215,15 @@ def cmd_coordinator_report(args) -> int:
     progress = None if args.mock else _coordinator_progress_writer(
         args.task_id, requirement, snapshot, provider=provider, model=progress_model
     )
-    if provider == "glimmer":
+    if provider == "codex":
+        result = codex_adapter.coordinator_report(
+            args.task_id, "mock" if args.mock else "live",
+            requirement, snapshot, pack_identity,
+            timeout=timeout,
+            progress=progress,
+        )
+        role = "codex"
+    elif provider == "glimmer":
         result = glimmer_adapter.coordinator_report(
             args.task_id, "mock" if args.mock else "live",
             requirement, snapshot, pack_identity,
@@ -5144,7 +5166,7 @@ def build_parser() -> argparse.ArgumentParser:
     model_role_delete.set_defaults(func=cmd_model_role_delete)
     model_role_resolve = sub.add_parser("model-role-resolve")
     model_role_resolve.add_argument("role", nargs="?", default=os.environ.get("STEEL_MISSION_COORDINATOR_ROLE", DEFAULT_COORDINATOR_ROLE))
-    model_role_resolve.add_argument("--provider", choices=["claude", "glimmer"], default=None)
+    model_role_resolve.add_argument("--provider", choices=["claude", "codex", "glimmer"], default=None)
     model_role_resolve.add_argument("--ignore-readiness", action="store_true", default=False)
     model_role_resolve.set_defaults(func=cmd_model_role_resolve)
     runtime_profiles = sub.add_parser("runtime-profiles")
@@ -5191,7 +5213,7 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "coordination-report":
             command.add_argument(
                 "--provider",
-                choices=["claude", "glimmer"],
+                choices=["claude", "codex", "glimmer"],
                 default=None,
                 help="Compatibility override; prefer --role for new callers.",
             )

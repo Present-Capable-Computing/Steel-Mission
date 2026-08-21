@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "producedAt": "2026-08-21T15:00:00Z",
+  "producer": "steel-mission",
+  "profiles": [
+    {
+      "id": "dc13.codex",
+      "label": "Delivery Coordinator Codex",
+      "status": "active",
+      "modelRole": "dc13.coordination-report",
+      "modelProvider": "codex",
+      "requiredProviderCapabilities": ["provider-native-cli", "structured-output"],
+      "snapshotProfile": "worker-local-default",
+      "defaultFor": [],
+      "editableBy": ["owner"],
+      "visibilityRoleKeys": ["DC13"],
+      "includeCollections": ["tasks"],
+      "limits": {},
+      "taskSelector": {"mode": "latest"},
+      "sources": {
+        "taskRoots": ["/tmp/tasks"],
+        "logRoots": ["/tmp/logs"],
+        "buildJobRoots": ["/tmp/jobs"],
+        "verifyResultRoots": ["/tmp/results"],
+        "brokerStatePaths": []
+      }
+    }
+  ]
+}

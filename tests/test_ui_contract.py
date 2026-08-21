@@ -363,6 +363,12 @@ def test_normal_chat_stays_mounted_when_another_surface_is_visible():
     assert '!settingsOpen && workMode === "normal"' not in source
 
 
+def test_runtime_profile_editor_offers_codex_as_a_model_binding():
+    source = (WORKER_DIR / "steel-mission-ui" / "src" / "runtime-profiles-panel.tsx").read_text()
+
+    assert '<option value="codex">codex</option>' in source
+
+
 def test_runtime_profile_resolution_endpoint_uses_the_worker_registry(monkeypatch):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["Handler"].do_GET.__globals__
@@ -386,22 +392,23 @@ def test_runtime_profile_resolution_endpoint_uses_the_worker_registry(monkeypatc
     assert calls == [(["runtime-profile-resolve", "dc13.local"], None, 15)]
 
 
-def test_health_status_strip_reflects_a_started_job(monkeypatch):
+def test_health_status_strip_reflects_a_started_codex_job_and_model(monkeypatch):
     chat = runpy.run_path(str(WORKER_DIR / "steel-mission-chat" / "server.py"))
     globals_ = chat["start_job"].__globals__
     entered = threading.Event()
     release = threading.Event()
 
     monkeypatch.setitem(globals_, "resolve_runtime_profile", lambda _profile=None: {
-        "runtimeProfile": {"id": "dc13.claude"},
-        "modelPolicy": {"provider": "claude", "selectedModel": "claude-sonnet-5"},
+        "runtimeProfile": {"id": "dc13.codex"},
+        "modelPolicy": {"provider": "codex", "selectedModel": "codex-cli-default"},
         "snapshotPolicy": {},
     })
     monkeypatch.setitem(globals_, "knowledge_quality_report", lambda: {"issues": [], "status": "ready"})
     monkeypatch.setitem(globals_, "update_mission", lambda *_args, **_kwargs: None)
     monkeypatch.setitem(globals_, "append_mission_audit", lambda *_args, **_kwargs: None)
     monkeypatch.setitem(globals_, "read_progress", lambda _task_id: {
-        "provider": "claude",
+        "provider": "codex",
+        "model": "codex-cli-default",
         "thinkingTokens": 321,
     })
     monkeypatch.setitem(globals_, "worker_json_command", lambda *_args, **_kwargs: (200, {
@@ -428,11 +435,12 @@ def test_health_status_strip_reflects_a_started_job(monkeypatch):
     try:
         status, payload = route_response(chat, "/api/health")
         assert status == 200
-        claude = next(provider for provider in payload["providers"] if provider["id"] == "claude")
-        assert claude["connection"] == "connected"
-        assert claude["activity"] == "working"
-        assert claude["jobCount"] == 1
-        assert claude["tokenUsage"] == {"thinkingTokens": 321}
+        codex = next(provider for provider in payload["providers"] if provider["id"] == "codex")
+        assert codex["connection"] == "connected"
+        assert codex["activity"] == "working"
+        assert codex["jobCount"] == 1
+        assert codex["model"] == "codex-cli-default"
+        assert codex["tokenUsage"] == {"thinkingTokens": 321}
     finally:
         release.set()
         deadline = time.time() + 5
