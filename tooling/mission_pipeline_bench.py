@@ -32,7 +32,12 @@ from adapters import schema_check  # noqa: E402
 
 
 SESSION_SCHEMA = "canonical/agent-session-status-v1.json"
-AUTHORITY_PATHS = ("schemas/canonical/", "schemas/schema-registry.json", "docs/workplan.md")
+AUTHORITY_PATHS = (
+    "schemas/canonical/",
+    "schemas/schema-registry.json",
+    "docs/workplan.md",
+    ".github/CODEOWNERS",
+)
 STAGE_DETAILS = {
     "plan": ("plan", "claude", "planner", "opus"),
     "develop": ("develop-and-commit", "local", "developer", "qwen2.5-coder:14b"),
@@ -178,25 +183,37 @@ def command_tail(result: CommandResult, limit: int = 4000) -> str:
     return text[-limit:]
 
 
-def isolated_command_env(session_dir: Path, credential_envs: set[str]) -> dict[str, str]:
+def isolated_command_env(
+    session_dir: Path,
+    credential_envs: set[str],
+    *,
+    scrub_all_credentials: bool = False,
+) -> dict[str, str]:
     """Remove GitHub authority from repository-authored and model commands."""
     gh_config = session_dir / "no-github-credentials"
+    hooks = session_dir / "no-git-hooks"
     gh_config.mkdir(parents=True, exist_ok=True)
+    hooks.mkdir(parents=True, exist_ok=True)
     environment = {
         "GH_CONFIG_DIR": str(gh_config),
         "GH_TOKEN": "",
         "GITHUB_TOKEN": "",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_SSH_COMMAND": "false",
-        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_COUNT": "4",
         "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
         "GIT_CONFIG_VALUE_0": "disabled://mission-bench-command-cannot-push",
         "GIT_CONFIG_KEY_1": "credential.helper",
         "GIT_CONFIG_VALUE_1": "",
         "GIT_CONFIG_KEY_2": "http.https://github.com/.extraheader",
         "GIT_CONFIG_VALUE_2": "",
+        "GIT_CONFIG_KEY_3": "core.hooksPath",
+        "GIT_CONFIG_VALUE_3": str(hooks),
     }
     environment.update({name: "" for name in credential_envs})
+    if scrub_all_credentials:
+        markers = ("TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "API_KEY", "PRIVATE_KEY")
+        environment.update({name: "" for name in os.environ if any(marker in name.upper() for marker in markers)})
     return environment
 
 
@@ -397,7 +414,12 @@ class GitHubPlatform:
         default_owners = {token.lstrip("@") for token in default_owner.split()[1:]}
         if default_owners != {acceptance_login}:
             raise BenchError("Claude acceptance account must be the sole default CODEOWNER")
-        authority_patterns = ("/schemas/canonical/", "/schemas/schema-registry.json", "/docs/workplan.md")
+        authority_patterns = (
+            "/schemas/canonical/",
+            "/schemas/schema-registry.json",
+            "/docs/workplan.md",
+            "/.github/CODEOWNERS",
+        )
         for pattern in authority_patterns:
             line = next((item for item in codeowners if item.split(maxsplit=1)[0:1] == [pattern]), "")
             owners = {token.lstrip("@") for token in line.split()[1:]}
@@ -511,14 +533,26 @@ class GitHubPlatform:
             "esac\n"
         )
         askpass.chmod(0o700)
-        self._run([
-            "git", "push", f"https://github.com/{grant['repository']}.git",
-            f"HEAD:refs/heads/{grant['branch']}",
-        ], cwd=worktree, timeout=300, extra_env={
+        credential_envs = {
+            account["tokenEnv"] for account in grant["machineAccounts"].values()
+        }
+        decision_token_env = grant["decisionApi"].get("tokenEnv")
+        if decision_token_env:
+            credential_envs.add(decision_token_env)
+        environment = isolated_command_env(
+            worktree.parent,
+            credential_envs,
+            scrub_all_credentials=True,
+        )
+        environment.update({
             "GIT_ASKPASS": str(askpass),
             "GIT_TERMINAL_PROMPT": "0",
             "SM_BENCH_PUSH_TOKEN": token,
-        }, label="machine-account push")
+        })
+        self._run([
+            "git", "push", f"https://github.com/{grant['repository']}.git",
+            f"HEAD:refs/heads/{grant['branch']}",
+        ], cwd=worktree, timeout=300, extra_env=environment, label="machine-account push")
 
     def create_pr(self, grant: dict[str, Any], worktree: Path, body_path: Path) -> dict[str, Any]:
         result = self._run([
@@ -558,6 +592,11 @@ class GitHubPlatform:
         self._run([
             "gh", "pr", "merge", str(pr_number), "--repo", grant["repository"], "--auto", "--merge",
         ], extra_env=self._account_env(grant, "local"), label="auto-merge arming")
+
+    def disable_auto_merge(self, grant: dict[str, Any], pr_number: int) -> None:
+        self._run([
+            "gh", "pr", "merge", str(pr_number), "--repo", grant["repository"], "--disable-auto",
+        ], extra_env=self._account_env(grant, "local"), label="auto-merge cancellation")
 
     def wait_for_ci(self, grant: dict[str, Any], pr_number: int, timeout: int) -> str:
         result = self._run([
@@ -836,6 +875,7 @@ class PipelineBench:
         self.stage_started: dict[str, str] = {}
         self.active_stage: str | None = None
         self.active_budget: StageBudget | None = None
+        self.auto_merge_armed = False
         self.evidence: dict[str, Any] = {
             "schemaVersion": 1,
             "missionId": self.grant["missionId"],
@@ -927,7 +967,11 @@ class PipelineBench:
 
     def _green_gates(self, worktree: Path, budget: StageBudget) -> dict[str, Any]:
         definition = self.grant["definitionOfDone"]
-        environment = isolated_command_env(self.session_dir, self.credential_envs)
+        environment = isolated_command_env(
+            self.session_dir,
+            self.credential_envs,
+            scrub_all_credentials=True,
+        )
         test_result = self.platform.run_command(
             definition["test"], worktree, budget.remaining(), environment
         )
@@ -1021,12 +1065,23 @@ class PipelineBench:
         try:
             return self._run_pipeline()
         except BenchError as exc:
-            self._record_failure(exc)
+            final_error = self._record_failure(exc)
+            if final_error is not exc:
+                raise final_error from exc
             raise
 
-    def _record_failure(self, error: BenchError) -> None:
+    def _record_failure(self, error: BenchError) -> BenchError:
+        if self.auto_merge_armed and isinstance(self.evidence.get("pullRequest"), dict):
+            try:
+                self.platform.disable_auto_merge(
+                    self.grant,
+                    int(self.evidence["pullRequest"]["number"]),
+                )
+                self.auto_merge_armed = False
+            except BenchError as cancel_error:
+                error = BenchError(f"{error}; auto-merge cancellation also failed: {cancel_error}")
         if self.active_stage is None or self.active_budget is None:
-            return
+            return error
         reason = str(error)[:2000] or "mission bench stopped"
         exhausted = "budget" in reason.lower() or "exceeded its" in reason.lower()
         state = "budget-exhausted" if exhausted else "failed"
@@ -1042,6 +1097,7 @@ class PipelineBench:
             event_kind="session-stopped",
             outcome_status=state,
         )
+        return error
 
     def _run_pipeline(self) -> dict[str, Any]:
         issue = self.platform.issue(self.grant)
@@ -1106,7 +1162,11 @@ class PipelineBench:
             self.grant["definitionOfDone"]["redTest"],
             worktree,
             develop_budget.remaining(),
-            isolated_command_env(self.session_dir, self.credential_envs),
+            isolated_command_env(
+                self.session_dir,
+                self.credential_envs,
+                scrub_all_credentials=True,
+            ),
         )
         if red_result.returncode == 0:
             raise BenchError("the acceptance regression was not observed failing before development")
@@ -1192,6 +1252,7 @@ class PipelineBench:
 
         acceptance_budget = StageBudget(self.grant["budgets"]["acceptance"])
         self.platform.arm_auto_merge(self.grant, int(pull_request["number"]))
+        self.auto_merge_armed = True
         self._emit("acceptance", "working", "Auto-merge is armed and required CI is running before final acceptance.", acceptance_budget, event_kind="stage-started")
         ci = self.platform.wait_for_ci(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
@@ -1211,6 +1272,7 @@ class PipelineBench:
         merged = self.platform.wait_for_merge(
             self.grant, int(pull_request["number"]), acceptance_budget.remaining()
         )
+        self.auto_merge_armed = False
         self.evidence["stages"]["acceptance"] = {"ci": ci, "review": acceptance, "merge": merged}
         self.evidence["state"] = "merged"
         self.evidence["completedAt"] = utc_now()

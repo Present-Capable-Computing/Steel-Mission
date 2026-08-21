@@ -81,11 +81,13 @@ class FakePlatform:
         *,
         issue_payload: dict | None = None,
         gate_failure: bool = False,
+        merge_failure: bool = False,
         path_batches: list[list[str]] | None = None,
     ):
         self.root = root
         self.issue_payload = issue_payload or issue()
         self.gate_failure = gate_failure
+        self.merge_failure = merge_failure
         self.path_batches = list(path_batches or [])
         self.calls: list[str] = []
         self.commit = 0
@@ -156,6 +158,9 @@ class FakePlatform:
     def arm_auto_merge(self, _grant, _pr_number):
         self.calls.append("auto-merge")
 
+    def disable_auto_merge(self, _grant, _pr_number):
+        self.calls.append("disable-auto-merge")
+
     def wait_for_ci(self, _grant, _pr_number, timeout):
         self.calls.append(f"ci:{timeout}")
         return "all checks passed"
@@ -165,6 +170,8 @@ class FakePlatform:
 
     def wait_for_merge(self, _grant, _pr_number, timeout):
         self.calls.append(f"merged:{timeout}")
+        if self.merge_failure:
+            raise BenchError("auto-merge did not land within the acceptance budget")
         return {"state": "MERGED", "mergedAt": "2026-08-21T09:00:00Z"}
 
 
@@ -256,6 +263,19 @@ class AccountRunner:
             assert argv == ["gh", "api", "user/emails"]
             output = json.dumps([{"email": email, "verified": email not in self.unverified}])
         return CommandResult(argv, 0, output, "", 0.1)
+
+
+class PushRunner:
+    def __init__(self, expected_blank):
+        self.expected_blank = expected_blank
+
+    def run(self, argv, cwd, timeout, *, input_text="", extra_env=None):
+        assert argv[:2] == ["git", "push"]
+        assert all(extra_env[name] == "" for name in self.expected_blank)
+        assert extra_env["SM_BENCH_PUSH_TOKEN"] == "local-token"
+        assert extra_env["GIT_CONFIG_KEY_3"] == "core.hooksPath"
+        assert Path(extra_env["GIT_CONFIG_VALUE_3"]).is_dir()
+        return CommandResult(argv, 0, "pushed", "", 0.1)
 
 
 def protected_repository():
@@ -414,6 +434,25 @@ def test_a_red_full_gate_prevents_every_push(tmp_path):
     assert json.loads(bench.evidence_path.read_text())["failure"]["reason"].startswith("full test gate failed")
 
 
+def test_failure_after_auto_merge_is_armed_cancels_it_and_records_budget_exhaustion(tmp_path):
+    platform = FakePlatform(tmp_path, merge_failure=True)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="acceptance budget"):
+        bench.run()
+
+    assert platform.calls.index("auto-merge") < platform.calls.index("disable-auto-merge")
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    assert feed[-1]["state"] == "budget-exhausted"
+    assert feed[-1]["outcome"]["status"] == "budget-exhausted"
+
+
 def test_review_correction_that_touches_authority_stops_before_another_push(tmp_path):
     platform = FakePlatform(
         tmp_path,
@@ -498,6 +537,7 @@ def test_model_subprocess_environment_scrubs_grant_credentials_and_git_helpers(t
     assert environment["GH_TOKEN"] == ""
     assert environment["GIT_CONFIG_KEY_1"] == "credential.helper"
     assert environment["GIT_CONFIG_VALUE_1"] == ""
+    assert environment["GIT_CONFIG_KEY_3"] == "core.hooksPath"
 
 
 def test_runtime_state_must_live_outside_the_product_repository(tmp_path):
@@ -517,6 +557,7 @@ def test_repository_wall_requires_claude_acceptance_without_authority_ownership(
         "/schemas/canonical/ @andrewHermann\n"
         "/schemas/schema-registry.json @andrewHermann\n"
         "/docs/workplan.md @andrewHermann\n"
+        "/.github/CODEOWNERS @andrewHermann\n"
     )
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
@@ -549,6 +590,24 @@ def test_machine_commit_email_must_be_verified_by_the_authenticated_account(tmp_
 
     with pytest.raises(BenchError, match="local commit email is not verified"):
         platform.validate_machine_accounts(value)
+
+
+def test_authenticated_push_disables_hooks_and_scrubs_every_unrelated_credential(tmp_path, monkeypatch):
+    value = grant()
+    credential_names = {
+        account["tokenEnv"] for account in value["machineAccounts"].values()
+    }
+    for name in credential_names:
+        monkeypatch.setenv(name, "local-token" if name == value["machineAccounts"]["local"]["tokenEnv"] else "secret")
+    monkeypatch.setenv("UNRELATED_API_TOKEN", "also-secret")
+    worktree = tmp_path / "session" / "worktree"
+    worktree.mkdir(parents=True)
+    platform = GitHubPlatform(
+        tmp_path,
+        PushRunner(credential_names | {"UNRELATED_API_TOKEN"}),
+    )
+
+    platform.push(value, worktree)
 
 
 def test_changed_paths_include_both_ends_of_an_authority_file_rename(tmp_path):
