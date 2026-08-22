@@ -870,19 +870,29 @@ class GitHubPlatform:
         the mission."""
         account = grant["machineAccounts"]["local"]
         environment = self._untrusted_git_env(grant, worktree)
-        entries = self._run(
-            ["git", "status", "--porcelain"],
+        raw = self._run(
+            ["git", "status", "--porcelain", "-z"],
             cwd=worktree, extra_env=environment, inherit_env=False,
             label="machine work status",
-        ).stdout.splitlines()
+        ).stdout
+        fields = raw.split("\0")
         prefixes = [prefix.rstrip("/") for prefix in grant["allowedPaths"]]
         in_wall: list[str] = []
         dropped: list[str] = []
-        for line in entries:
-            if len(line) < 4:
+        index = 0
+        while index < len(fields):
+            field = fields[index]
+            index += 1
+            if len(field) < 4:
                 continue
-            state, path = line[:2], line[3:].strip().strip('"').rstrip("/")
-            inside = any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
+            state, path = field[:2], field[3:]
+            if state[:1] in {"R", "C"}:
+                index += 1
+            candidate = path.rstrip("/")
+            inside = any(
+                candidate == prefix or candidate.startswith(prefix + "/")
+                for prefix in prefixes
+            )
             if inside:
                 in_wall.append(path)
             elif state == "??":
@@ -2087,11 +2097,17 @@ class PipelineBench:
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
             self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
-            self.platform.commit_machine_work(
+            correction_dropped = self.platform.commit_machine_work(
                 self.grant,
                 worktree,
                 f"Address Codex review round {round_number} for issue #{self.grant['issueNumber']}",
-            )
+            ) or []
+            if correction_dropped:
+                self._emit(
+                    "review", "working",
+                    f"Out-of-wall scratch files were removed before the correction commit: {correction_dropped}",
+                    review_budget,
+                )
             baseline_commit = previous_commit
             correction_commit = self.platform.assert_machine_commit(
                 self.grant, worktree, previous_commit=baseline_commit
@@ -2112,6 +2128,7 @@ class PipelineBench:
                 "round": round_number,
                 "commit": previous_commit,
                 "gates": correction_gates,
+                **({"droppedScratch": correction_dropped} if correction_dropped else {}),
             })
             self.evidence["reviewCorrectionRounds"] = corrections
             self._save_evidence()

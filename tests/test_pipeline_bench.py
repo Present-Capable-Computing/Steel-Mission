@@ -1240,6 +1240,29 @@ def test_isolated_worktree_keeps_main_clean_when_the_session_is_killed(tmp_path)
     assert status == ""
 
 
+def test_correction_scratch_removal_is_reported_not_silent(tmp_path):
+    class CorrectionScratchPlatform(FakePlatform):
+        def commit_machine_work(self, _grant, _worktree, message, amend=False):
+            self.calls.append("machine-commit-amend" if amend else "machine-commit")
+            return [] if "issue #999" in message and "round" not in message else ["notes.tmp"]
+
+    platform = CorrectionScratchPlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+    result = bench.run()
+
+    assert result["state"] == "queued"
+    evidence = json.loads(Path(result["evidencePath"]).read_text())
+    assert evidence["stages"]["corrections"][0]["droppedScratch"] == ["notes.tmp"]
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    assert any("removed before the correction commit" in entry["outcome"]["summary"] for entry in feed)
+
+
 def test_trusted_commit_stages_only_the_wall_and_drops_out_of_wall_scratch(tmp_path):
     repository = tmp_path / "repo"
     repository.mkdir()
@@ -1257,6 +1280,7 @@ def test_trusted_commit_stages_only_the_wall_and_drops_out_of_wall_scratch(tmp_p
 
     (worktree / "tooling").mkdir()
     (worktree / "tooling" / "runner.mjs").write_text("discovered\n")
+    (worktree / "tooling" / "caf\u00e9 \"quoted\".py").write_text("unicode in the wall\n")
     (worktree / "tooling" / "runner.mjs.backup").write_text("scratch\n")
     (worktree / "stray.log").write_text("scratch\n")
     dropped = platform.commit_machine_work(value, worktree, "Implement the granted mission for issue #999")
@@ -1269,6 +1293,10 @@ def test_trusted_commit_stages_only_the_wall_and_drops_out_of_wall_scratch(tmp_p
     assert "sm-agent-qwen" in committed
     assert "tooling/runner.mjs" in committed
     assert "stray.log" not in committed
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=worktree, check=True, capture_output=True, text=True
+    ).stdout
+    assert "tooling/caf\u00e9 \"quoted\".py" in tracked
     status = subprocess.run(
         ["git", "status", "--porcelain"], cwd=worktree, check=True, capture_output=True, text=True
     ).stdout.strip()
