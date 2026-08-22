@@ -75,7 +75,10 @@ def codeowners_pattern_matches(pattern: str, path: str) -> bool:
     """Return whether a supported CODEOWNERS pattern applies to a repository path."""
     normalized = pattern.removeprefix("/")
     candidate = path.removeprefix("/")
-    if not normalized or pattern.startswith("!") or "[" in pattern or "**" in normalized:
+    if (
+        not normalized or pattern.startswith("!")
+        or any(mark in pattern for mark in ("[", "\\", "**"))
+    ):
         raise BenchError(f"unsupported CODEOWNERS pattern in repository wall: {pattern}")
     if normalized == "*":
         return True
@@ -654,6 +657,16 @@ class GitHubPlatform:
             f"repos/{grant['repository']}/contents/.github/CODEOWNERS?ref={base_oid}",
         ], timeout=remaining(), extra_env=environment, inherit_env=False, complete_stdout=True,
             label="live-base CODEOWNERS read")
+        errors_result = self._run(
+            ["gh", "api", f"repos/{grant['repository']}/codeowners/errors?ref={base_oid}"],
+            timeout=remaining(), extra_env=environment, inherit_env=False,
+            complete_stdout=True, label="live-base CODEOWNERS errors read")
+        try:
+            codeowners_errors = json.loads(errors_result.stdout)["errors"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise BenchError("CODEOWNERS errors read returned invalid JSON") from exc
+        if not isinstance(codeowners_errors, list) or codeowners_errors:
+            raise BenchError("repository CODEOWNERS errors must be empty")
         result = self._run([
             "gh", "api",
             f"repos/{grant['repository']}/branches/{grant['baseBranch']}/protection",
@@ -685,10 +698,7 @@ class GitHubPlatform:
             for check in required_checks
             if isinstance(check, dict) and check.get("context")
         }
-        required_interpreters = {
-            "Python test suite (3.11)",
-            "Python test suite (3.12)",
-        }
+        required_interpreters = {"Python test suite (3.11)", "Python test suite (3.12)"}
         if not required_interpreters.issubset(check_names):
             raise BenchError("branch protection must require the Python 3.11 and 3.12 test suites")
         if not isinstance(checks, dict) or checks.get("strict") is not True:
@@ -704,10 +714,7 @@ class GitHubPlatform:
         default_rule = next((rule for rule in reversed(rules) if rule[0] == "*"), [])
         default_owners = {token.lstrip("@").lower() for token in default_rule[1:]}
         person_login = grant["grantedBy"].lower()
-        expected_non_authority_owners = {
-            person_login,
-            acceptance_login.lower(),
-        }
+        expected_non_authority_owners = {person_login, acceptance_login.lower()}
         if default_owners != expected_non_authority_owners:
             raise BenchError("Founder and Claude acceptance must co-own default non-authority paths")
         for pattern in ("/steel_core/", "/tooling/"):
@@ -774,10 +781,7 @@ class GitHubPlatform:
                     raise BenchError(
                         f"{pattern} effective CODEOWNERS rule must remain Founder-only"
                     )
-        return {
-            "credentialBoundary": "operator-ambient",
-            "baseCommit": base_oid,
-        }
+        return {"credentialBoundary": "operator-ambient", "baseCommit": base_oid}
 
     def claim_issue(
         self,

@@ -295,9 +295,10 @@ class FakeDecision:
 
 
 class ProtectionRunner:
-    def __init__(self, protection, codeowners=None):
+    def __init__(self, protection, codeowners=None, codeowners_errors=None):
         self.protection = protection
         self.codeowners = codeowners
+        self.codeowners_errors = codeowners_errors or []
 
     def run(
         self, argv, cwd, timeout, *, input_text="", extra_env=None,
@@ -320,6 +321,8 @@ class ProtectionRunner:
             output = self.codeowners
             if output is None:
                 output = (Path(cwd) / ".github" / "CODEOWNERS").read_text()
+        elif "/codeowners/errors?ref=" in endpoint:
+            output = json.dumps({"errors": self.codeowners_errors})
         else:
             output = json.dumps(self.protection)
         return CommandResult(argv, 0, output, "", 0.1)
@@ -1668,6 +1671,47 @@ def test_repository_wall_fails_closed_on_recursive_codeowners_globs(tmp_path, mo
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     with pytest.raises(BenchError, match="unsupported CODEOWNERS pattern"):
+        platform.validate_repository_wall(grant())
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        line.split()[0]
+        for line in protected_codeowners().splitlines()
+        if line.endswith(" @andrewHermann")
+    ],
+)
+def test_repository_wall_fails_closed_on_backslash_codeowners_patterns(
+    tmp_path, monkeypatch, pattern
+):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    escaped = pattern[:1] + "\\" + pattern[1:]
+    codeowners.write_text(protected_codeowners() + f"{escaped} @sm-agent-claude\n")
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="unsupported CODEOWNERS pattern"):
+        platform.validate_repository_wall(grant())
+
+
+def test_repository_wall_rejects_codeowners_errors_at_the_validated_base(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(protected_codeowners())
+    platform = GitHubPlatform(
+        tmp_path,
+        ProtectionRunner(
+            protected_repository(),
+            codeowners_errors=[{"line": 2, "kind": "Invalid owner"}],
+        ),
+    )
+
+    with pytest.raises(BenchError, match="CODEOWNERS errors"):
         platform.validate_repository_wall(grant())
 
 
