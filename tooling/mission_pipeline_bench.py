@@ -1826,7 +1826,16 @@ class PipelineBench:
             except BenchError as cancel_error:
                 error = BenchError(f"{error}; auto-merge cancellation also failed: {cancel_error}")
         reason = str(error)[:2000] or "mission bench stopped"
-        exhausted = "budget" in reason.lower() or "exceeded its" in reason.lower()
+        budget_prefixes = (
+            "session elapsed-time budget",
+            "session turn budget",
+            "command exceeded its",
+            "repository-wall validation exceeded",
+            "pull request creation exceeded",
+            "mission decision exceeded",
+            "auto-merge did not land within",
+        )
+        exhausted = reason.startswith(budget_prefixes)
         state = "budget-exhausted" if exhausted else "failed"
         self.evidence["state"] = state
         self.evidence["failure"] = {"reason": reason}
