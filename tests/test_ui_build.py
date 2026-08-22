@@ -164,3 +164,43 @@ def test_dependabot_covers_the_locked_npm_ecosystem_weekly():
     assert 'interval: "weekly"' in npm_block
     assert 'labels: ["dependencies", "security"]' in npm_block
     assert 'prefix: "npm"' in npm_block
+
+def test_ui_test_runner_discovers_test_files_instead_of_listing_them():
+    """Verify the UI test runner discovers test files instead of hard-coding them."""
+    import os
+    from pathlib import Path
+
+    # Read the runner source
+    runner_path = Path("tooling/test-ui.mjs")
+    runner_source = runner_path.read_text()
+
+    # Verify the runner does not hard-code filenames
+    assert "assignments.test.ts" not in runner_source
+    assert "audit.test.ts" not in runner_source
+    assert "capabilities.test.ts" not in runner_source
+    assert "chat.test.ts" not in runner_source
+    assert "control-plane.test.ts" not in runner_source
+    assert "coordinator-models.test.ts" not in runner_source
+    assert "knowledge.test.ts" not in runner_source
+    assert "mission-progress.test.tsx" not in runner_source
+    assert "missions.test.ts" not in runner_source
+    assert "model-roles.test.ts" not in runner_source
+    assert "organizations.test.ts" not in runner_source
+    assert "runtime-profiles.test.ts" not in runner_source
+    assert "settings.test.ts" not in runner_source
+    assert "status.test.ts" not in runner_source
+    assert "users.test.ts" not in runner_source
+    assert "work-mode.test.ts" not in runner_source
+
+    # Verify the runner uses readdir and sort
+    assert "readdir" in runner_source
+    assert ".sort(" in runner_source
+    assert '"steel-mission-ui", "tests"' in runner_source
+
+    # Verify that we can discover the test files
+    test_dir = Path("steel-mission-ui/tests")
+    assert test_dir.exists(), f"Test directory {test_dir} does not exist"
+    discovered_files = list(test_dir.iterdir())
+    assert len(discovered_files) > 0, "No test files found in steel-mission-ui/tests"
+    ts_files = [f for f in discovered_files if f.is_file() and (f.name.endswith(".test.ts") or f.name.endswith(".test.tsx"))]
+    assert len(ts_files) > 0, "No .test.ts or .test.tsx files found in steel-mission-ui/tests"
