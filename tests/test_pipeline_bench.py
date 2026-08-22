@@ -98,6 +98,7 @@ class FakePlatform:
         *,
         issue_payload: dict | None = None,
         gate_failure: bool = False,
+        gate_failures: int = 0,
         red_output: str = "1 failed",
         arm_failure: bool = False,
         merge_failure: bool = False,
@@ -109,6 +110,7 @@ class FakePlatform:
         self.root = root
         self.issue_payload = issue_payload or issue()
         self.gate_failure = gate_failure
+        self.gate_failures = gate_failures
         self.red_output = red_output
         self.arm_failure = arm_failure
         self.merge_failure = merge_failure
@@ -152,13 +154,17 @@ class FakePlatform:
         self.calls.append(f"command:{label}:{timeout}")
         if argv == grant()["definitionOfDone"]["redTest"]:
             return CommandResult(argv, 1, self.red_output, "", 0.1)
+        if self.gate_failures and argv == grant()["definitionOfDone"]["test"]:
+            self.gate_failures -= 1
+            return CommandResult(argv, 1, "1 failed", "", 0.1)
         if self.gate_failure and argv == grant()["definitionOfDone"]["test"]:
             return CommandResult(argv, 1, "1 failed", "", 0.1)
         return CommandResult(argv, 0, "366 passed", "", 0.1)
 
-    def commit_machine_work(self, _grant, _worktree, message):
+    def commit_machine_work(self, _grant, _worktree, message, amend=False):
         assert message.strip()
-        self.calls.append("machine-commit")
+        self.calls.append("machine-commit-amend" if amend else "machine-commit")
+        return []
 
     def assert_machine_commit(self, _grant, _worktree, previous_commit=None):
         if self.zero_commit_failures:
@@ -558,6 +564,35 @@ def test_develop_stage_retries_a_zero_commit_turn_within_its_budget(tmp_path):
     assert "previous local turn changed no files" in develop_prompts[1]
     assert platform.calls.index("commit:none") < platform.calls.index("commit:commit-1")
     assert platform.calls.index("machine-commit") < platform.calls.index("commit:none")
+
+
+def test_develop_retries_red_gates_with_the_failure_evidence(tmp_path):
+    class RedGateRetryPlatform(FakePlatform):
+        def update_pr_body(self, _grant, _pr_number, body_path, timeout=None):
+            self.calls.append("update-pr-body")
+            body = body_path.read_text()
+            assert "commit-2" in body
+            assert "commit-3" in body
+
+    platform = RedGateRetryPlatform(tmp_path, gate_failures=1)
+    agents = FakeAgents()
+
+    result = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    ).run()
+
+    develop_prompts = [prompt for kind, prompt in agents.prompts if kind == "develop"]
+    assert result["state"] == "queued"
+    assert len(develop_prompts) == 2
+    assert "the required gates are red" in develop_prompts[1]
+    assert "Gate failure:" in develop_prompts[1]
+    assert "1 failed" in develop_prompts[1]
+    assert "machine-commit-amend" in platform.calls
+    assert "push" in platform.calls
 
 
 def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):
@@ -1203,6 +1238,73 @@ def test_isolated_worktree_keeps_main_clean_when_the_session_is_killed(tmp_path)
         ["git", "status", "--short"], cwd=repository, check=True, capture_output=True, text=True
     ).stdout
     assert status == ""
+
+
+def test_correction_scratch_removal_is_reported_not_silent(tmp_path):
+    class CorrectionScratchPlatform(FakePlatform):
+        def commit_machine_work(self, _grant, _worktree, message, amend=False):
+            self.calls.append("machine-commit-amend" if amend else "machine-commit")
+            return [] if "issue #999" in message and "round" not in message else ["notes.tmp"]
+
+    platform = CorrectionScratchPlatform(tmp_path)
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=FakeAgents(),
+        decisions=FakeDecision(),
+    )
+    result = bench.run()
+
+    assert result["state"] == "queued"
+    evidence = json.loads(Path(result["evidencePath"]).read_text())
+    assert evidence["stages"]["corrections"][0]["droppedScratch"] == ["notes.tmp"]
+    feed = [json.loads(line) for line in bench.feed_path.read_text().splitlines()]
+    assert any("removed before the correction commit" in entry["outcome"]["summary"] for entry in feed)
+
+
+def test_trusted_commit_stages_only_the_wall_and_drops_out_of_wall_scratch(tmp_path):
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repository, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repository, check=True)
+    (repository / "tracked.txt").write_text("main\n")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "base"], cwd=repository, check=True, capture_output=True)
+
+    value = grant()
+    value["repository"] = "local/rehearsal"
+    platform = GitHubPlatform(repository)
+    worktree = platform.prepare_worktree(value, tmp_path / "session")
+
+    (worktree / "tooling").mkdir()
+    (worktree / "tooling" / "runner.mjs").write_text("discovered\n")
+    (worktree / "tooling" / "caf\u00e9 \"quoted\".py").write_text("unicode in the wall\n")
+    (worktree / "tooling" / "runner.mjs.backup").write_text("scratch\n")
+    (worktree / "stray.log").write_text("scratch\n")
+    dropped = platform.commit_machine_work(value, worktree, "Implement the granted mission for issue #999")
+    assert sorted(dropped) == ["stray.log"]
+    assert not (worktree / "stray.log").exists()
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=%an %ae", "HEAD"],
+        cwd=worktree, check=True, capture_output=True, text=True,
+    ).stdout
+    assert "sm-agent-qwen" in committed
+    assert "tooling/runner.mjs" in committed
+    assert "stray.log" not in committed
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=worktree, check=True, capture_output=True, text=True
+    ).stdout
+    assert "tooling/caf\u00e9 \"quoted\".py" in tracked
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=worktree, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    assert status == ""
+
+    (worktree / "tracked.txt").write_text("mutated outside the wall\n")
+    with pytest.raises(BenchError, match="outside the granted wall"):
+        platform.commit_machine_work(value, worktree, "second turn")
 
 
 def test_timeout_terminates_background_descendants_before_they_can_keep_working(tmp_path):

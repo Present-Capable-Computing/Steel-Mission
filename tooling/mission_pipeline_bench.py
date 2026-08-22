@@ -852,32 +852,81 @@ class GitHubPlatform:
     ) -> CommandResult:
         return self.runner.run(argv, cwd, timeout, extra_env=extra_env, inherit_env=False)
 
-    def commit_machine_work(self, grant: dict[str, Any], worktree: Path, message: str) -> None:
+    def commit_machine_work(
+        self,
+        grant: dict[str, Any],
+        worktree: Path,
+        message: str,
+        amend: bool = False,
+    ) -> list[str]:
         """Commit the local developer's worktree changes under its machine-account identity.
 
         The develop sandbox keeps git metadata read-only so the untrusted model
         cannot plant hooks; the trusted bench performs the commit act while the
-        authorship stays the machine account's."""
+        authorship stays the machine account's. A retry turn amends the mission
+        commit so the pull request always carries exactly one attributable commit.
+        Only granted paths are staged: untracked scratch outside the wall is
+        removed and reported, and a tracked file modified outside the wall stops
+        the mission."""
         account = grant["machineAccounts"]["local"]
         environment = self._untrusted_git_env(grant, worktree)
-        status = self._run(
-            ["git", "status", "--porcelain"],
+        raw = self._run(
+            ["git", "status", "--porcelain", "-z"],
             cwd=worktree, extra_env=environment, inherit_env=False,
             label="machine work status",
-        ).stdout.strip()
-        if not status:
-            return
-        self._run(
-            ["git", "add", "-A"],
+        ).stdout
+        fields = raw.split("\0")
+        prefixes = [prefix.rstrip("/") for prefix in grant["allowedPaths"]]
+        in_wall: list[str] = []
+        dropped: list[str] = []
+        index = 0
+        while index < len(fields):
+            field = fields[index]
+            index += 1
+            if len(field) < 4:
+                continue
+            state, path = field[:2], field[3:]
+            if state[:1] in {"R", "C"}:
+                index += 1
+            candidate = path.rstrip("/")
+            inside = any(
+                candidate == prefix or candidate.startswith(prefix + "/")
+                for prefix in prefixes
+            )
+            if inside:
+                in_wall.append(path)
+            elif state == "??":
+                dropped.append(path)
+            else:
+                raise BenchError(
+                    f"local developer modified a path outside the granted wall: {path}"
+                )
+        if in_wall:
+            self._run(
+                ["git", "add", "-A", "--", *in_wall],
+                cwd=worktree, extra_env=environment, inherit_env=False,
+                label="machine work staging",
+            )
+        if dropped:
+            self._run(
+                ["git", "clean", "-fd", "--", *dropped],
+                cwd=worktree, extra_env=environment, inherit_env=False,
+                label="machine scratch removal",
+            )
+        staged = self._run(
+            ["git", "diff", "--cached", "--name-only"],
             cwd=worktree, extra_env=environment, inherit_env=False,
-            label="machine work staging",
-        )
+            label="machine staged read",
+        ).stdout.strip()
+        if not staged:
+            return dropped
         self._run([
             "git",
             "-c", f"user.name={account['login']}",
             "-c", f"user.email={account['email']}",
-            "commit", "-m", message,
+            "commit", *(["--amend"] if amend else []), "-m", message,
         ], cwd=worktree, extra_env=environment, inherit_env=False, label="machine work commit")
+        return dropped
 
     def assert_machine_commit(
         self,
@@ -1572,7 +1621,12 @@ class PipelineBench:
         with self.feed_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
 
-    def _green_gates(self, worktree: Path, budget: StageBudget) -> dict[str, Any]:
+    def _green_gates(
+        self,
+        worktree: Path,
+        budget: StageBudget,
+        raise_on_red: bool = True,
+    ) -> dict[str, Any]:
         definition = self.grant["definitionOfDone"]
         environment = isolated_command_env(
             self.session_dir,
@@ -1583,12 +1637,16 @@ class PipelineBench:
             definition["test"], worktree, budget.remaining(), environment
         )
         if test_result.returncode != 0:
-            raise BenchError(f"full test gate failed: {command_tail(test_result)}")
+            if raise_on_red:
+                raise BenchError(f"full test gate failed: {command_tail(test_result)}")
+            return {"failure": f"full test gate failed: {command_tail(test_result)}"}
         release_result = self.platform.run_command(
             definition["releaseCheck"], worktree, budget.remaining(), environment
         )
         if release_result.returncode != 0:
-            raise BenchError(f"release check failed: {command_tail(release_result)}")
+            if raise_on_red:
+                raise BenchError(f"release check failed: {command_tail(release_result)}")
+            return {"failure": f"release check failed: {command_tail(release_result)}"}
         return {
             "test": {"argv": test_result.argv, "returncode": 0, "outputTail": command_tail(test_result)},
             "releaseCheck": {"argv": release_result.argv, "returncode": 0, "outputTail": command_tail(release_result)},
@@ -1909,7 +1967,8 @@ class PipelineBench:
             "been observed failing. Make it pass, keep the full suite green, and leave every change in the working "
             "tree: the harness commits your work under your machine-account identity after the turn, and the sandbox "
             "keeps git metadata read-only, so never run git commit. For file edits, invoke the apply_patch executable "
-            "through the shell; the local-provider router does not support a direct apply_patch tool call. Do not "
+            "through the shell; the local-provider router does not support a direct apply_patch tool call. Never "
+            "create backup or scratch files; edit files in place. Do not "
             "push or create a pull request. Stay inside the granted path wall: "
             f"{json.dumps(self.grant['allowedPaths'])}.\n\n"
             f"{contract}\n\nDefinition of done: "
@@ -1920,9 +1979,19 @@ class PipelineBench:
             f"Implement the granted mission for issue #{self.grant['issueNumber']}\n\n"
             f"Mission {self.grant['missionId']}; plan: {plan.get('summary')}"
         )
+        commit = None
+        gate_failure = ""
+        dropped_scratch: list[str] = []
         for attempt in range(develop_budget.limit_turns):
             prompt = develop_prompt
-            if attempt:
+            if attempt and gate_failure:
+                prompt = (
+                    "Continue the same granted implementation now. The previous turn's changes are preserved, "
+                    "but the required gates are red; finish every remaining plan step so they pass, and leave "
+                    "the corrections in the working tree. Use the apply_patch executable through the shell for "
+                    f"all file edits.\n\nGate failure:\n{gate_failure[:4000]}\n\n" + develop_prompt
+                )
+            elif attempt:
                 prompt = (
                     "Continue the same granted implementation now. The previous local turn changed no files; "
                     "preserve its valid in-wall state, finish every remaining plan step, run the required "
@@ -1930,10 +1999,18 @@ class PipelineBench:
                     "through the shell for all file edits.\n\n" + develop_prompt
                 )
             self.agents.develop(prompt, worktree, develop_budget, self.session_dir)
-            self.platform.commit_machine_work(self.grant, worktree, commit_message)
+            dropped = self.platform.commit_machine_work(
+                self.grant, worktree, commit_message, amend=commit is not None
+            ) or []
+            if dropped:
+                dropped_scratch.extend(dropped)
+                self._emit(
+                    "develop", "working",
+                    f"Out-of-wall scratch files were removed before the commit: {dropped}",
+                    develop_budget,
+                )
             try:
                 commit = self.platform.assert_machine_commit(self.grant, worktree)
-                break
             except BenchError as exc:
                 if str(exc) != "local developer did not create an attributable commit":
                     raise
@@ -1944,9 +2021,22 @@ class PipelineBench:
                     "The local developer changed no files; the bounded develop stage is retrying.",
                     develop_budget,
                 )
-        paths = self.platform.changed_paths(self.grant, worktree)
-        self._validate_changed_paths(paths, develop_budget, contract)
-        gates = self._green_gates(worktree, develop_budget)
+                continue
+            paths = self.platform.changed_paths(self.grant, worktree)
+            self._validate_changed_paths(paths, develop_budget, contract)
+            gates = self._green_gates(
+                worktree, develop_budget,
+                raise_on_red=attempt + 1 >= develop_budget.limit_turns,
+            )
+            failure = gates.get("failure")
+            if not failure:
+                break
+            gate_failure = str(failure)
+            self._emit(
+                "develop", "working",
+                "The develop gates are red; the bounded develop stage is retrying with the failure evidence.",
+                develop_budget,
+            )
         self.platform.assert_unchanged_machine_commit(
             self.grant,
             worktree,
@@ -1954,7 +2044,8 @@ class PipelineBench:
         )
         paths = self.platform.changed_paths(self.grant, worktree)
         self._validate_changed_paths(paths, develop_budget, contract)
-        self.evidence["stages"]["develop"] = {"commit": commit, "paths": paths, "gates": gates}
+        self.evidence["stages"]["develop"] = {"commit": commit, "paths": paths, "gates": gates,
+                                              **({"droppedScratch": dropped_scratch} if dropped_scratch else {})}
         self._save_evidence()
         self._emit("develop", "idle", "Local developer commit and all pre-push gates are green.", develop_budget, event_kind="stage-completed")
 
@@ -2006,11 +2097,17 @@ class PipelineBench:
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
             self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
-            self.platform.commit_machine_work(
+            correction_dropped = self.platform.commit_machine_work(
                 self.grant,
                 worktree,
                 f"Address Codex review round {round_number} for issue #{self.grant['issueNumber']}",
-            )
+            ) or []
+            if correction_dropped:
+                self._emit(
+                    "review", "working",
+                    f"Out-of-wall scratch files were removed before the correction commit: {correction_dropped}",
+                    review_budget,
+                )
             baseline_commit = previous_commit
             correction_commit = self.platform.assert_machine_commit(
                 self.grant, worktree, previous_commit=baseline_commit
@@ -2031,6 +2128,7 @@ class PipelineBench:
                 "round": round_number,
                 "commit": previous_commit,
                 "gates": correction_gates,
+                **({"droppedScratch": correction_dropped} if correction_dropped else {}),
             })
             self.evidence["reviewCorrectionRounds"] = corrections
             self._save_evidence()
