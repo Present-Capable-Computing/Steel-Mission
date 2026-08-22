@@ -44,6 +44,10 @@ AUTHORITY_PATHS = (
     ".github/CODEOWNERS",
 )
 LOCAL_DEVELOPER_MODEL = "qwen3-coder:30b"
+# A Person answer window, independent of the granted machine budget (the
+# 2026-08-22 waiting-clock policy): waits never spend elapsedSeconds, and this
+# ceiling only bounds how long a session stays alive awaiting an answer.
+PERSON_WAIT_CEILING_SECONDS = 86_400
 STAGE_DETAILS = {
     "plan": ("plan", "claude", "planner", "opus"),
     "develop": ("develop-and-commit", "local", "developer", LOCAL_DEVELOPER_MODEL),
@@ -1508,7 +1512,7 @@ class DecisionClient:
             if value.get("state") in {"cancelled", "error"}:
                 raise BenchError("decision job stopped without a Person decision")
             time.sleep(2)
-        raise BenchError("mission decision exceeded the plan session budget")
+        raise BenchError("person decision wait exceeded its answer window")
 
 
 class PipelineBench:
@@ -1732,7 +1736,7 @@ class PipelineBench:
         """Wait for the Person without spending the granted budget, and record the wait."""
         budget.pause_for_person()
         try:
-            answer = self.decisions.wait_for_answer(job_id, budget.remaining())
+            answer = self.decisions.wait_for_answer(job_id, PERSON_WAIT_CEILING_SECONDS)
         finally:
             waited = budget.resume_from_person()
             self.evidence.setdefault("personWaits", []).append(
@@ -1867,7 +1871,6 @@ class PipelineBench:
             "command exceeded its",
             "repository-wall validation exceeded",
             "pull request creation exceeded",
-            "mission decision exceeded",
             "auto-merge did not land within",
         )
         exhausted = reason.startswith(budget_prefixes)

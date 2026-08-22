@@ -601,6 +601,7 @@ def test_waiting_on_a_person_does_not_spend_the_granted_budget(tmp_path, monkeyp
 
     class SlowPersonDecision(FakeDecision):
         def wait_for_answer(self, job_id, timeout):
+            assert timeout == mission_bench.PERSON_WAIT_CEILING_SECONDS
             clock[0] += 50_000.0
             return super().wait_for_answer(job_id, timeout)
 
@@ -624,6 +625,22 @@ def test_waiting_on_a_person_does_not_spend_the_granted_budget(tmp_path, monkeyp
     assert waits[0]["stage"] == "plan"
     assert waits[0]["waitingSeconds"] >= 50_000
     assert evidence["stages"]["plan"]["summary"] == "Clean plan"
+
+
+def test_the_real_wait_deadline_is_the_answer_window_never_the_budget(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(mission_bench.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + 600.0))
+    client = mission_bench.DecisionClient({"baseUrl": "http://decision.invalid"})
+    monkeypatch.setattr(
+        client, "_request",
+        lambda path, **kwargs: {"state": "running", "progress": {"steeringEvents": []}},
+    )
+
+    with pytest.raises(BenchError, match="person decision wait exceeded its answer window"):
+        client.wait_for_answer("JOB-X", mission_bench.PERSON_WAIT_CEILING_SECONDS)
+
+    assert clock[0] >= mission_bench.PERSON_WAIT_CEILING_SECONDS
 
 
 def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):
