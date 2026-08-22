@@ -595,6 +595,54 @@ def test_develop_retries_red_gates_with_the_failure_evidence(tmp_path):
     assert "push" in platform.calls
 
 
+def test_waiting_on_a_person_does_not_spend_the_granted_budget(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+
+    class SlowPersonDecision(FakeDecision):
+        def wait_for_answer(self, job_id, timeout):
+            assert timeout == mission_bench.PERSON_WAIT_CEILING_SECONDS
+            clock[0] += 50_000.0
+            return super().wait_for_answer(job_id, timeout)
+
+    platform = FakePlatform(tmp_path)
+    agents = FakeAgents(plans=[
+        {"clean": False, "summary": "One unresolved assumption.", "steps": [], "touchedPaths": []},
+        {"clean": True, "summary": "Clean plan", "steps": ["Fix"], "touchedPaths": ["tests/test_rehearsal.py"]},
+    ])
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=SlowPersonDecision(),
+    )
+    result = bench.run()
+
+    assert result["state"] == "queued"
+    evidence = json.loads(Path(result["evidencePath"]).read_text())
+    waits = evidence["personWaits"]
+    assert waits[0]["stage"] == "plan"
+    assert waits[0]["waitingSeconds"] >= 50_000
+    assert evidence["stages"]["plan"]["summary"] == "Clean plan"
+
+
+def test_the_real_wait_deadline_is_the_answer_window_never_the_budget(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(mission_bench.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + 600.0))
+    client = mission_bench.DecisionClient({"baseUrl": "http://decision.invalid"})
+    monkeypatch.setattr(
+        client, "_request",
+        lambda path, **kwargs: {"state": "running", "progress": {"steeringEvents": []}},
+    )
+
+    with pytest.raises(BenchError, match="person decision wait exceeded its answer window"):
+        client.wait_for_answer("JOB-X", mission_bench.PERSON_WAIT_CEILING_SECONDS)
+
+    assert clock[0] >= mission_bench.PERSON_WAIT_CEILING_SECONDS
+
+
 def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(mission_bench.time, "monotonic", lambda: clock[0])

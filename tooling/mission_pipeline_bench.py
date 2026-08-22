@@ -44,6 +44,10 @@ AUTHORITY_PATHS = (
     ".github/CODEOWNERS",
 )
 LOCAL_DEVELOPER_MODEL = "qwen3-coder:30b"
+# A Person answer window, independent of the granted machine budget (the
+# 2026-08-22 waiting-clock policy): waits never spend elapsedSeconds, and this
+# ceiling only bounds how long a session stays alive awaiting an answer.
+PERSON_WAIT_CEILING_SECONDS = 86_400
 STAGE_DETAILS = {
     "plan": ("plan", "claude", "planner", "opus"),
     "develop": ("develop-and-commit", "local", "developer", LOCAL_DEVELOPER_MODEL),
@@ -445,14 +449,36 @@ class SubprocessRunner:
 
 
 class StageBudget:
+    """Wall-clock and turn ceilings for one stage. Time spent waiting on a
+    Person decision does not spend the granted budget (Founder policy of
+    2026-08-22); it is measured separately and reported in the evidence pack."""
+
     def __init__(self, value: dict[str, int]):
         self.limit_seconds = int(value["elapsedSeconds"])
         self.limit_turns = int(value["turns"])
         self.started = time.monotonic()
         self.turns = 0
+        self.waited = 0.0
+        self.wait_started: float | None = None
+
+    def _waiting(self) -> float:
+        live = time.monotonic() - self.wait_started if self.wait_started is not None else 0.0
+        return self.waited + live
+
+    def pause_for_person(self) -> None:
+        if self.wait_started is None:
+            self.wait_started = time.monotonic()
+
+    def resume_from_person(self) -> int:
+        if self.wait_started is None:
+            return 0
+        span = time.monotonic() - self.wait_started
+        self.waited += span
+        self.wait_started = None
+        return max(0, int(span))
 
     def elapsed(self) -> int:
-        return max(0, int(time.monotonic() - self.started))
+        return max(0, int(time.monotonic() - self.started - self._waiting()))
 
     def remaining(self) -> int:
         remaining = self.limit_seconds - self.elapsed()
@@ -1486,7 +1512,7 @@ class DecisionClient:
             if value.get("state") in {"cancelled", "error"}:
                 raise BenchError("decision job stopped without a Person decision")
             time.sleep(2)
-        raise BenchError("mission decision exceeded the plan session budget")
+        raise BenchError("person decision wait exceeded its answer window")
 
 
 class PipelineBench:
@@ -1706,6 +1732,19 @@ class PipelineBench:
             "Revert the mission commit or close this pull request without merging. The bench does not mutate main directly.\n"
         )
 
+    def _person_wait(self, stage: str, budget: StageBudget, job_id: str) -> dict[str, Any]:
+        """Wait for the Person without spending the granted budget, and record the wait."""
+        budget.pause_for_person()
+        try:
+            answer = self.decisions.wait_for_answer(job_id, PERSON_WAIT_CEILING_SECONDS)
+        finally:
+            waited = budget.resume_from_person()
+            self.evidence.setdefault("personWaits", []).append(
+                {"stage": stage, "waitingSeconds": waited}
+            )
+            self._save_evidence()
+        return answer
+
     def _decision_pending(
         self,
         handle: dict[str, Any],
@@ -1744,7 +1783,7 @@ class PipelineBench:
             event_kind="decision-requested",
             pending_decision=pending,
         )
-        self.decisions.wait_for_answer(handle["jobId"], budget.remaining())
+        self._person_wait("develop", budget, handle["jobId"])
         raise BenchError("authority-owned changes stop for human delivery outside the mission bench")
 
     def _enforce_path_abort_conditions(self, paths: list[str]) -> None:
@@ -1832,7 +1871,6 @@ class PipelineBench:
             "command exceeded its",
             "repository-wall validation exceeded",
             "pull request creation exceeded",
-            "mission decision exceeded",
             "auto-merge did not land within",
         )
         exhausted = reason.startswith(budget_prefixes)
@@ -1923,7 +1961,7 @@ class PipelineBench:
             )
             self.evidence["decision"] = {"request": handle}
             self._save_evidence()
-            answer = self.decisions.wait_for_answer(handle["jobId"], plan_budget.remaining())
+            answer = self._person_wait("plan", plan_budget, handle["jobId"])
             self.evidence["decision"]["answer"] = answer
             self._save_evidence()
             if answer.get("selectedOptionId") == "pause":
@@ -2247,7 +2285,7 @@ class PipelineBench:
                 event_kind="decision-requested",
                 pending_decision=pending,
             )
-            answer = self.decisions.wait_for_answer(handle["jobId"], acceptance_budget.remaining())
+            answer = self._person_wait("acceptance", acceptance_budget, handle["jobId"])
             security_review["decision"]["answer"] = answer
             self._save_evidence()
             raise BenchError("security finding requires Founder resolution outside the mission bench")
