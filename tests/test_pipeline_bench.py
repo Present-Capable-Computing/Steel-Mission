@@ -31,7 +31,10 @@ ACCEPTANCE = "A focused regression fails first, then the full release check pass
 
 
 def test_pipeline_bench_stays_under_acceptance_line_ceiling():
-    assert len(Path(mission_bench.__file__).read_text().splitlines()) < 2200
+    # Interim ceiling 2700 per the Founder's 2026-08-22 threshold revision recorded
+    # in the pipeline-bench task; re-pins to measured plus fifteen percent once
+    # the two adopted C1 follow-ups merge.
+    assert len(Path(mission_bench.__file__).read_text().splitlines()) < 2700
 
 
 def grant() -> dict:
@@ -152,6 +155,10 @@ class FakePlatform:
         if self.gate_failure and argv == grant()["definitionOfDone"]["test"]:
             return CommandResult(argv, 1, "1 failed", "", 0.1)
         return CommandResult(argv, 0, "366 passed", "", 0.1)
+
+    def commit_machine_work(self, _grant, _worktree, message):
+        assert message.strip()
+        self.calls.append("machine-commit")
 
     def assert_machine_commit(self, _grant, _worktree, previous_commit=None):
         if self.zero_commit_failures:
@@ -545,8 +552,9 @@ def test_develop_stage_retries_a_zero_commit_turn_within_its_budget(tmp_path):
     develop_prompts = [prompt for kind, prompt in agents.prompts if kind == "develop"]
     assert result["state"] == "queued"
     assert len(develop_prompts) == 2
-    assert "previous local turn returned without a commit" in develop_prompts[1]
+    assert "previous local turn changed no files" in develop_prompts[1]
     assert platform.calls.index("commit:none") < platform.calls.index("commit:commit-1")
+    assert platform.calls.index("machine-commit") < platform.calls.index("commit:none")
 
 
 def test_each_elapsed_budget_starts_when_its_stage_starts(tmp_path, monkeypatch):

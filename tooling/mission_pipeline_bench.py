@@ -852,6 +852,33 @@ class GitHubPlatform:
     ) -> CommandResult:
         return self.runner.run(argv, cwd, timeout, extra_env=extra_env, inherit_env=False)
 
+    def commit_machine_work(self, grant: dict[str, Any], worktree: Path, message: str) -> None:
+        """Commit the local developer's worktree changes under its machine-account identity.
+
+        The develop sandbox keeps git metadata read-only so the untrusted model
+        cannot plant hooks; the trusted bench performs the commit act while the
+        authorship stays the machine account's."""
+        account = grant["machineAccounts"]["local"]
+        environment = self._untrusted_git_env(grant, worktree)
+        status = self._run(
+            ["git", "status", "--porcelain"],
+            cwd=worktree, extra_env=environment, inherit_env=False,
+            label="machine work status",
+        ).stdout.strip()
+        if not status:
+            return
+        self._run(
+            ["git", "add", "-A"],
+            cwd=worktree, extra_env=environment, inherit_env=False,
+            label="machine work staging",
+        )
+        self._run([
+            "git",
+            "-c", f"user.name={account['login']}",
+            "-c", f"user.email={account['email']}",
+            "commit", "-m", message,
+        ], cwd=worktree, extra_env=environment, inherit_env=False, label="machine work commit")
+
     def assert_machine_commit(
         self,
         grant: dict[str, Any],
@@ -1879,25 +1906,31 @@ class PipelineBench:
         self._emit("develop", "working", "The local developer is implementing and committing in its isolated worktree.", develop_budget, event_kind="stage-started")
         develop_prompt = (
             "Implement the granted mission in this isolated worktree. The configured focused regression has already "
-            "been observed failing. Make it pass, keep the full suite green, and commit all changes using the existing "
-            "machine-account git identity. For file edits, invoke the apply_patch executable through the shell; the "
-            "local-provider router does not support a direct apply_patch tool call. Do not push or create a pull "
-            "request. Stay inside the granted path wall: "
+            "been observed failing. Make it pass, keep the full suite green, and leave every change in the working "
+            "tree: the harness commits your work under your machine-account identity after the turn, and the sandbox "
+            "keeps git metadata read-only, so never run git commit. For file edits, invoke the apply_patch executable "
+            "through the shell; the local-provider router does not support a direct apply_patch tool call. Do not "
+            "push or create a pull request. Stay inside the granted path wall: "
             f"{json.dumps(self.grant['allowedPaths'])}.\n\n"
             f"{contract}\n\nDefinition of done: "
             f"{json.dumps(self.grant['definitionOfDone'], sort_keys=True)}\n\n"
             f"Approved plan: {json.dumps(plan, sort_keys=True)}"
         )
+        commit_message = (
+            f"Implement the granted mission for issue #{self.grant['issueNumber']}\n\n"
+            f"Mission {self.grant['missionId']}; plan: {plan.get('summary')}"
+        )
         for attempt in range(develop_budget.limit_turns):
             prompt = develop_prompt
             if attempt:
                 prompt = (
-                    "Continue the same granted implementation now. The previous local turn returned without a "
-                    "commit; preserve its valid in-wall edits, finish every remaining plan step, run the required "
-                    "checks, and create exactly one commit. Use the apply_patch executable through the shell for "
-                    "all file edits.\n\n" + develop_prompt
+                    "Continue the same granted implementation now. The previous local turn changed no files; "
+                    "preserve its valid in-wall state, finish every remaining plan step, run the required "
+                    "checks, and leave the finished changes in the working tree. Use the apply_patch executable "
+                    "through the shell for all file edits.\n\n" + develop_prompt
                 )
             self.agents.develop(prompt, worktree, develop_budget, self.session_dir)
+            self.platform.commit_machine_work(self.grant, worktree, commit_message)
             try:
                 commit = self.platform.assert_machine_commit(self.grant, worktree)
                 break
@@ -1908,7 +1941,7 @@ class PipelineBench:
                     raise
                 self._emit(
                     "develop", "working",
-                    "The local developer returned without a commit; the bounded develop stage is retrying.",
+                    "The local developer changed no files; the bounded develop stage is retrying.",
                     develop_budget,
                 )
         paths = self.platform.changed_paths(self.grant, worktree)
