@@ -164,3 +164,32 @@ def test_dependabot_covers_the_locked_npm_ecosystem_weekly():
     assert 'interval: "weekly"' in npm_block
     assert 'labels: ["dependencies", "security"]' in npm_block
     assert 'prefix: "npm"' in npm_block
+def test_ui_test_runner_discovers_test_files_without_a_manual_list():
+    """Verify that the UI test runner discovers test files without a manual list."""
+    runner_source = (REPO_DIR / "tooling" / "test-ui.mjs").read_text()
+
+    # Should NOT contain hardcoded filenames
+    assert "assignments.test.ts" not in runner_source
+    assert "audit.test.ts" not in runner_source
+    assert "capabilities.test.ts" not in runner_source
+    assert "chat.test.ts" not in runner_source
+    assert "control-plane.test.ts" not in runner_source
+    assert "coordinator-models.test.ts" not in runner_source
+    assert "knowledge.test.ts" not in runner_source
+    assert "mission-progress.test.tsx" not in runner_source
+    assert "missions.test.ts" not in runner_source
+    assert "model-roles.test.ts" not in runner_source
+    assert "organizations.test.ts" not in runner_source
+    assert "runtime-profiles.test.ts" not in runner_source
+    assert "settings.test.ts" not in runner_source
+    assert "status.test.ts" not in runner_source
+    assert "users.test.ts" not in runner_source
+    assert "work-mode.test.ts" not in runner_source
+
+    # Should contain readdir and sort
+    assert "readdir" in runner_source
+    assert ".sort()" in runner_source
+
+    # Should match both .test.ts and .test.tsx patterns
+    assert "\".test.ts\"" in runner_source
+    assert "\".test.tsx\"" in runner_source
