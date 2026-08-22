@@ -735,6 +735,21 @@ class GitHubPlatform:
             raise BenchError("required checks must cover the current base branch")
         acceptance_login = grant["machineAccounts"]["claude"]["login"]
         codeowners = codeowners_result.stdout.splitlines()
+        encoded_mission_branch = urllib.parse.quote(grant["branch"], safe="")
+        probe_argv, probe_env = self._trusted_invocation(
+            ["gh", "api", f"repos/{grant['repository']}/git/ref/heads/{encoded_mission_branch}"],
+            environment,
+        )
+        branch_probe = self.runner.run(
+            probe_argv,
+            self.repository_root,
+            remaining(),
+            extra_env=probe_env,
+            inherit_env=False,
+            complete_stdout=True,
+        )
+        if branch_probe.returncode == 0:
+            raise BenchError("mission branch already exists on the remote")
         if live_base_oid() != base_oid:
             raise BenchError("base branch changed during repository-wall validation")
         self.validated_base_oids[grant["baseBranch"]] = base_oid
@@ -1953,7 +1968,10 @@ class PipelineBench:
         self._emit("plan", "working", "Claude Opus is validating the granted plan.", plan_budget)
         plan_prompt = (
             "Plan this granted mission. Do not change its requirement, acceptance evidence, budgets, or authority. "
-            "Return clean=false when any assumption, scope boundary, or acceptance command is unresolved. "
+            "The definition-of-done gates below are the complete verification obligation: acceptance-text commands "
+            "outside them (such as npm suites) are established by the repository CI, not in this worktree, and are "
+            "never yours to run. A plan is clean when every remaining unknown has a planned resolution step; return "
+            "clean=false only for a contradiction or a gap no planned step can resolve. "
             "Every touchedPaths entry must stay inside the granted path wall.\n\n"
             f"{contract}\n\nAllowed paths: {json.dumps(self.grant['allowedPaths'])}\n\n"
             f"Definition of done: {json.dumps(self.grant['definitionOfDone'], sort_keys=True)}\n\n"

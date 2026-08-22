@@ -312,10 +312,11 @@ class FakeDecision:
 
 
 class ProtectionRunner:
-    def __init__(self, protection, codeowners=None, codeowners_errors=None):
+    def __init__(self, protection, codeowners=None, codeowners_errors=None, mission_branch_exists=False):
         self.protection = protection
         self.codeowners = codeowners
         self.codeowners_errors = codeowners_errors or []
+        self.mission_branch_exists = mission_branch_exists
 
     def run(
         self, argv, cwd, timeout, *, input_text="", extra_env=None,
@@ -333,7 +334,12 @@ class ProtectionRunner:
         assert complete_stdout is True
         endpoint = argv[-1]
         if "/git/ref/heads/" in endpoint:
-            output = json.dumps({"object": {"sha": "a" * 40}})
+            if not endpoint.endswith("/git/ref/heads/main"):
+                if not self.mission_branch_exists:
+                    return CommandResult(argv, 1, "", "gh: Not Found (HTTP 404)", 0.1)
+                output = json.dumps({"object": {"sha": "b" * 40}})
+            else:
+                output = json.dumps({"object": {"sha": "a" * 40}})
         elif "/contents/.github/CODEOWNERS?ref=" in endpoint:
             output = self.codeowners
             if output is None:
@@ -1782,6 +1788,20 @@ def test_repository_wall_requires_codeowners_itself_to_remain_founder_owned(
         platform.validate_repository_wall(grant())
 
 
+def test_repository_wall_refuses_a_preexisting_remote_mission_branch(tmp_path, monkeypatch):
+    value = grant()
+    monkeypatch.setenv(value["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    codeowners.write_text(protected_codeowners())
+    platform = GitHubPlatform(
+        tmp_path, ProtectionRunner(protected_repository(), mission_branch_exists=True)
+    )
+
+    with pytest.raises(BenchError, match="mission branch already exists on the remote"):
+        platform.validate_repository_wall(value)
+
+
 def test_repository_wall_rejects_a_base_advance_after_initial_validation(
     tmp_path, monkeypatch
 ):
@@ -1797,7 +1817,7 @@ def test_repository_wall_rejects_a_base_advance_after_initial_validation(
             self.base_oids = ["a" * 40, "a" * 40, "b" * 40]
 
         def run(self, argv, cwd, timeout, **kwargs):
-            if "/git/ref/heads/" in argv[-1]:
+            if argv[-1].endswith("/git/ref/heads/main"):
                 oid = self.base_oids.pop(0)
                 return CommandResult(argv, 0, json.dumps({"object": {"sha": oid}}), "", 0.1)
             return super().run(argv, cwd, timeout, **kwargs)
