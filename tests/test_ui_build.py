@@ -190,5 +190,5 @@ def test_ui_test_runner_discovers_its_entries_instead_of_listing_them():
     # Verify runner mentions the discovery mechanism
     assert "readdir" in runner_content, "Runner should use readdir for discovery"
     assert "sort" in runner_content, "Runner should sort test entries"
-    assert ".test.ts" in runner_content, "Runner should include .test.ts files"
-    assert ".test.tsx" in runner_content, "Runner should include .test.tsx files"
+    assert 'name.endsWith(".test.ts")' in runner_content, "Runner should check for .test.ts files specifically"
+    assert 'name.endsWith(".test.tsx")' in runner_content, "Runner should check for .test.tsx files specifically"
