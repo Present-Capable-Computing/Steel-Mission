@@ -479,6 +479,9 @@ def test_pipeline_orders_red_evidence_green_gates_review_correction_and_acceptan
     assert platform.calls.count("machine-commit") == 2
     fix_prompt = next(prompt for kind, prompt in agents.prompts if kind == "fix")
     assert "never run git commit" in fix_prompt
+    assert "never start a REPL" in fix_prompt
+    develop_prompt = next(prompt for kind, prompt in agents.prompts if kind == "develop")
+    assert "never start a REPL" in develop_prompt
     acceptance_prompt = next(prompt for kind, prompt in agents.prompts if kind == "acceptance")
     assert "report any actionable security finding you nonetheless observe" in acceptance_prompt
     evidence = json.loads(Path(result["evidencePath"]).read_text())

@@ -44,6 +44,11 @@ AUTHORITY_PATHS = (
     ".github/CODEOWNERS",
 )
 LOCAL_DEVELOPER_MODEL = "qwen3-coder:30b"
+SANDBOX_FACTS = (
+    "The sandbox has no network access: never run npm ci, npm install, or any command needing the "
+    "network. Run only non-interactive commands that exit on their own; never start a REPL, watcher, "
+    "or interactive session."
+)
 STAGE_DETAILS = {
     "plan": ("plan", "claude", "planner", "opus"),
     "develop": ("develop-and-commit", "local", "developer", LOCAL_DEVELOPER_MODEL),
@@ -1977,9 +1982,8 @@ class PipelineBench:
             "tree: the harness commits your work under your machine-account identity after the turn, and the sandbox "
             "keeps git metadata read-only, so never run git commit. For file edits, invoke the apply_patch executable "
             "through the shell; the local-provider router does not support a direct apply_patch tool call. Never "
-            "create backup or scratch files; edit files in place. The sandbox has no network access: never run "
-            "npm ci, npm install, or any command needing the network. Run only non-interactive commands that "
-            "exit on their own; never start a REPL, watcher, or interactive session. Do not "
+            "create backup or scratch files; edit files in place. "
+            f"{SANDBOX_FACTS} Do not "
             "push or create a pull request. Stay inside the granted path wall: "
             f"{json.dumps(self.grant['allowedPaths'])}.\n\n"
             f"{contract}\n\nDefinition of done: "
@@ -2104,7 +2108,7 @@ class PipelineBench:
                 "Address every Codex finding inside the same grant. Add or tighten regressions as needed, run the "
                 "relevant tests, and leave every change in the working tree: the harness commits your work under "
                 "your machine-account identity after the turn, and the sandbox keeps git metadata read-only, so "
-                "never run git commit. Do not push.\n\n"
+                f"never run git commit. {SANDBOX_FACTS} Do not push.\n\n"
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
             self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
