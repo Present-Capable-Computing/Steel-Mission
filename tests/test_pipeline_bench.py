@@ -1556,6 +1556,8 @@ def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_p
         lambda value: value + "canonical/ @sm-agent-claude\n",
         lambda value: value + "workflows/ @sm-agent-claude\n",
         lambda value: value + "/.github/*/*.yml @sm-agent-claude\n",
+        lambda value: value + "/.github/workflows @sm-agent-claude\n",
+        lambda value: value + "/.github/workflows\n",
     ],
 )
 def test_repository_wall_rejects_later_broader_authority_overrides(

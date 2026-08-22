@@ -83,7 +83,7 @@ def codeowners_pattern_matches(pattern: str, path: str) -> bool:
         return candidate.startswith(normalized)
     if "/" not in normalized:
         return any(fnmatch.fnmatchcase(part, normalized) for part in candidate.split("/"))
-    return fnmatch.fnmatchcase(candidate, normalized)
+    return fnmatch.fnmatchcase(candidate, normalized) or candidate.startswith(normalized + "/")
 
 
 def codeowners_patterns_overlap(authority_pattern: str, candidate_pattern: str) -> bool:
