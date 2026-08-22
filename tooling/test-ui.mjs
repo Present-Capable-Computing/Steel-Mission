@@ -1,5 +1,5 @@
 import {spawn} from "node:child_process";
-import {mkdtemp, rm} from "node:fs/promises";
+import {mkdtemp, rm, readdir} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -9,8 +9,16 @@ import {build} from "esbuild";
 
 const toolingDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = dirname(toolingDir);
+const uiTestsDir = join(repoDir, "steel-mission-ui", "tests");
+
+const testEntries = (await readdir(uiTestsDir))
+  .filter((name) => /\.test\.tsx?$/.test(name))
+  .sort();
+
+if (testEntries.length === 0) {
+  throw new Error(`No UI tests found in ${uiTestsDir}`);
+}
 const testDir = await mkdtemp(join(tmpdir(), "steel-mission-ui-tests-"));
-const testEntries = ["assignments.test.ts", "audit.test.ts", "capabilities.test.ts", "chat.test.ts", "control-plane.test.ts", "coordinator-models.test.ts", "knowledge.test.ts", "mission-progress.test.tsx", "missions.test.ts", "model-roles.test.ts", "organizations.test.ts", "runtime-profiles.test.ts", "settings.test.ts", "status.test.ts", "users.test.ts", "work-mode.test.ts"];
 const bundledTests = testEntries.map((name) => join(testDir, name.replace(/\.tsx?$/, ".mjs")));
 
 try {
