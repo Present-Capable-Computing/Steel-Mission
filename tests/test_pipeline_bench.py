@@ -1696,6 +1696,25 @@ def test_repository_wall_fails_closed_on_backslash_codeowners_patterns(
         platform.validate_repository_wall(grant())
 
 
+@pytest.mark.parametrize("pattern", ["/doc*/", "doc*/", "/.github*/", "//schemas/"])
+def test_repository_wall_fails_closed_on_unmodelled_directory_patterns(
+    tmp_path, monkeypatch, pattern
+):
+    monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
+    codeowners = tmp_path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir()
+    rules = protected_codeowners().splitlines()
+    default = rules.pop(0)
+    workplan = rules.pop(rules.index("/docs/workplan.md @andrewHermann"))
+    codeowners.write_text(
+        "\n".join([default, workplan, f"{pattern} @sm-agent-claude", *rules]) + "\n"
+    )
+    platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
+
+    with pytest.raises(BenchError, match="unsupported CODEOWNERS pattern"):
+        platform.validate_repository_wall(grant())
+
+
 def test_repository_wall_rejects_codeowners_errors_at_the_validated_base(
     tmp_path, monkeypatch
 ):
