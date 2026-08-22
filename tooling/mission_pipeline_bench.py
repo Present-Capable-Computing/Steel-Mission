@@ -2000,10 +2000,17 @@ class PipelineBench:
             corrections += 1
             fix_prompt = (
                 "Address every Codex finding inside the same grant. Add or tighten regressions as needed, run the "
-                "relevant tests, and create a new commit with the machine-account identity. Do not push.\n\n"
+                "relevant tests, and leave every change in the working tree: the harness commits your work under "
+                "your machine-account identity after the turn, and the sandbox keeps git metadata read-only, so "
+                "never run git commit. Do not push.\n\n"
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
             self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
+            self.platform.commit_machine_work(
+                self.grant,
+                worktree,
+                f"Address Codex review round {round_number} for issue #{self.grant['issueNumber']}",
+            )
             baseline_commit = previous_commit
             correction_commit = self.platform.assert_machine_commit(
                 self.grant, worktree, previous_commit=baseline_commit
