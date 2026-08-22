@@ -93,6 +93,9 @@ def codeowners_patterns_overlap(authority_pattern: str, candidate_pattern: str) 
     if candidate == "*":
         return True
     if authority.endswith("/"):
+        if not candidate_pattern.startswith("/") and "/" not in candidate:
+            codeowners_pattern_matches(candidate_pattern, authority + "__steel_mission_wall_probe__")
+            return True
         if candidate.endswith("/"):
             return authority.startswith(candidate) or candidate.startswith(authority)
         return candidate.startswith(authority) or codeowners_pattern_matches(
@@ -696,6 +699,8 @@ class GitHubPlatform:
             raise BenchError("base branch changed during repository-wall validation")
         self.validated_base_oids[grant["baseBranch"]] = base_oid
         rules = [line.split() for line in codeowners if line.strip() and not line.lstrip().startswith("#")]
+        for rule in rules:
+            codeowners_pattern_matches(rule[0], "__steel_mission_wall_probe__")
         default_rule = next((rule for rule in reversed(rules) if rule[0] == "*"), [])
         default_owners = {token.lstrip("@").lower() for token in default_rule[1:]}
         person_login = grant["grantedBy"].lower()

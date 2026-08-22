@@ -1550,6 +1550,9 @@ def test_repository_wall_reads_codeowners_from_the_authenticated_live_base(tmp_p
         ) + "\n",
         lambda value: value + "/docs/ @sm-agent-claude\n",
         lambda value: value + "* @sm-agent-claude @andrewHermann\n",
+        lambda value: value + "*.yml @sm-agent-claude\n",
+        lambda value: value + "*.py @sm-agent-claude\n",
+        lambda value: value + "*.json @sm-agent-claude\n",
     ],
 )
 def test_repository_wall_rejects_later_broader_authority_overrides(
@@ -1651,7 +1654,11 @@ def test_repository_wall_fails_closed_on_recursive_codeowners_globs(tmp_path, mo
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_text(
-        protected_codeowners() + "**/canonical/*.json @sm-agent-claude\n"
+        protected_codeowners().replace(
+            "* @andrewHermann @sm-agent-claude\n",
+            "* @andrewHermann @sm-agent-claude\n"
+            "**/canonical/*.json @sm-agent-claude\n",
+        )
     )
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
