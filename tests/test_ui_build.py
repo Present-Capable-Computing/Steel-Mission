@@ -164,3 +164,31 @@ def test_dependabot_covers_the_locked_npm_ecosystem_weekly():
     assert 'interval: "weekly"' in npm_block
     assert 'labels: ["dependencies", "security"]' in npm_block
     assert 'prefix: "npm"' in npm_block
+
+def test_ui_test_runner_discovers_its_entries_instead_of_listing_them():
+    """Verify that the UI test runner discovers test files dynamically, not via a hard-coded list."""
+    from pathlib import Path
+    
+    # Read the test runner file
+    test_runner_path = Path("tooling/test-ui.mjs")
+    runner_content = test_runner_path.read_text()
+    
+    # Define UI test directory
+    ui_test_dir = Path("steel-mission-ui") / "tests"
+    
+    # Get actual test files from the directory
+    test_files = list(ui_test_dir.rglob("*.test.ts*"))
+    test_file_names = [f.name for f in test_files if f.is_file()]
+    
+    # Verify directory listing is non-empty
+    assert test_file_names, "UI test directory should contain test files"
+    
+    # Verify that no discovered filename appears in the runner text (this should fail with hard-coded list)
+    for filename in test_file_names:
+        assert filename not in runner_content, f"Filename '{filename}' found in test runner, indicating hard-coded list"
+    
+    # Verify runner mentions the discovery mechanism
+    assert "readdir" in runner_content, "Runner should use readdir for discovery"
+    assert "sort" in runner_content, "Runner should sort test entries"
+    assert ".test.ts" in runner_content, "Runner should include .test.ts files"
+    assert ".test.tsx" in runner_content, "Runner should include .test.tsx files"
