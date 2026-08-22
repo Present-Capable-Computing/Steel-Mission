@@ -829,6 +829,29 @@ def test_pause_decision_stops_the_unclean_mission_before_development(tmp_path):
     assert "push" not in platform.calls
 
 
+def test_model_prose_mentioning_budget_never_flips_the_failure_class(tmp_path):
+    platform = FakePlatform(tmp_path)
+    agents = FakeAgents(acceptances=[{
+        "verdict": "reject",
+        "summary": "The budget analysis in this diff exceeded its stated scope.",
+        "securityFindings": [],
+    }])
+    bench = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    )
+
+    with pytest.raises(BenchError, match="acceptance rejected"):
+        bench.run()
+
+    evidence = json.loads(bench.evidence_path.read_text())
+    assert evidence["state"] == "failed"
+    assert evidence["state"] != "budget-exhausted"
+
+
 def test_a_red_full_gate_prevents_every_push(tmp_path):
     platform = FakePlatform(tmp_path, gate_failure=True)
     bench = PipelineBench(
