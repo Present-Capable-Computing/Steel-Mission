@@ -93,7 +93,7 @@ def codeowners_patterns_overlap(authority_pattern: str, candidate_pattern: str) 
     if candidate == "*":
         return True
     if authority.endswith("/"):
-        if not candidate_pattern.startswith("/") and "/" not in candidate:
+        if not candidate_pattern.startswith("/") or any(mark in candidate for mark in "*?"):
             codeowners_pattern_matches(candidate_pattern, authority + "__steel_mission_wall_probe__")
             return True
         if candidate.endswith("/"):
