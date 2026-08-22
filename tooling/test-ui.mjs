@@ -9,12 +9,14 @@ import {build} from "esbuild";
 
 const toolingDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = dirname(toolingDir);
-const testDir = await mkdtemp(join(tmpdir(), "steel-mission-ui-tests-"));
+
+// Move the discovery before temp directory creation to ensure cleanup
 const uiTestDir = join(repoDir, "steel-mission-ui", "tests");
 const testEntries = (await readdir(uiTestDir)).filter(name => name.endsWith(".test.ts") || name.endsWith(".test.tsx")).sort();
 if (testEntries.length === 0) {
   throw new Error("No test files found in steel-mission-ui/tests");
 }
+const testDir = await mkdtemp(join(tmpdir(), "steel-mission-ui-tests-"));
 const bundledTests = testEntries.map((name) => join(testDir, name.replace(/\.tsx?$/, ".mjs")));
 
 try {

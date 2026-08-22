@@ -164,6 +164,8 @@ def test_dependabot_covers_the_locked_npm_ecosystem_weekly():
     assert 'interval: "weekly"' in npm_block
     assert 'labels: ["dependencies", "security"]' in npm_block
     assert 'prefix: "npm"' in npm_block
+
+
 def test_ui_test_runner_discovers_test_files_without_a_manual_list():
     """Verify that the UI test runner discovers test files without a manual list."""
     runner_source = (REPO_DIR / "tooling" / "test-ui.mjs").read_text()
@@ -193,3 +195,12 @@ def test_ui_test_runner_discovers_test_files_without_a_manual_list():
     # Should match both .test.ts and .test.tsx patterns
     assert "\".test.ts\"" in runner_source
     assert "\".test.tsx\"" in runner_source
+
+    # Check that the pattern matches the expected test file naming convention
+    # This replaces the hardcoded filename assertions with a generic regex check
+    test_file_pattern = re.compile(r'(\.test\.ts|\.test\.tsx)')
+    test_files_found = test_file_pattern.findall(runner_source)
+    assert len(test_files_found) > 0, "Should discover test files"
+    
+    # Check that the discovery logic uses the right file extensions
+    assert 'name.endsWith(".test.ts")' in runner_source or 'name.endsWith(".test.tsx")' in runner_source
