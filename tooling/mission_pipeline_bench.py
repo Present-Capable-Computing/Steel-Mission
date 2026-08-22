@@ -1104,9 +1104,13 @@ class GitHubPlatform:
         body_path: Path,
         timeout: float,
     ) -> None:
+        # REST, not gh pr edit: the GraphQL prefetch behind pr edit demands
+        # read:org on an organization repository, which D9's repo-only machine
+        # tokens deliberately lack.
         self._run([
-            "gh", "pr", "edit", str(pr_number), "--repo", grant["repository"],
-            "--body-file", str(body_path),
+            "gh", "api", "-X", "PATCH",
+            f"repos/{grant['repository']}/pulls/{pr_number}",
+            "-F", f"body=@{body_path}",
         ], timeout=timeout, extra_env=self._account_env(grant, "local"),
             label="pull request evidence update")
 
