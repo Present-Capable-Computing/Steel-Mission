@@ -74,7 +74,7 @@ class BenchError(RuntimeError):
 def codeowners_pattern_matches(pattern: str, path: str) -> bool:
     """Return whether a supported CODEOWNERS pattern applies to a repository path."""
     normalized, candidate = pattern.removeprefix("/"), path.removeprefix("/")
-    if not normalized or pattern.startswith(("!", "//")) or (
+    if not normalized or pattern.startswith("!") or {"", ".", ".."} & set(normalized.rstrip("/").split("/")) or (
         any(mark in pattern for mark in ("[", "\\", "**"))
         or normalized.endswith("/") and any(mark in normalized for mark in "*?")
     ):

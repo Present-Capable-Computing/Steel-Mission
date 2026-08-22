@@ -30,6 +30,10 @@ REQUIREMENT = "Change the smallest observable thing and keep every existing beha
 ACCEPTANCE = "A focused regression fails first, then the full release check passes."
 
 
+def test_pipeline_bench_stays_under_acceptance_line_ceiling():
+    assert len(Path(mission_bench.__file__).read_text().splitlines()) < 2200
+
+
 def grant() -> dict:
     return {
         "schemaVersion": 1,
@@ -1696,19 +1700,26 @@ def test_repository_wall_fails_closed_on_backslash_codeowners_patterns(
         platform.validate_repository_wall(grant())
 
 
-@pytest.mark.parametrize("pattern", ["/doc*/", "doc*/", "/.github*/", "//schemas/"])
-def test_repository_wall_fails_closed_on_unmodelled_directory_patterns(
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "/doc*/",
+        "doc*/",
+        "/.github*/",
+        "//schemas/",
+        "/./schemas/canonical/",
+        "/schemas//canonical/",
+        "/.github/./CODEOWNERS",
+        "/docs/../docs/workplan.md",
+    ],
+)
+def test_repository_wall_fails_closed_on_unmodelled_path_components(
     tmp_path, monkeypatch, pattern
 ):
     monkeypatch.setenv(grant()["machineAccounts"]["local"]["tokenEnv"], "local-token")
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir()
-    rules = protected_codeowners().splitlines()
-    default = rules.pop(0)
-    workplan = rules.pop(rules.index("/docs/workplan.md @andrewHermann"))
-    codeowners.write_text(
-        "\n".join([default, workplan, f"{pattern} @sm-agent-claude", *rules]) + "\n"
-    )
+    codeowners.write_text(protected_codeowners() + f"{pattern} @sm-agent-claude\n")
     platform = GitHubPlatform(tmp_path, ProtectionRunner(protected_repository()))
 
     with pytest.raises(BenchError, match="unsupported CODEOWNERS pattern"):
