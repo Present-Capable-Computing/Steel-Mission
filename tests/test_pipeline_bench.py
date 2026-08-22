@@ -575,6 +575,35 @@ def test_develop_stage_retries_a_zero_commit_turn_within_its_budget(tmp_path):
     assert platform.calls.index("machine-commit") < platform.calls.index("commit:none")
 
 
+def test_a_blank_correction_turn_retries_instead_of_ending_the_mission(tmp_path):
+    class BlankCorrectionPlatform(FakePlatform):
+        def __init__(self, tmp):
+            super().__init__(tmp)
+            self.blank_corrections = 1
+
+        def assert_machine_commit(self, _grant, _worktree, previous_commit=None):
+            if previous_commit is not None and self.blank_corrections:
+                self.blank_corrections -= 1
+                self.calls.append("commit:none")
+                raise BenchError("local developer did not create an attributable commit")
+            return super().assert_machine_commit(_grant, _worktree, previous_commit)
+
+    platform = BlankCorrectionPlatform(tmp_path)
+    agents = FakeAgents()
+    result = PipelineBench(
+        write_grant(tmp_path / "grant.json"),
+        tmp_path / "state",
+        platform=platform,
+        agents=agents,
+        decisions=FakeDecision(),
+    ).run()
+
+    fix_prompts = [prompt for kind, prompt in agents.prompts if kind == "fix"]
+    assert result["state"] == "queued"
+    assert len(fix_prompts) == 2
+    assert "previous turn changed no files" in fix_prompts[1]
+
+
 def test_develop_retries_red_gates_with_the_failure_evidence(tmp_path):
     class RedGateRetryPlatform(FakePlatform):
         def update_pr_body(self, _grant, _pr_number, body_path, timeout=None):

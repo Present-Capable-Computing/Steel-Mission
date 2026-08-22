@@ -2171,22 +2171,37 @@ class PipelineBench:
                 f"never run git commit. {SANDBOX_FACTS} Do not push.\n\n"
                 f"{contract}\n\nFindings: {json.dumps(review.get('findings'), sort_keys=True)}"
             )
-            self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
-            correction_dropped = self.platform.commit_machine_work(
-                self.grant,
-                worktree,
-                f"Address Codex review round {round_number} for issue #{self.grant['issueNumber']}",
-            ) or []
-            if correction_dropped:
-                self._emit(
-                    "review", "working",
-                    f"Out-of-wall scratch files were removed before the correction commit: {correction_dropped}",
-                    review_budget,
-                )
             baseline_commit = previous_commit
-            correction_commit = self.platform.assert_machine_commit(
-                self.grant, worktree, previous_commit=baseline_commit
-            )
+            while True:
+                self.agents.fix(fix_prompt, worktree, develop_budget, self.session_dir)
+                correction_dropped = self.platform.commit_machine_work(
+                    self.grant,
+                    worktree,
+                    f"Address Codex review round {round_number} for issue #{self.grant['issueNumber']}",
+                ) or []
+                if correction_dropped:
+                    self._emit(
+                        "review", "working",
+                        f"Out-of-wall scratch files were removed before the correction commit: {correction_dropped}",
+                        review_budget,
+                    )
+                try:
+                    correction_commit = self.platform.assert_machine_commit(
+                        self.grant, worktree, previous_commit=baseline_commit
+                    )
+                    break
+                except BenchError as exc:
+                    if str(exc) != "local developer did not create an attributable commit":
+                        raise
+                    self._emit(
+                        "review", "working",
+                        "The correction turn changed no files; the bounded review loop is retrying.",
+                        review_budget,
+                    )
+                    fix_prompt = (
+                        "Continue the same correction now. The previous turn changed no files; address every "
+                        "Codex finding and leave the changes in the working tree.\n\n" + fix_prompt
+                    )
             correction_paths = self.platform.changed_paths(self.grant, worktree)
             self._validate_changed_paths(correction_paths, develop_budget, contract)
             correction_gates = self._green_gates(worktree, develop_budget)
